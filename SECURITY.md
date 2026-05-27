@@ -20,7 +20,7 @@ POKE injects machine code directly into bare-metal devices. A malicious or incor
 If you discover a security vulnerability, please:
 
 1. **Do NOT open a public issue**
-2. Email: [to be configured] or use GitHub's private vulnerability reporting
+2. Email: qct8377@gmail.com or use GitHub's private vulnerability reporting
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
