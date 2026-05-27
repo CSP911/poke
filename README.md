@@ -251,21 +251,44 @@ graph LR
     style T2 fill:#4CAF50,color:#fff
 ```
 
-### How the Agent Loop Works
+### The Same Agent Loop as Claude Code / Codex
 
-The hub doesn't follow a fixed pipeline. It runs an **autonomous agent loop** — the LLM decides what tools to use, in what order, and retries on failure:
+The hub runs the exact same simple loop that powers Claude Code, Codex, and Devin:
 
 ```
-User: "Read the e1000 network card's MAC address"
-
-  → Agent examines available tools
-  → Step 1: list_profiles()           — discovers e1000 at BAR0=0xfebc0000
-  → Step 2: read_profile("8086:100E") — gets register offsets
-  → Step 3: network_read_mac()        — auto-generated tool, reads hardware
-  → Step 4: reply_text()              — "MAC: 52:54:00:12:34:56"
+while not done:
+    observe()   →  read context, check state
+    think()     →  LLM decides next action
+    act()       →  call a tool
+    check()     →  verify result, retry if failed
 ```
 
-The LLM autonomously chains: external APIs, device operations, compute tasks, and image generation — in a single conversation turn.
+The only difference is **what the tools are**:
+
+```
+Claude Code                           POKE
+───────────                           ────
+tool: edit_file                       tool: execute_x86
+params: {                             params: {
+  path: "main.py",                      target: "x86-edge",
+  content: "print('hi')"                asm_code: "mov eax,2\nadd eax,3\nret"
+}                                     }
+
+tool: bash                            tool: build_and_deploy
+params: {                             params: {
+  command: "npm test"                   target: "x86-edge",
+}                                       c_code: "void _start() { ... }"
+                                      }
+
+tool: read_file                       tool: network_read_mac
+params: {                             params: {
+  path: "config.json"                   target: "x86-edge"
+}                                     }
+```
+
+**The device IS the tool. The assembly IS the parameter.**
+
+The LLM autonomously chains tools in a single turn: fetch external APIs, read hardware registers, compute across edges, generate images — deciding on its own what to do and retrying on failure.
 
 ### Device Profiles = Auto-Generated Tools
 
