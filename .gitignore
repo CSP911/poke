@@ -1,0 +1,19 @@
+# Build artifacts
+*.o
+*.elf
+*.bin
+*.img
+poke2.img
+
+# Secrets
+.env
+key.pem
+cert.pem
+
+# Node
+node_modules/
+package-lock.json
+
+# Temp
+/tmp/
+*.ppm

@@ -1,0 +1,44 @@
+{
+  "vendor_device": "1234:1111",
+  "name": "QEMU stdvga (BochsVBE)",
+  "type": "graphics",
+  "arch": "i386",
+  "bar0": {
+    "raw": 4244635656,
+    "isIO": false,
+    "address": "0xfd000000"
+  },
+  "io_ports": {
+    "VBE_INDEX": "0x01CE",
+    "VBE_DATA":  "0x01CF"
+  },
+  "vbe_registers": {
+    "VBE_ID":      { "index": 0, "desc": "BochsVBE version ID" },
+    "VBE_XRES":    { "index": 1, "desc": "X resolution" },
+    "VBE_YRES":    { "index": 2, "desc": "Y resolution" },
+    "VBE_BPP":     { "index": 3, "desc": "Bits per pixel" },
+    "VBE_ENABLE":  { "index": 4, "desc": "Enable (1=on, 0=off)" },
+    "VBE_LFB":     { "index": 6, "desc": "Linear framebuffer base" }
+  },
+  "operations": [
+    {
+      "name": "read_vbe_version",
+      "desc": "Read BochsVBE version ID",
+      "asm": "BITS 32\nmov dx, 0x01CE\nmov ax, 0\nout dx, ax\nmov dx, 0x01CF\nin ax, dx\nmovzx eax, ax\nret",
+      "returns": "VBE version in EAX (0xB0C5 = BochsVBE)"
+    },
+    {
+      "name": "read_resolution",
+      "desc": "Read current X resolution",
+      "asm": "BITS 32\nmov dx, 0x01CE\nmov ax, 1\nout dx, ax\nmov dx, 0x01CF\nin ax, dx\nmovzx eax, ax\nret",
+      "returns": "X resolution in EAX"
+    },
+    {
+      "name": "set_pixel",
+      "desc": "Set pixel at (x=10, y=10) to red in 640x480x32bpp mode. Framebuffer at BAR0.",
+      "asm": "BITS 32\nmov edi, 0xfd000000\nadd edi, (10*640+10)*4\nmov dword [edi], 0x00FF0000\nmov eax, 1\nret",
+      "returns": "1 on success"
+    }
+  ],
+  "discovered_at": "2026-05-27T05:54:53.172Z"
+}

@@ -1,0 +1,26 @@
+{
+  "vendor_device": "1AF4:1005",
+  "name": "VirtIO RNG",
+  "type": "rng",
+  "arch": "i386",
+  "bar0": {
+    "raw": 49281,
+    "isIO": true,
+    "address": "0xC080"
+  },
+  "virtio_registers": {
+    "MAGIC":       { "offset": "0x00", "desc": "Magic value (0x74726976 = 'virt')" },
+    "VERSION":     { "offset": "0x04", "desc": "Device version" },
+    "DEVICE_ID":   { "offset": "0x08", "desc": "VirtIO device ID (4 = RNG)" },
+    "STATUS":      { "offset": "0x70", "desc": "Device status" }
+  },
+  "operations": [
+    {
+      "name": "read_magic",
+      "desc": "Read VirtIO magic number to verify device",
+      "asm": "BITS 32\nmov eax, 0xC080\nmov eax, [eax]\nret",
+      "returns": "Magic value in EAX (expect 0x74726976)"
+    }
+  ],
+  "discovered_at": "2026-05-27T05:54:55.472Z"
+}

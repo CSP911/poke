@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>POKE Edge</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#0a1218; color:#e8edf0; font-family:-apple-system,sans-serif; height:100vh; display:flex; flex-direction:column; }
+.header { padding:16px; text-align:center; opacity:0.6; font-size:13px; letter-spacing:0.1em; }
+.status { padding:4px 16px; text-align:center; font-size:11px; opacity:0.3; }
+.canvas-wrap { flex:1; display:flex; align-items:center; justify-content:center; padding:16px; min-height: 200px; }
+canvas { background:#111820; border-radius:12px; max-width:100%; image-rendering:pixelated; }
+
+/* 통화 UI */
+.call-area { padding:16px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+.call-btn {
+  width:72px; height:72px; border-radius:50%; border:none; cursor:pointer;
+  font-size:28px; display:flex; align-items:center; justify-content:center;
+  transition: all 0.3s;
+}
+.call-btn.idle { background:rgba(60,180,80,0.8); color:white; }
+.call-btn.listening { background:rgba(220,60,60,0.9); color:white; animation: pulse 1.5s infinite; }
+.call-btn.processing { background:rgba(180,160,60,0.7); color:white; }
+.call-status { font-size:12px; opacity:0.4; }
+.transcript { font-size:13px; opacity:0.6; min-height:20px; text-align:center; padding:0 20px; }
+.response { font-size:13px; opacity:0.5; min-height:20px; text-align:center; padding:0 20px; color:rgba(140,200,160,0.7); }
+
+.input-wrap { padding:8px 16px 24px; display:flex; gap:8px; }
+input { flex:1; background:rgba(255,255,255,0.06); border:0.5px solid rgba(255,255,255,0.12); border-radius:10px; padding:10px 14px; color:#e8edf0; font-size:13px; outline:none; }
+button.text-btn { background:rgba(75,95,190,0.25); border:0.5px solid rgba(75,95,190,0.4); border-radius:10px; padding:10px 16px; color:#8595d2; font-size:13px; cursor:pointer; }
+
+.log { padding:0 16px 8px; font-size:9px; opacity:0.2; max-height:50px; overflow-y:auto; }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220,60,60,0.4); }
+  50% { box-shadow: 0 0 0 15px rgba(220,60,60,0); }
+}
+</style>
+</head>
+<body>
+
+<div class="header">POKE Edge</div>
+<div class="status" id="status">connecting...</div>
+
+<div class="canvas-wrap">
+  <canvas id="screen" width="200" height="200"></canvas>
+</div>
+
+<div class="transcript" id="transcript"></div>
+<div class="response" id="response"></div>
+
+<!-- 통화 버튼 -->
+<div class="call-area">
+  <button class="call-btn idle" id="callBtn" onclick="toggleCall()">📞</button>
+  <div class="call-status" id="callStatus">탭하여 통화 시작</div>
+</div>
+
+<!-- 텍스트 입력 (대체) -->
+<div class="input-wrap">
+  <input id="cmd" placeholder="텍스트로 입력해도 됩니다" />
+  <button class="text-btn" onclick="sendText()">전송</button>
+</div>
+
+<div class="log" id="log"></div>
+
+<script>
+const nodeId = 'mobile-' + Math.random().toString(36).slice(2,6)
+const hub = location.origin
+const canvas = document.getElementById('screen')
+const ctx = canvas.getContext('2d')
+const statusEl = document.getElementById('status')
+const logEl = document.getElementById('log')
+const cmdEl = document.getElementById('cmd')
+const callBtn = document.getElementById('callBtn')
+const callStatusEl = document.getElementById('callStatus')
+const transcriptEl = document.getElementById('transcript')
+const responseEl = document.getElementById('response')
+
+let callState = 'idle' // idle | listening | processing
+let recognition = null
+
+function log(msg) { logEl.textContent = msg + '\n' + logEl.textContent }
+
+// ── 엣지 등록 ──
+async function register() {
+  try {
+    await fetch(hub + '/mobile/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ node_id: nodeId })
+    })
+    statusEl.textContent = '● ' + nodeId
+    statusEl.style.color = 'rgba(140,200,160,0.5)'
+    log('registered: ' + nodeId)
+  } catch (e) { statusEl.textContent = 'disconnected' }
+}
+
+// ── 이미지 폴링 ──
+async function poll() {
+  try {
+    const res = await fetch(hub + '/mobile/poll/' + nodeId)
+    const data = await res.json()
+    if (data.pending) {
+      const w = data.width, h = data.height
+      canvas.width = w; canvas.height = h
+      const imgData = ctx.createImageData(w, h)
+      const raw = Uint8Array.from(atob(data.img), c => c.charCodeAt(0))
+      for (let i = 0; i < w * h; i++) {
+        imgData.data[i*4] = raw[i*3]
+        imgData.data[i*4+1] = raw[i*3+1]
+        imgData.data[i*4+2] = raw[i*3+2]
+        imgData.data[i*4+3] = 255
+      }
+      ctx.putImageData(imgData, 0, 0)
+      log('image: ' + w + 'x' + h)
+    }
+  } catch {}
+}
+
+// ── 통화 (음성) ──
+function toggleCall() {
+  if (callState === 'idle') startListening()
+  else if (callState === 'listening') stopListening()
+}
+
+function startListening() {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    callStatusEl.textContent = '음성 인식 미지원 브라우저'
+    return
+  }
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+  recognition = new SpeechRecognition()
+  recognition.lang = 'ko-KR'
+  recognition.interimResults = true
+  recognition.continuous = false
+
+  recognition.onstart = () => {
+    callState = 'listening'
+    callBtn.className = 'call-btn listening'
+    callBtn.textContent = '🔴'
+    callStatusEl.textContent = '듣고 있어요...'
+    transcriptEl.textContent = ''
+    responseEl.textContent = ''
+  }
+
+  recognition.onresult = (e) => {
+    let transcript = ''
+    for (let i = 0; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript
+    }
+    transcriptEl.textContent = '🎤 ' + transcript
+
+    // Final result
+    if (e.results[e.results.length - 1].isFinal) {
+      processCommand(transcript)
+    }
+  }
+
+  recognition.onerror = (e) => {
+    log('speech error: ' + e.error)
+    resetCall()
+  }
+
+  recognition.onend = () => {
+    if (callState === 'listening') {
+      // Auto restart for continuous conversation
+      // recognition.start()
+      resetCall()
+    }
+  }
+
+  recognition.start()
+}
+
+function stopListening() {
+  if (recognition) recognition.stop()
+  resetCall()
+}
+
+function resetCall() {
+  callState = 'idle'
+  callBtn.className = 'call-btn idle'
+  callBtn.textContent = '📞'
+  callStatusEl.textContent = '탭하여 통화 시작'
+}
+
+// ── 명령 처리 (음성/텍스트 공통) ──
+async function processCommand(text) {
+  callState = 'processing'
+  callBtn.className = 'call-btn processing'
+  callBtn.textContent = '⏳'
+  callStatusEl.textContent = '처리 중...'
+  transcriptEl.textContent = '🎤 ' + text
+  log('command: ' + text)
+
+  try {
+    const res = await fetch(hub + '/relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: nodeId,
+        command: text + '. use 100x100 canvas.'
+      })
+    })
+    const data = await res.json()
+
+    // 응답 텍스트 결정
+    let replyText = ''
+    if (data.result) {
+      if (typeof data.result === 'string') {
+        replyText = data.result.replace(/\n/g, ' ').trim()
+      } else if (data.result.result) {
+        replyText = data.result.result
+      } else {
+        replyText = '완료했어요'
+      }
+    }
+
+    // EAX 결과면 읽기 좋게
+    if (replyText.startsWith('eax=')) {
+      replyText = '결과는 ' + replyText.replace('eax=', '') + '이에요'
+    }
+    if (replyText === 'IMG OK\n' || replyText === 'IMG OK') {
+      replyText = '화면에 그렸어요'
+    }
+    if (replyText.includes('queued for mobile')) {
+      replyText = '보내드릴게요'
+      setTimeout(poll, 500)
+    }
+
+    responseEl.textContent = '💬 ' + replyText
+
+    // TTS로 읽어주기
+    speak(replyText)
+
+    log('reply: ' + replyText)
+  } catch (e) {
+    responseEl.textContent = '❌ 연결 실패'
+    speak('연결에 실패했어요')
+    log('error: ' + e.message)
+  }
+
+  setTimeout(() => {
+    resetCall()
+    setTimeout(poll, 500)
+  }, 2000)
+}
+
+// ── TTS (음성 출력) ──
+function speak(text) {
+  if (!('speechSynthesis' in window)) return
+  const utter = new SpeechSynthesisUtterance(text)
+  utter.lang = 'ko-KR'
+  utter.rate = 1.1
+  utter.pitch = 1.0
+  speechSynthesis.speak(utter)
+}
+
+// ── 텍스트 전송 ──
+function sendText() {
+  const text = cmdEl.value.trim()
+  if (!text) return
+  cmdEl.value = ''
+  transcriptEl.textContent = '⌨️ ' + text
+  processCommand(text)
+}
+
+cmdEl.addEventListener('keydown', e => { if (e.key === 'Enter') sendText() })
+
+// ── 시작 ──
+register()
+setInterval(poll, 2000)
+</script>
+</body>
+</html>

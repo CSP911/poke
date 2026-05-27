@@ -1,0 +1,13 @@
+{
+  "vendor_device": "8086:7000",
+  "name": "Intel PIIX3 ISA Bridge",
+  "type": "bridge",
+  "bar0": {
+    "raw": 0,
+    "isIO": 0,
+    "address": 0
+  },
+  "probe_result": null,
+  "probe_asm": null,
+  "discovered_at": "2026-05-27T05:54:53.148Z"
+}

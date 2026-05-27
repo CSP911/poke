@@ -1,0 +1,13 @@
+{
+  "vendor_device": "1AF4:1002",
+  "name": "VirtIO Balloon",
+  "type": "memory",
+  "bar0": {
+    "raw": 49217,
+    "isIO": 1,
+    "address": 49216
+  },
+  "probe_result": "eax=0",
+  "probe_asm": "BITS 32\n\n    mov eax, 0xc040      ; Base MMIO address\n    mov eax, [eax]       ; Read magic at offset 0x00\n    \n    ret",
+  "discovered_at": "2026-05-27T05:54:56.676Z"
+}

@@ -1,0 +1,32 @@
+{
+  "vendor_device": "8086:100E",
+  "name": "Intel 82540EM (e1000)",
+  "type": "network",
+  "arch": "i386",
+  "bar0": {
+    "raw": 4273733632,
+    "isIO": false,
+    "address": "0xfebc0000"
+  },
+  "registers": {
+    "CTRL":   { "offset": "0x0000", "desc": "Device Control" },
+    "STATUS": { "offset": "0x0008", "desc": "Device Status" },
+    "RAL":    { "offset": "0x5400", "desc": "MAC Address Low 32 bits" },
+    "RAH":    { "offset": "0x5404", "desc": "MAC Address High 16 bits + flags" }
+  },
+  "operations": [
+    {
+      "name": "read_mac",
+      "desc": "Read MAC address from e1000 NIC",
+      "asm": "BITS 32\nmov ebx, 0xfebc0000\nmov eax, [ebx + 0x5400]\nret",
+      "returns": "MAC low 32 bits in EAX"
+    },
+    {
+      "name": "read_status",
+      "desc": "Read link status of e1000 NIC",
+      "asm": "BITS 32\nmov ebx, 0xfebc0000\nmov eax, [ebx + 0x0008]\nret",
+      "returns": "Status register in EAX (bit 1 = link up)"
+    }
+  ],
+  "discovered_at": "2026-05-27T05:54:54.508Z"
+}
