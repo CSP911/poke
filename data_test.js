@@ -43,68 +43,14 @@ async function main() {
 
   // ──────────────────────────────────
   // Test 1: 배열 데이터를 바이너리에 내장
-  // 코드 + 데이터를 하나의 바이너리로 합침
+  // Hub embeds data directly into assembly instructions.
   // ──────────────────────────────────
   console.log('── Test 1: 배열 합산 (데이터 내장) ──')
 
   const numbers = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
   console.log(`   데이터: [${numbers.join(', ')}]`)
 
-  // 코드: call로 데이터 주소를 얻음 (call next; pop으로 EIP 획득)
-  // 더 간단한 방법: 코드 끝(ret 다음)에 데이터를 붙이고, 코드 시작점 기준 오프셋으로 접근
-  // code_buf의 주소를 모르지만, call/pop trick으로 현재 EIP를 알 수 있음
-
-  const asmCode = `
-    call get_eip       ; get_eip 호출 → 스택에 다음 명령 주소 push
-    jmp start          ; start로 점프
-
-  get_eip:
-    mov eax, [esp]     ; 리턴 주소 = call 다음 명령의 주소
-    ret
-
-  start:
-    ; eax = "jmp start" 명령의 주소
-    ; 데이터는 코드 끝(ret 이후)에 있음. 오프셋 계산 필요
-    ; 간단하게: 코드 끝을 알려주는 방식 대신, 고정 오프셋 사용
-    ; → 이 코드의 크기를 알아야 함... 복잡.
-
-    ; 더 간단한 방법: 데이터 주소를 immediate로 하드코딩
-    ; code_buf 주소는 커널에서 고정 (0x30000 근처일 수 있음)
-    ; → 아니, 그냥 코드 크기를 세자
-    ret
-  `
-
-  // 실용적 접근: 어셈블러에서 코드를 만들고, 뒤에 데이터를 붙임
-  // 코드는 "call next; pop ebx" 트릭으로 자기 주소를 알아냄
-
-  const codeAsm = [
-    'call next',       // 5 bytes: E8 00 00 00 00
-    'next:',
-    'pop ebx',         // ebx = 주소 of "pop ebx"
-    // 데이터는 코드 끝(ret 이후)에 있음
-    // 코드 끝까지의 오프셋을 더하면 데이터 주소
-    // "pop ebx" 이후 명령들의 크기를 세야 함
-    // → 아래 코드 전체 = ?바이트. 나중에 fixup
-    'xor eax, eax',    // 합계
-    'xor ecx, ecx',    // 인덱스
-    'loop_start:',
-    'cmp ecx, 10',     // 10개
-    'jge done',
-    'mov edx, [ebx + ecx * 4 + DATA_OFFSET]', // 문제: asm.js가 이 문법 미지원
-    'add eax, edx',
-    'inc ecx',
-    'jmp loop_start',
-    'done:',
-    'ret',
-  ]
-
-  // asm.js의 한계: 복잡한 어드레싱 미지원
-  // → 현실적 방법: 데이터 주소를 코드에 직접 박기
-
-  // 방법 2: hub가 데이터를 코드에 직접 임베딩
-  // LLM이 하는 것처럼: "이 숫자 10개의 합을 구해라"
-  //   → mov eax, 10; add eax, 20; add eax, 30; ... ret
-
+  // Hub embeds data as immediate values in assembly
   const embedAsm = numbers.map((n, i) =>
     i === 0 ? `mov eax, ${n}` : `add eax, ${n}`
   ).join('\n') + '\nret'

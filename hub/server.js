@@ -1,0 +1,378 @@
+/**
+ * POKE Hub — HTTP routing, auth, helpers
+ */
+
+const http = require('http')
+const { log } = require('./logger')
+const { nodes, edgeHistory, enrollNode } = require('./nodes')
+const { agentLoop } = require('./agent')
+const { generateAssembly, generateImageCode, planCommand } = require('./llm')
+const { compileAssembly } = require('./compiler')
+const { pokeNode, pokeNodeRaw } = require('./transport')
+
+// ── Security: Auth + Helpers ──
+const HUB_SECRET = process.env.HUB_SECRET || null
+
+function checkAuth(req, res) {
+  if (!HUB_SECRET) return true  // no secret = open mode (dev)
+  const token = req.headers.authorization?.replace('Bearer ', '') ||
+                new URL(req.url, `http://${req.headers.host}`).searchParams.get('token')
+  if (token === HUB_SECRET) return true
+  res.statusCode = 401
+  res.end(JSON.stringify({ error: 'unauthorized' }))
+  return false
+}
+
+function safeJSON(str) {
+  try { return JSON.parse(str) }
+  catch (e) {
+    log.debug('JSON parse failed:', e.message)
+    return null
+  }
+}
+
+function jsonError(res, status, msg) {
+  res.statusCode = status
+  res.end(JSON.stringify({ error: msg }))
+}
+
+// ── Request body reader with bounded buffer ──
+function readBody(req, maxBytes = 10 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let body = ''
+    let bytes = 0
+    req.on('data', (chunk) => {
+      bytes += chunk.length
+      if (bytes > maxBytes) {
+        req.destroy()
+        reject(new Error('request body too large'))
+        return
+      }
+      body += chunk
+    })
+    req.on('end', () => resolve(body))
+    req.on('error', reject)
+  })
+}
+
+// ── Main request handler ──
+async function handleRequest(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`)
+  let body
+  try {
+    body = await readBody(req)
+  } catch (err) {
+    jsonError(res, 413, err.message)
+    return
+  }
+
+  // CORS
+  res.setHeader('Content-Type', 'application/json')
+
+  // POST /enroll — register node
+  if (req.method === 'POST' && url.pathname === '/enroll') {
+    if (!checkAuth(req, res)) return
+    const node = safeJSON(body)
+    if (!node || !node.node_id || !node.endpoint) { jsonError(res, 400, 'invalid body: need node_id, endpoint'); return }
+    enrollNode(node)
+    res.end(JSON.stringify({ ok: true, enrolled: node.node_id }))
+    return
+  }
+
+  // GET /nodes — list nodes
+  if (req.method === 'GET' && url.pathname === '/nodes') {
+    res.end(JSON.stringify({ nodes: [...nodes.values()] }, null, 2))
+    return
+  }
+
+  // POST /run — natural language -> LLM -> code -> execute
+  if (req.method === 'POST' && url.pathname === '/run') {
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data || !data.task) { jsonError(res, 400, 'invalid body: need task'); return }
+    const { task, node_id } = data
+
+    let target = node_id ? nodes.get(node_id) : [...nodes.values()].find(n => n.status === 'alive')
+    if (!target) {
+      jsonError(res, 404, 'no available node')
+      return
+    }
+
+    log.info(`[run] task="${task}" -> ${target.node_id}`)
+
+    const asm = await generateAssembly(task)
+    if (!asm) {
+      jsonError(res, 502, 'LLM failed to generate code')
+      return
+    }
+    log.debug(`[asm]\n${asm}`)
+
+    const machineCode = await compileAssembly(asm)
+    if (!machineCode) {
+      jsonError(res, 500, 'nasm compilation failed')
+      return
+    }
+    log.info(`[compiled] ${machineCode.length} bytes`)
+
+    const result = await pokeNode(target.endpoint, machineCode)
+    log.info(`[result] ${result}`)
+
+    res.end(JSON.stringify({
+      task,
+      node: target.node_id,
+      asm,
+      bytes: machineCode.length,
+      result
+    }, null, 2))
+    return
+  }
+
+  // POST /draw — natural language -> image code -> execute -> send to POKE
+  if (req.method === 'POST' && url.pathname === '/draw') {
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data || !data.task) { jsonError(res, 400, 'invalid body: need task'); return }
+    const { task, node_id } = data
+    let target = node_id ? nodes.get(node_id) : [...nodes.values()].find(n => n.status === 'alive')
+    if (!target) { jsonError(res, 404, 'no available node'); return }
+
+    log.info(`[draw] task="${task}" -> ${target.node_id}`)
+
+    const { runImageCode } = require('./compiler')
+    const code = await generateImageCode(task)
+    if (!code) { jsonError(res, 502, 'LLM failed'); return }
+    log.info(`[draw] code generated (${code.length} chars)`)
+
+    const imgResult = runImageCode(code)
+    if (!imgResult) { jsonError(res, 500, 'code execution failed'); return }
+    log.info(`[draw] image: ${imgResult.width}x${imgResult.height}, ${imgResult.body.length} bytes`)
+
+    const pokeResult = await pokeNodeRaw(target.endpoint, imgResult.body)
+    log.info(`[draw] poke result: ${pokeResult}`)
+
+    res.end(JSON.stringify({
+      task,
+      node: target.node_id,
+      width: imgResult.width,
+      height: imgResult.height,
+      bytes: imgResult.body.length,
+      result: pokeResult,
+      code_preview: code.slice(0, 200) + '...',
+    }, null, 2))
+    return
+  }
+
+  // POST /relay — agent loop (observe -> think -> act -> check -> loop)
+  if (req.method === 'POST' && url.pathname === '/relay') {
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data || !data.from || !data.command) { jsonError(res, 400, 'invalid body: need from, command'); return }
+    const { from, command, target } = data
+    log.info(`[agent] from=${from} -> "${command}"`)
+
+    const fromNode = nodes.get(from)
+    if (!fromNode) { jsonError(res, 404, 'unknown sender'); return }
+
+    try {
+      const result = await agentLoop(command, from, target)
+      res.end(JSON.stringify({ from, command, ...result }, null, 2))
+    } catch (err) {
+      log.error(`[agent] ERROR: ${err.message}`)
+      jsonError(res, 500, err.message)
+    }
+    return
+  }
+
+  // POST /poke-raw — binary direct send (debug)
+  if (req.method === 'POST' && url.pathname === '/poke-raw') {
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data || !data.hex) { jsonError(res, 400, 'invalid body: need hex'); return }
+    const { node_id, hex } = data
+    let target = node_id ? nodes.get(node_id) : [...nodes.values()][0]
+    if (!target) { jsonError(res, 404, 'no node'); return }
+
+    const buf = Buffer.from(hex, 'hex')
+    const result = await pokeNode(target.endpoint, buf)
+    res.end(JSON.stringify({ node: target.node_id, result }))
+    return
+  }
+
+  // GET /dashboard — edge monitoring dashboard
+  if (req.method === 'GET' && url.pathname === '/dashboard') {
+    const dashboard = {}
+    for (const [id, node] of nodes) {
+      dashboard[id] = {
+        status: node.status,
+        endpoint: node.endpoint,
+        arch: node.arch,
+        last_seen: node.last_seen,
+        health: node.health || null,
+        history_count: (edgeHistory.get(id) || []).length,
+      }
+    }
+    res.end(JSON.stringify({ edges: dashboard, timestamp: new Date().toISOString() }, null, 2))
+    return
+  }
+
+  // GET /dashboard/:node_id — specific edge history
+  if (req.method === 'GET' && url.pathname.startsWith('/dashboard/')) {
+    const nodeId = url.pathname.split('/')[2]
+    const history = edgeHistory.get(nodeId) || []
+    res.end(JSON.stringify({ node_id: nodeId, history }, null, 2))
+    return
+  }
+
+  // GET / — mobile POKE edge web UI
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/mobile')) {
+    res.setHeader('Content-Type', 'text/html')
+    res.end(require('fs').readFileSync(__dirname + '/../mobile.html', 'utf8'))
+    return
+  }
+
+  // POST /mobile/register — mobile edge registration
+  if (req.method === 'POST' && url.pathname === '/mobile/register') {
+    const data = safeJSON(body)
+    if (!data || !data.node_id) { jsonError(res, 400, 'invalid body: need node_id'); return }
+    const { node_id } = data
+    const node = {
+      node_id,
+      arch: 'mobile',
+      memory_mb: 0,
+      capabilities: ['graphics', 'input'],
+      endpoint: `polling:${node_id}`,
+      status: 'alive',
+      last_seen: new Date().toISOString(),
+      pending_img: null,
+    }
+    nodes.set(node_id, node)
+    log.info(`[mobile] registered: ${node_id}`)
+    res.end(JSON.stringify({ ok: true }))
+    return
+  }
+
+  // GET /mobile/poll/:id — mobile image polling
+  if (req.method === 'GET' && url.pathname.startsWith('/mobile/poll/')) {
+    const nodeId = url.pathname.split('/')[3]
+    const node = nodes.get(nodeId)
+    if (node && node.pending_img) {
+      const imgBuf = node.pending_img
+      node.pending_img = null
+      res.end(JSON.stringify({ pending: true, img: imgBuf.toString('base64'), width: node.pending_w || 100, height: node.pending_h || 100 }))
+    } else {
+      res.end(JSON.stringify({ pending: false }))
+    }
+    return
+  }
+
+  // POST /voice — voice data -> STT -> relay
+  if (req.method === 'POST' && url.pathname === '/voice') {
+    if (!checkAuth(req, res)) return
+    try {
+      const audioData = Buffer.from(body, 'binary')
+      const fromId = url.searchParams.get('from') || 'arm-qemu'
+
+      log.info(`[voice] ${audioData.length} bytes from ${fromId}`)
+
+      const fs = require('fs')
+      const { execFileSync } = require('child_process')
+      const os = require('os')
+      const path = require('path')
+
+      // Secure temp directory
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poke-voice-'))
+      const tmpWav = path.join(tmpDir, 'input.wav')
+      const tmpAiff = path.join(tmpDir, 'reply.aiff')
+      const replyWav = path.join(tmpDir, 'reply.wav')
+      fs.writeFileSync(tmpWav, audioData, { mode: 0o600 })
+
+      // STT: hint parameter (browser Web Speech API handles real STT)
+      let transcript = url.searchParams.get('hint') || ''
+      if (!transcript) {
+        try {
+          const sttScript = `
+import sys
+try:
+    import speech_recognition as sr
+    r = sr.Recognizer()
+    with sr.AudioFile(sys.argv[1]) as src:
+        audio = r.record(src)
+    print(r.recognize_google(audio, language='ko-KR'))
+except Exception as e:
+    print('STT_FAIL:' + str(e))
+`
+          transcript = execFileSync('python3', ['-c', sttScript, tmpWav], { timeout: 15000 }).toString().trim()
+          if (transcript.startsWith('STT_FAIL')) transcript = ''
+        } catch (e) {
+          log.warn(`[voice] STT fallback failed: ${e.message}`)
+          transcript = ''
+        }
+      }
+
+      if (!transcript) {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+        jsonError(res, 400, 'STT failed and no hint provided')
+        return
+      }
+
+      log.info(`[voice] transcript: "${transcript}"`)
+
+      const fromNode = nodes.get(fromId)
+      if (!fromNode) { fs.rmSync(tmpDir, { recursive: true, force: true }); jsonError(res, 404, 'unknown sender'); return }
+
+      const plan = await planCommand(transcript, fromId, null, [...nodes.values()])
+      log.debug(`[voice] plan: ${JSON.stringify(plan)}`)
+
+      let result = null
+      if (plan.type === 'compute') {
+        const targetNode = nodes.get(plan.target)
+        if (targetNode) {
+          const asmCode = await generateAssembly(plan.task)
+          if (asmCode) {
+            const bin = await compileAssembly(asmCode)
+            if (bin) result = await pokeNode(targetNode.endpoint, bin)
+          }
+        }
+      }
+
+      // TTS response
+      let replyText = result && typeof result === 'string'
+        ? result.replace('eax=', '결과는 ').replace('\n', '') + '입니다'
+        : '처리했습니다'
+
+      let audioReply = null
+      try {
+        execFileSync('say', ['-v', 'Yuna', '-o', tmpAiff, replyText], { timeout: 10000 })
+        execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@8000', '-c', '1', tmpAiff, replyWav], { timeout: 10000 })
+        if (fs.existsSync(replyWav)) {
+          audioReply = fs.readFileSync(replyWav).toString('base64')
+        }
+      } catch (e) {
+        log.warn(`[voice] TTS failed: ${e.message}`)
+      }
+
+      // Cleanup temp
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+
+      res.end(JSON.stringify({
+        transcript, plan, result,
+        reply_text: replyText,
+        reply_audio_base64: audioReply,
+        reply_audio_size: audioReply ? Buffer.from(audioReply, 'base64').length : 0
+      }, null, 2))
+    } catch (err) {
+      log.error(`[voice] ERROR: ${err.message}`)
+      jsonError(res, 500, err.message)
+    }
+    return
+  }
+
+  res.statusCode = 404
+  res.end(JSON.stringify({ error: 'not found' }))
+}
+
+function createServer() {
+  return http.createServer(handleRequest)
+}
+
+module.exports = { createServer, handleRequest, checkAuth, safeJSON, jsonError }
