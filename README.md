@@ -58,6 +58,32 @@ Traditional:  Human → App → Framework → OS → Driver → Hardware
 POKE:         Human → LLM → Machine Code → Hardware
 ```
 
+### The End of Permanent Binaries
+
+Every program you use today is a **permanent binary** — compiled once, installed, stored on disk, updated periodically. This made sense when compilation was expensive and humans needed stable, repeatable software.
+
+But POKE flips this model. Binaries become **ephemeral**:
+
+```
+Traditional (permanent):
+  Write code → compile → install → store on disk → run forever
+  Update? Recompile → reinstall → restart
+
+POKE (ephemeral):
+  Speak → LLM generates binary → inject → execute → discard
+  Next request? Generate a new binary from scratch
+```
+
+A POKE binary lives for **milliseconds**. It's generated on demand, tailored to the exact request, executed once, and thrown away. There's nothing to install, nothing to update, nothing to patch.
+
+This changes everything:
+- **No software updates.** Every execution is freshly generated.
+- **No version conflicts.** There's no installed version — just the current intent.
+- **No attack persistence.** Malware can't persist in a binary that doesn't exist after execution.
+- **No bloat.** Each binary contains exactly the code needed — nothing more.
+
+The future isn't permanent software running on an OS. It's **volatile binaries generated in real-time by AI, executed directly on hardware, and discarded.**
+
 ### POKE vs MCP
 
 | | MCP | POKE |
