@@ -1,14 +1,15 @@
 {
   "name": "poke",
-  "version": "1.0.0",
-  "description": "HTTP로 머신코드를 쏘면 실행하는 베어메탈 OS.",
+  "version": "0.1.0",
+  "description": "Protocol for Open Kernel Execution — inject and execute machine code on bare-metal devices via natural language",
   "main": "hub.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node hub.js",
+    "test": "node test/asm.test.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["bare-metal", "os", "kernel", "hardware", "ai", "llm", "assembly", "iot", "edge-computing"],
+  "author": "CSP911",
+  "license": "Apache-2.0",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.99.0",
     "dotenv": "^17.4.2"

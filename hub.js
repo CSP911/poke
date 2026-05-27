@@ -12,6 +12,29 @@ const { assemble } = require('./asm.js')
 process.on('uncaughtException', (err) => { console.error('[FATAL]', err.message) })
 process.on('unhandledRejection', (err) => { console.error('[REJECT]', err.message || err) })
 
+// ── Security: Auth + Helpers ──
+const HUB_SECRET = process.env.HUB_SECRET || null
+
+function checkAuth(req, res) {
+  if (!HUB_SECRET) return true  // no secret = open mode (dev)
+  const token = req.headers.authorization?.replace('Bearer ', '') ||
+                new URL(req.url, `http://${req.headers.host}`).searchParams.get('token')
+  if (token === HUB_SECRET) return true
+  res.statusCode = 401
+  res.end(JSON.stringify({ error: 'unauthorized' }))
+  return false
+}
+
+function safeJSON(str) {
+  try { return JSON.parse(str) }
+  catch { return null }
+}
+
+function jsonError(res, status, msg) {
+  res.statusCode = status
+  res.end(JSON.stringify({ error: msg }))
+}
+
 // ── 노드 레지스트리 ──
 const nodes = new Map()
 
@@ -49,7 +72,9 @@ async function handleRequest(req, res) {
 
   // POST /enroll — 노드 등록
   if (req.method === 'POST' && url.pathname === '/enroll') {
-    const node = JSON.parse(body)
+    if (!checkAuth(req, res)) return
+    const node = safeJSON(body)
+    if (!node || !node.node_id || !node.endpoint) { jsonError(res, 400, 'invalid body: need node_id, endpoint'); return }
     node.status = 'alive'
     node.last_seen = new Date().toISOString()
     nodes.set(node.node_id, node)
@@ -66,7 +91,10 @@ async function handleRequest(req, res) {
 
   // POST /run — 자연어 → LLM → 코드 생성 → 노드 실행
   if (req.method === 'POST' && url.pathname === '/run') {
-    const { task, node_id } = JSON.parse(body)
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data || !data.task) { jsonError(res, 400, 'invalid body: need task'); return }
+    const { task, node_id } = data
 
     // 노드 선택
     let target = node_id ? nodes.get(node_id) : [...nodes.values()].find(n => n.status === 'alive')
@@ -109,7 +137,10 @@ async function handleRequest(req, res) {
 
   // POST /draw — 자연어 → LLM이 이미지 생성 코드 → 실행 → POKE에 전송
   if (req.method === 'POST' && url.pathname === '/draw') {
-    const { task, node_id } = JSON.parse(body)
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data || !data.task) { jsonError(res, 400, 'invalid body: need task'); return }
+    const { task, node_id } = data
     let target = node_id ? nodes.get(node_id) : [...nodes.values()].find(n => n.status === 'alive')
     if (!target) { res.end(JSON.stringify({ error: 'no available node' })); return }
 
@@ -143,11 +174,14 @@ async function handleRequest(req, res) {
 
   // POST /relay — 에이전트 루프 (observe → think → act → check → loop)
   if (req.method === 'POST' && url.pathname === '/relay') {
-    const { from, command, target } = JSON.parse(body)
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data || !data.from || !data.command) { jsonError(res, 400, 'invalid body: need from, command'); return }
+    const { from, command, target } = data
     console.log(`[agent] from=${from} → "${command}"`)
 
     const fromNode = nodes.get(from)
-    if (!fromNode) { res.end(JSON.stringify({ error: 'unknown sender' })); return }
+    if (!fromNode) { jsonError(res, 404, 'unknown sender'); return }
 
     try {
       const result = await agentLoop(command, from, target)
@@ -161,7 +195,10 @@ async function handleRequest(req, res) {
 
   // POST /poke-raw — 바이너리 직접 전송 (디버그용)
   if (req.method === 'POST' && url.pathname === '/poke-raw') {
-    const { node_id, hex } = JSON.parse(body)
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data || !data.hex) { jsonError(res, 400, 'invalid body: need hex'); return }
+    const { node_id, hex } = data
     let target = node_id ? nodes.get(node_id) : [...nodes.values()][0]
     if (!target) { res.end(JSON.stringify({ error: 'no node' })); return }
 
@@ -205,7 +242,9 @@ async function handleRequest(req, res) {
 
   // POST /mobile/register — 모바일 엣지 등록
   if (req.method === 'POST' && url.pathname === '/mobile/register') {
-    const { node_id } = JSON.parse(body)
+    const data = safeJSON(body)
+    if (!data || !data.node_id) { jsonError(res, 400, 'invalid body: need node_id'); return }
+    const { node_id } = data
     const node = {
       node_id,
       arch: 'mobile',
@@ -239,56 +278,56 @@ async function handleRequest(req, res) {
 
   // POST /voice — 음성 데이터 수신 → STT → relay 처리
   if (req.method === 'POST' && url.pathname === '/voice') {
+    if (!checkAuth(req, res)) return
     try {
       const audioData = Buffer.from(body, 'binary')
       const fromId = url.searchParams.get('from') || 'arm-qemu'
 
       console.log(`[voice] ${audioData.length} bytes from ${fromId}`)
 
-      // WAV → 파일 저장 → macOS say/whisper 또는 Google STT
       const fs = require('fs')
-      const { execSync } = require('child_process')
-      const tmpWav = '/tmp/poke-voice-in.wav'
-      fs.writeFileSync(tmpWav, audioData)
+      const { execFileSync } = require('child_process')
+      const os = require('os')
+      const path = require('path')
 
-      // STT: Python SpeechRecognition (Google Web Speech API — 무료)
-      let transcript = ''
-      try {
-        transcript = execSync(`python3 -c "
-import json, sys
+      // Secure temp directory
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poke-voice-'))
+      const tmpWav = path.join(tmpDir, 'input.wav')
+      const tmpAiff = path.join(tmpDir, 'reply.aiff')
+      const replyWav = path.join(tmpDir, 'reply.wav')
+      fs.writeFileSync(tmpWav, audioData, { mode: 0o600 })
+
+      // STT: hint parameter (browser Web Speech API handles real STT)
+      let transcript = url.searchParams.get('hint') || ''
+      if (!transcript) {
+        // Try Python speech_recognition if available
+        try {
+          const sttScript = `
+import sys
 try:
     import speech_recognition as sr
     r = sr.Recognizer()
-    with sr.AudioFile('${tmpWav}') as src:
+    with sr.AudioFile(sys.argv[1]) as src:
         audio = r.record(src)
-    text = r.recognize_google(audio, language='ko-KR')
-    print(text)
+    print(r.recognize_google(audio, language='ko-KR'))
 except Exception as e:
     print('STT_FAIL:' + str(e))
-"`, { timeout: 15000 }).toString().trim()
-      } catch (e) {
-        transcript = ''
+`
+          transcript = execFileSync('python3', ['-c', sttScript, tmpWav], { timeout: 15000 }).toString().trim()
+          if (transcript.startsWith('STT_FAIL')) transcript = ''
+        } catch { transcript = '' }
       }
 
-      // STT 실패 시 fallback: macOS afplay로 재생만
-      if (!transcript || transcript.startsWith('STT_FAIL')) {
-        console.log(`[voice] STT failed: ${transcript}`)
-        // fallback: metadata에서 텍스트 힌트 사용
-        const hint = url.searchParams.get('hint') || ''
-        if (hint) {
-          transcript = hint
-          console.log(`[voice] using hint: ${hint}`)
-        } else {
-          res.end(JSON.stringify({ error: 'STT failed', detail: transcript }))
-          return
-        }
+      if (!transcript) {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+        jsonError(res, 400, 'STT failed and no hint provided')
+        return
       }
 
-      console.log(`[voice] STT result: "${transcript}"`)
+      console.log(`[voice] transcript: "${transcript}"`)
 
-      // relay 파이프라인으로 전달
       const fromNode = nodes.get(fromId)
-      if (!fromNode) { res.end(JSON.stringify({ error: 'unknown sender' })); return }
+      if (!fromNode) { fs.rmSync(tmpDir, { recursive: true, force: true }); jsonError(res, 404, 'unknown sender'); return }
 
       const plan = await planCommand(transcript, fromId, null, [...nodes.values()])
       console.log(`[voice] plan: ${JSON.stringify(plan)}`)
@@ -297,44 +336,42 @@ except Exception as e:
       if (plan.type === 'compute') {
         const targetNode = nodes.get(plan.target)
         if (targetNode) {
-          const asm = await generateAssembly(plan.task)
-          if (asm) {
-            const bin = await compileAssembly(asm)
+          const asmCode = await generateAssembly(plan.task)
+          if (asmCode) {
+            const bin = await compileAssembly(asmCode)
             if (bin) result = await pokeNode(targetNode.endpoint, bin)
           }
         }
       }
 
-      // TTS 응답 생성 → WAV
-      let replyText = ''
-      if (result && typeof result === 'string') {
-        replyText = result.replace('eax=', '결과는 ').replace('\n', '') + '입니다'
-      } else {
-        replyText = '처리했습니다'
-      }
+      // TTS response (safe: execFileSync with array args, no shell)
+      let replyText = result && typeof result === 'string'
+        ? result.replace('eax=', '결과는 ').replace('\n', '') + '입니다'
+        : '처리했습니다'
 
-      const replyWav = '/tmp/poke-voice-reply.wav'
-      try {
-        execSync(`say -v Yuna -o /tmp/poke-voice-reply.aiff "${replyText}" && afconvert -f WAVE -d LEI16@8000 -c 1 /tmp/poke-voice-reply.aiff ${replyWav}`, { timeout: 10000 })
-      } catch (e) {}
-
-      // ARM에 응답 오디오 전송 (TONE or raw)
       let audioReply = null
-      if (fs.existsSync(replyWav)) {
-        audioReply = fs.readFileSync(replyWav).toString('base64')
+      try {
+        execFileSync('say', ['-v', 'Yuna', '-o', tmpAiff, replyText], { timeout: 10000 })
+        execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@8000', '-c', '1', tmpAiff, replyWav], { timeout: 10000 })
+        if (fs.existsSync(replyWav)) {
+          audioReply = fs.readFileSync(replyWav).toString('base64')
+        }
+      } catch (e) {
+        console.warn(`[voice] TTS failed: ${e.message}`)
       }
+
+      // Cleanup temp
+      fs.rmSync(tmpDir, { recursive: true, force: true })
 
       res.end(JSON.stringify({
-        transcript,
-        plan,
-        result,
+        transcript, plan, result,
         reply_text: replyText,
         reply_audio_base64: audioReply,
         reply_audio_size: audioReply ? Buffer.from(audioReply, 'base64').length : 0
       }, null, 2))
     } catch (err) {
       console.error(`[voice] ERROR: ${err.message}`)
-      res.end(JSON.stringify({ error: err.message }))
+      jsonError(res, 500, err.message)
     }
     return
   }
