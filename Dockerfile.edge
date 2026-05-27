@@ -1,39 +1,13 @@
-FROM ubuntu:22.04 AS builder
-
-RUN apt-get update && apt-get install -y \
-    nasm gcc-multilib binutils make wget xz-utils \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install i686-elf cross-compiler
-RUN mkdir -p /opt/cross && cd /tmp && \
-    wget -q https://newos.org/toolchains/i686-elf-14.2.0-Linux-x86_64.tar.xz && \
-    tar xf i686-elf-14.2.0-Linux-x86_64.tar.xz -C /opt/cross --strip-components=1 || true
-
-# If prebuilt not available, use system gcc with -m32
-ENV PATH="/opt/cross/bin:$PATH"
-
-WORKDIR /build
-COPY boot.asm kernel_entry.asm kernel.c kernel.asm linker.ld Makefile ./
-
-# Try cross-compiler first, fallback to native gcc -m32
-RUN if command -v i686-elf-gcc >/dev/null 2>&1; then \
-        make all; \
-    else \
-        nasm -f bin -o boot.bin boot.asm && \
-        nasm -f elf32 -o kernel_entry.o kernel_entry.asm && \
-        gcc -m32 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -O0 -c -o kernel.o kernel.c && \
-        ld -m elf_i386 -T linker.ld -nostdlib -o kernel.elf kernel_entry.o kernel.o && \
-        objcopy -O binary kernel.elf kernel.bin && \
-        cat boot.bin kernel.bin > poke.img && \
-        dd if=/dev/zero bs=1 count=0 seek=131072 of=poke.img 2>/dev/null; \
-    fi
-
-# Runtime: QEMU only
 FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y qemu-system-x86 --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/poke.img /poke/poke.img
+RUN apt-get update && \
+    apt-get install -y qemu-system-x86 --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /poke
+
+# Pre-built kernel image (built locally with cross-compiler)
+COPY poke.img ./
 
 EXPOSE 8080
 
