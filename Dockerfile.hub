@@ -1,0 +1,17 @@
+FROM node:20-slim
+
+RUN apt-get update && apt-get install -y nasm --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /poke
+
+COPY package.json ./
+RUN npm install --production
+
+COPY hub.js asm.js mobile.html ./
+COPY hub/ ./hub/
+COPY profiles/ ./profiles/
+
+EXPOSE 3333
+
+CMD ["node", "hub.js"]

@@ -1,0 +1,11 @@
+node_modules
+.env
+*.pem
+*.img
+*.o
+*.elf
+*.bin
+poke2.img
+.git
+debates
+scripts

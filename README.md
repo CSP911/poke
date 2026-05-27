@@ -16,6 +16,35 @@ POKE is a protocol that lets AI directly control any hardware — no OS, no driv
 
 ---
 
+## Quick Start (Docker)
+
+```bash
+git clone https://github.com/CSP911/poke.git
+cd poke
+
+# Set your Anthropic API key
+echo "ANTHROPIC_API_KEY=sk-ant-your-key" > .env
+
+# Start everything (edge + hub + auto-register)
+docker compose up --build
+
+# → Edge (bare-metal QEMU) on localhost:8080
+# → Hub (LLM agent) on localhost:3333
+# → Open http://localhost:3333 for voice UI
+```
+
+Try it:
+```bash
+# Calculate 2 + 3 on bare metal
+curl -X POST http://localhost:3333/relay \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"x86-edge","command":"calculate 2+3"}'
+
+# → { "result": "eax=5" }
+```
+
+---
+
 ## Architecture
 
 ```
