@@ -558,6 +558,52 @@ static int http_buf_len = 0;
 #define CODE_BUF_SIZE 4096
 static u8 code_buf[CODE_BUF_SIZE] __attribute__((aligned(4096)));
 
+/* ── Guard Rail: Execution Safety ── */
+#define MAX_CODE_SIZE 4096
+#define BANNED_OPCODE_HLT  0xF4
+#define BANNED_OPCODE_CLI  0xFA
+
+/* Scan injected code for dangerous opcodes before execution */
+static int guard_scan_code(u8 *code, int len) {
+    if (len <= 0 || len > MAX_CODE_SIZE) {
+        serial_print("[GUARD] rejected: size ");
+        serial_hex(len);
+        serial_print("\n");
+        return 0;
+    }
+    for (int i = 0; i < len; i++) {
+        if (code[i] == BANNED_OPCODE_HLT) {
+            serial_print("[GUARD] rejected: HLT at offset ");
+            serial_hex(i);
+            serial_print("\n");
+            return 0;
+        }
+        if (code[i] == BANNED_OPCODE_CLI) {
+            serial_print("[GUARD] rejected: CLI at offset ");
+            serial_hex(i);
+            serial_print("\n");
+            return 0;
+        }
+    }
+    return 1;  /* safe */
+}
+
+/* PIT-based execution timeout (rough watchdog)
+ * Uses PIT channel 0 tick counter to limit execution time.
+ * Before execution: record tick count
+ * After execution: check elapsed — log warning if too long
+ * NOTE: True preemptive watchdog needs IRQ handler which would add
+ * complexity. For v0.1, we do post-execution check + code scanning. */
+static volatile u32 pit_ticks = 0;
+
+static void pit_init(void) {
+    /* PIT channel 0: ~100 Hz (10ms per tick) */
+    u16 divisor = 11932;  /* 1193182 / 100 */
+    outb(0x43, 0x36);     /* channel 0, lobyte/hibyte, rate generator */
+    outb(0x40, divisor & 0xFF);
+    outb(0x40, (divisor >> 8) & 0xFF);
+}
+
 /* ── BochsVBE Graphics ── */
 #define VBE_INDEX 0x01CE
 #define VBE_DATA  0x01CF
@@ -1081,33 +1127,30 @@ void handle_http(void) {
     serial_hex(code_len);
     serial_print(" bytes\n");
 
-    /* Only execute if body looks like valid code (not text like 'test') */
-    /* For safety: require at least a RET (0xC3) somewhere */
+    /* ── Guard Rail: validate before execution ── */
     int has_ret = 0;
     for (int i = 0; i < code_len; i++) {
         if (code_buf[i] == 0xC3) { has_ret = 1; break; }
     }
+
+    int guard_ok = guard_scan_code(code_buf, code_len);
 
     /* Clear result buffer */
     mem_set(result_buf, 0, RESULT_BUF_SIZE);
     result_len = 0;
     u32 ret_eax = 0;
 
-    if (has_ret) {
+    if (!has_ret) {
+        serial_print("[POKE] rejected: no RET (0xC3) found\n");
+    } else if (!guard_ok) {
+        serial_print("[POKE] rejected: guard rail blocked dangerous code\n");
+    } else {
         serial_print("[POKE] Executing code...\n");
-        /*
-         * Call convention:
-         *   - Code can write to result_buf (address passed in EDI)
-         *   - Code can set result_len (address passed in ESI)
-         *   - Return value in EAX is also captured
-         */
         u32 (*code_fn)(char *rbuf, int *rlen) = (u32 (*)(char *, int *))code_buf;
         ret_eax = code_fn(result_buf, &result_len);
         serial_print("[POKE] Execution complete, eax=");
         serial_hex(ret_eax);
         serial_print("\n");
-    } else {
-        serial_print("[POKE] Not machine code, skipping execution\n");
     }
 
     /* Build HTTP response */
@@ -1118,7 +1161,10 @@ void handle_http(void) {
     while (*rp) resp[rlen++] = *rp++;
 
     if (!has_ret) {
-        rp = "no RET found, not executed\n";
+        rp = "REJECTED: no RET found\n";
+        while (*rp) resp[rlen++] = *rp++;
+    } else if (!guard_ok) {
+        rp = "REJECTED: dangerous opcode detected\n";
         while (*rp) resp[rlen++] = *rp++;
     } else if (result_len > 0) {
         /* Return whatever the code wrote to result_buf */

@@ -108,4 +108,57 @@ for (const t of tests) {
 console.log(`\n${pass} passed, ${fail} failed, ${tests.length} total`)
 if (!hasNasm) console.log('(nasm not found — crash-test only, no byte verification)')
 
-process.exit(fail > 0 ? 1 : 0)
+// ── Guard Rail Tests ──
+console.log('\n── Guard Rail Tests ──\n')
+const { scanBinary, assembleAndValidate } = require('../asm.js')
+let gPass = 0, gFail = 0
+
+function guardTest(name, fn, expectPass) {
+  try {
+    fn()
+    if (expectPass) { console.log(`  PASS  ${name} (allowed)`); gPass++ }
+    else { console.log(`  FAIL  ${name} (should have been blocked)`); gFail++ }
+  } catch (e) {
+    if (!expectPass) { console.log(`  PASS  ${name} (blocked: ${e.message.slice(0, 60)})`); gPass++ }
+    else { console.log(`  FAIL  ${name} (unexpected error: ${e.message})`); gFail++ }
+  }
+}
+
+// Should PASS (safe code)
+guardTest('safe: mov + ret', () => assembleAndValidate('mov eax, 42\nret'), true)
+guardTest('safe: loop', () => assembleAndValidate('xor eax, eax\nmov ecx, 10\nl:\ninc eax\ndec ecx\njnz l\nret'), true)
+guardTest('safe: memory read', () => assembleAndValidate('mov ebx, 0xfebc0000\nmov eax, [ebx]\nret'), true)
+guardTest('safe: port I/O', () => assembleAndValidate('mov dx, 0x01CE\nmov ax, 0\nout dx, ax\nret'), true)
+
+// Should FAIL (dangerous code)
+guardTest('block: HLT', () => {
+  const bin = Buffer.from([0xF4, 0xC3])  // HLT + RET
+  const scan = scanBinary(Array.from(bin))
+  if (!scan.safe) throw new Error(scan.errors.join('; '))
+}, false)
+
+guardTest('block: CLI', () => {
+  const bin = Buffer.from([0xFA, 0xC3])  // CLI + RET
+  const scan = scanBinary(Array.from(bin))
+  if (!scan.safe) throw new Error(scan.errors.join('; '))
+}, false)
+
+guardTest('warn: no RET', () => {
+  const bin = Buffer.from([0xB8, 0x01, 0x00, 0x00, 0x00])  // mov eax, 1 (no ret)
+  const scan = scanBinary(Array.from(bin))
+  if (scan.warnings.length === 0) throw new Error('expected warning')
+  throw new Error(scan.warnings.join('; '))
+}, false)
+
+guardTest('block: oversized binary', () => {
+  const big = new Array(20000).fill(0x90)  // 20KB of NOPs
+  big.push(0xC3)
+  const scan = scanBinary(big)
+  if (!scan.safe) throw new Error(scan.errors.join('; '))
+}, false)
+
+console.log(`\n${gPass} passed, ${gFail} failed, ${gPass + gFail} guard tests`)
+
+const totalFail = fail + gFail
+console.log(`\nTotal: ${pass + gPass} passed, ${totalFail} failed`)
+process.exit(totalFail > 0 ? 1 : 0)

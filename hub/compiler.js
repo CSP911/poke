@@ -7,27 +7,54 @@ const { execSync } = require('child_process')
 const path = require('path')
 const { log } = require('./logger')
 
-let _assemble = null
-function getAssemble() {
-  if (!_assemble) _assemble = require(path.join(__dirname, '..', 'asm.js')).assemble
-  return _assemble
+let _asmModule = null
+function getAsmModule() {
+  if (!_asmModule) _asmModule = require(path.join(__dirname, '..', 'asm.js'))
+  return _asmModule
 }
 
-// ── NASM compile (x86) ──
+// ── x86 assembly compile + safety scan ──
 async function compileAssembly(asm) {
   try {
-    const assemble = getAssemble()
-    const bin = assemble(asm)
-    log.info(`[asm.js] assembled ${bin.length} bytes`)
-    return bin
+    const { assembleAndValidate, assemble, scanBinary } = getAsmModule()
+
+    // Try assembleAndValidate first (includes guard rail)
+    try {
+      const { binary, scan } = assembleAndValidate(asm)
+      if (scan.warnings.length > 0) {
+        scan.warnings.forEach(w => log.warn(`[guard] ${w}`))
+      }
+      log.info(`[asm.js] assembled ${binary.length} bytes (safe)`)
+      return binary
+    } catch (guardErr) {
+      // Guard rail rejected it
+      if (guardErr.scan) {
+        guardErr.scan.errors.forEach(e => log.error(`[guard] BLOCKED: ${e}`))
+        log.error(`[guard] Assembly rejected by safety scanner`)
+        return null
+      }
+      // Not a guard error, just assembly parse failure — try nasm fallback
+      throw guardErr
+    }
   } catch (e) {
     log.warn(`[asm.js] mini assembler failed: ${e.message}`)
-    // fallback to nasm
+    // fallback to nasm + manual scan
     try {
       fs.writeFileSync('/tmp/poke_gen.asm', asm)
       execSync('nasm -f bin -o /tmp/poke_gen.bin /tmp/poke_gen.asm 2>&1')
-      log.info('[asm.js] fallback to nasm')
-      return fs.readFileSync('/tmp/poke_gen.bin')
+      const bin = fs.readFileSync('/tmp/poke_gen.bin')
+
+      // Still scan nasm output for safety
+      const { scanBinary } = getAsmModule()
+      const scan = scanBinary(Array.from(bin))
+      if (!scan.safe) {
+        scan.errors.forEach(e => log.error(`[guard] BLOCKED: ${e}`))
+        log.error('[guard] nasm output rejected by safety scanner')
+        return null
+      }
+
+      log.info(`[nasm] compiled ${bin.length} bytes (safe)`)
+      return bin
     } catch (e2) {
       log.error(`[nasm fallback] ${e2.message}`)
       return null

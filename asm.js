@@ -549,4 +549,109 @@ function encodeMemOp(bytes, reg, mem) {
   }
 }
 
-module.exports = { assemble }
+// ══════════════════════════════════════
+// ── Guard Rail: Binary Safety Scanner
+// ══════════════════════════════════════
+
+const DANGEROUS_OPCODES = {
+  0xF4: 'HLT — halts CPU',
+  0xFA: 'CLI — disables interrupts',
+  0xFB: 'STI — enables interrupts (can cause unexpected behavior)',
+  0x0F09: 'WBINVD — flushes all caches (system-wide stall)',
+}
+
+// I/O ports that should never be written to
+const DANGEROUS_PORTS = {
+  0x0CF9: 'System Reset (writes trigger hard reboot)',
+  0x0064: 'Keyboard Controller Command (can disable keyboard)',
+  0x0092: 'System Control Port A (bit 0 = fast reset)',
+}
+
+// Memory regions that must not be written to
+const PROTECTED_REGIONS = [
+  { start: 0x00000000, end: 0x00000FFF, desc: 'Real Mode IVT + BDA' },
+  { start: 0x00001000, end: 0x0000FFFF, desc: 'Kernel code region' },
+]
+
+const MAX_BINARY_SIZE = 16384  // 16KB
+
+function scanBinary(bytes, opts = {}) {
+  const warnings = []
+  const errors = []
+  const strict = opts.strict !== false
+
+  // Size check
+  if (bytes.length > MAX_BINARY_SIZE) {
+    errors.push(`Binary too large: ${bytes.length} bytes (max ${MAX_BINARY_SIZE})`)
+  }
+
+  // Must end with RET (0xC3)
+  if (bytes.length > 0 && bytes[bytes.length - 1] !== 0xC3) {
+    warnings.push('Binary does not end with RET (0xC3) — may not return to kernel')
+  }
+
+  // Scan for dangerous single-byte opcodes
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i]
+
+    // Single-byte dangerous opcodes
+    if (DANGEROUS_OPCODES[b]) {
+      errors.push(`Byte ${i}: 0x${b.toString(16).toUpperCase()} — ${DANGEROUS_OPCODES[b]}`)
+    }
+
+    // Two-byte dangerous opcodes (0F xx)
+    if (b === 0x0F && i + 1 < bytes.length) {
+      const pair = (b << 8) | bytes[i + 1]
+      if (DANGEROUS_OPCODES[pair]) {
+        errors.push(`Byte ${i}: 0x${pair.toString(16).toUpperCase()} — ${DANGEROUS_OPCODES[pair]}`)
+      }
+    }
+
+    // OUT instruction to dangerous ports
+    // 0xE6 = out imm8, al  |  0xE7 = out imm8, eax  |  0xEE = out dx, al  |  0xEF = out dx, eax
+    if ((b === 0xE6 || b === 0xE7) && i + 1 < bytes.length) {
+      const port = bytes[i + 1]
+      if (DANGEROUS_PORTS[port]) {
+        errors.push(`Byte ${i}: OUT to port 0x${port.toString(16)} — ${DANGEROUS_PORTS[port]}`)
+      }
+    }
+  }
+
+  // Check for writes to protected memory (mov [imm32], ...)
+  // Pattern: opcode + ModR/M with mod=00,rm=101 → disp32
+  for (let i = 0; i < bytes.length - 5; i++) {
+    const b = bytes[i]
+    // 0x89 = mov [mem], reg (store to memory)
+    // 0xA3 = mov [imm32], eax
+    if (b === 0xA3 && i + 4 < bytes.length) {
+      const addr = bytes[i+1] | (bytes[i+2] << 8) | (bytes[i+3] << 16) | (bytes[i+4] << 24)
+      for (const region of PROTECTED_REGIONS) {
+        if (addr >= region.start && addr <= region.end) {
+          errors.push(`Byte ${i}: MOV to protected address 0x${addr.toString(16)} — ${region.desc}`)
+        }
+      }
+    }
+  }
+
+  return {
+    safe: errors.length === 0,
+    errors,
+    warnings,
+    size: bytes.length,
+  }
+}
+
+function assembleAndValidate(source, opts = {}) {
+  const bytes = assemble(source)
+  const scan = scanBinary(Array.from(bytes), opts)
+
+  if (!scan.safe) {
+    const err = new Error(`Assembly rejected: ${scan.errors.join('; ')}`)
+    err.scan = scan
+    throw err
+  }
+
+  return { binary: bytes, scan }
+}
+
+module.exports = { assemble, scanBinary, assembleAndValidate, MAX_BINARY_SIZE, DANGEROUS_OPCODES, DANGEROUS_PORTS, PROTECTED_REGIONS }
