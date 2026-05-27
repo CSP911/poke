@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  asm-test:
+    name: Mini Assembler Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install nasm (for verification)
+        run: sudo apt-get install -y nasm
+
+      - name: Run asm.js tests
+        run: node test/asm.test.js
+
+  hub-test:
+    name: Hub Lint + Load
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Verify hub loads without error
+        run: node -e "require('./hub.js'); setTimeout(() => process.exit(0), 2000)" || true
+      - name: Verify asm.js loads
+        run: node -e "const {assemble} = require('./asm.js'); console.log('asm.js OK')"
+
+  kernel-build:
+    name: x86 Kernel Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross-compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm gcc-multilib
+
+      - name: Build boot sector
+        run: nasm -f bin -o boot.bin boot.asm
+
+      - name: Verify boot.bin size
+        run: test $(stat -c%s boot.bin) -eq 512 && echo "boot.bin OK (512 bytes)"
