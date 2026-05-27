@@ -1,6 +1,6 @@
-# The Operating System Is a Relic. AI Just Made It Obsolete.
+# The OS Was Built for Humans. AI Doesn't Need It.
 
-## How I built a protocol where AI generates machine code and executes it on bare metal — no OS, no drivers, no apps, no permanent binaries.
+## I built a protocol where AI generates machine code and executes it on bare metal — no OS, no drivers, no apps, no permanent binaries.
 
 ---
 
