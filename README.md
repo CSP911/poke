@@ -397,22 +397,101 @@ Benchmark (50M iterations × 4, split across 2 edges):
   Speedup:  1.99x
 ```
 
-### External Data + Hardware in One Binary
+### Real-World Examples
+
+POKE isn't just for arithmetic. The agent decomposes real questions into binary-level operations:
+
+#### "What hardware is connected to this machine?"
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Hub as Hub (LLM)
+    participant Edge as x86 Edge
+
+    User->>Hub: "What hardware is on this system?"
+    Hub->>Hub: Agent decides: need PCI bus scan
+    Hub->>Hub: LLM writes C program:<br/>scan all 32 PCI slots,<br/>read vendor:device IDs,<br/>format as hex string
+    Hub->>Hub: Cross-compile → 319 bytes
+    Hub->>Edge: POST /poke (319B binary)
+    Edge->>Edge: Bare-metal: reads PCI config space<br/>port 0xCF8/0xCFC for each slot
+    Edge-->>Hub: "8086:1237\n8086:100E\n1234:1111\n..."
+    Hub->>Hub: LLM interprets results with its knowledge
+    Hub-->>User: "8 devices found:<br/>Intel Host Bridge<br/>Intel e1000 NIC<br/>QEMU VGA..."
+```
+
+**What happened:** The LLM wrote a PCI scanner in C, compiled it to a 319-byte binary, injected it into bare metal, and interpreted the raw register values — all from one natural language question.
+
+#### "Is the network card working? What's its MAC address?"
+
+```
+Agent steps:
+
+  Step 1: list_devices()
+    → "8086:100E Intel 82540EM (e1000) — operations: network_read_mac, network_read_status"
+
+  Step 2: network_read_status()        ← auto-generated from device profile
+    → eax=2148009859 (0x80200783)
+    → Agent interprets: bit 1 = 1 → link is UP
+
+  Step 3: build_and_deploy()           ← LLM writes C to format full MAC
+    → e1000_read_mac(&nic, mac)
+    → poke_format_mac(mac, buf)
+    → 221 bytes deployed → "52:54:00:12:34:56"
+
+  Step 4: reply_text()
+    → "e1000 NIC is UP. MAC: 52:54:00:12:34:56"
+```
+
+**What happened:** The agent mixed auto-generated tools (from profile) with a custom C binary (for formatting) — choosing the right approach for each sub-task.
+
+#### "Get Seoul weather, convert to Fahrenheit on the CPU, check NIC status"
+
+```mermaid
+graph TB
+    User["User: weather + convert + NIC status"]
+
+    User --> Hub
+
+    subgraph Hub["Hub (LLM Agent)"]
+        direction TB
+        S1["Step 1: fetch_url<br/>wttr.in/Seoul → 25°C"]
+        S2["Step 2: network_read_status<br/>auto-generated tool → link UP"]
+        S3["Step 3: execute_x86<br/>mov eax,25 | imul eax,9<br/>xor edx,edx | div 5<br/>add eax,32 → 77°F"]
+        S4["Step 4: reply_text<br/>combine all results"]
+        S1 --> S3
+        S2 --> S4
+        S3 --> S4
+    end
+
+    S1 -.->|"HTTP GET"| API["Weather API"]
+    S2 -.->|"auto-tool"| NIC["e1000 NIC<br/>(bare metal)"]
+    S3 -.->|"raw bytes"| CPU["x86 CPU<br/>(bare metal)"]
+
+    style API fill:#FF9800,color:#fff
+    style NIC fill:#4CAF50,color:#fff
+    style CPU fill:#2196F3,color:#fff
+```
+
+**What happened:** One question triggered three different tool types — external API, hardware register read, and CPU computation — all orchestrated by the LLM in a single turn.
+
+#### "If outside temperature > sensor reading, turn on AC"
 
 The hub fetches external data and embeds it directly into the binary:
 
 ```
-User: "If Seoul temperature > room sensor, turn on AC"
+Hub: fetch(weather API) → 25°C
+Hub: generates bare-metal binary:
 
-  Hub: fetch(weather API) → 25°C
-  Hub: generates binary:
-    int outside = 25;                      // ← hub-injected data
-    int inside = read_sensor(0xfebc0000);  // ← hardware register
-    if (outside > inside)
-        gpio_set(PIN_AC, 1);              // ← hardware control
+  int outside = 25;                      // ← hub-injected external data
+  int inside = read_sensor(0xfebc0000);  // ← hardware register read
+  if (outside > inside)
+      gpio_set(PIN_AC, 1);              // ← hardware control
 
-  Edge: executes on bare metal. No OS involved.
+Edge: executes autonomously. No OS. No network needed after deployment.
 ```
+
+This is the pattern unique to POKE: **external data (from hub) + local hardware (from edge) in one binary**, deployed once, runs forever.
 
 ---
 
