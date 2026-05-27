@@ -127,35 +127,69 @@ The takeaway: **the LLM is already a working compiler for 85% of tasks**. The re
 
 ---
 
-## How It Actually Works
+## How It Actually Works: The Same Loop as Claude Code
 
-POKE has two components: a **Hub** (the brain) and **Edges** (the body).
-
-The Hub is a Node.js server with an LLM agent loop. It receives natural language, decides what to do, generates machine code, and sends it to edges. It runs an autonomous tool-use loop — similar to how Claude Code or Codex work — choosing from tools like `execute_x86`, `fetch_url`, `network_read_mac`, and `build_and_deploy`.
-
-The Edge is a bare-metal kernel. I wrote it from scratch — bootloader in assembly (Real Mode → Protected Mode), TCP/IP stack in C, HTTP server, code injection buffer. That's it. 24KB. It boots, listens, executes whatever bytes arrive, and returns the result.
+If you've used Claude Code, Codex, or Devin, you know the pattern: a simple agent loop.
 
 ```
-                    ┌──────────────┐
-                    │ Human/Voice  │
-                    └──────┬───────┘
-                           │ natural language
-                    ┌──────▼───────┐
-                    │   Hub (LLM)  │
-                    │              │
-                    │  Agent Loop  │ ← observe, think, act, check
-                    │  asm.js      │ ← assembly → bytes (300 lines)
-                    │  Guard Rail  │ ← scans for dangerous opcodes
-                    └──┬───┬───┬──┘
-                       │   │   │
-                    ┌──▼┐ ┌▼──┐ ┌▼────┐
-                    │x86│ │ARM│ │Phone│
-                    └───┘ └───┘ └─────┘
-                     bare   bare  browser
-                     metal  metal
+while not done:
+    observe()   →  read context, check state
+    think()     →  LLM decides next action
+    act()       →  call a tool
+    check()     →  verify result, retry if failed
 ```
 
-The Hub also supports voice — I tested it from a real phone. You speak in Korean, Web Speech API converts to text, the Hub processes it, generates assembly, the QEMU edge executes it, and the Hub speaks the answer back. The entire chain works over WiFi.
+POKE's hub runs **exactly this loop**. The only difference is what the tools do.
+
+In Claude Code, tools are things like `read_file`, `edit_file`, `bash`. In POKE, tools are **hardware devices**, and parameters are **assembly code**:
+
+```
+Claude Code:                          POKE:
+─────────────                         ─────
+tool: edit_file                       tool: execute_x86
+params: {                             params: {
+  path: "main.py",                      target: "x86-edge",
+  content: "print('hi')"                asm_code: "mov eax, 2\nadd eax, 3\nret"
+}                                     }
+
+tool: bash                            tool: build_and_deploy
+params: {                             params: {
+  command: "npm test"                   target: "x86-edge",
+}                                       c_code: "void _start() { ... }"
+                                      }
+
+tool: read_file                       tool: network_read_mac
+params: {                             params: {
+  path: "config.json"                   target: "x86-edge"
+}                                     }
+```
+
+**The device IS the tool. The assembly IS the parameter.**
+
+When a device profile is loaded, its operations automatically become tools. The LLM doesn't need to know it's talking to hardware — it just calls `network_read_mac()` like it would call any other function.
+
+```
+Device Profile (JSON)     →    Agent Tool (auto-generated)
+─────────────────────          ────────────────────────────
+e1000 NIC                 →    network_read_mac()
+  BAR0: 0xfebc0000              network_read_status()
+  register: RAL @ 0x5400
+
+BochsVBE Graphics        →    graphics_read_resolution()
+  port: 0x01CE/0x01CF          graphics_set_pixel()
+
+VirtIO RNG                →    rng_read_magic()
+```
+
+This means the same agent loop that powers coding assistants now powers **physical hardware control**. No new paradigm to learn. If you can build a Claude Code tool, you can build a POKE device profile.
+
+POKE has two physical components: a **Hub** and **Edges**.
+
+The Hub is a Node.js server running this agent loop with Claude's tool_use API. The Edge is a bare-metal kernel I wrote from scratch — bootloader (Real Mode → Protected Mode), TCP/IP, HTTP server, code injection buffer. 24KB total. It boots, listens, executes bytes, returns results.
+
+[IMAGE: architecture.png]
+
+I tested the voice pipeline from a real phone over WiFi. You speak in Korean, Web Speech API converts to text, the Hub processes it through the agent loop, the QEMU edge executes the generated machine code, and the Hub speaks the answer back.
 
 ---
 
