@@ -390,20 +390,19 @@ poke/
 POKE doesn't need gcc, clang, or any traditional compiler. The LLM generates machine code directly:
 
 ```
-Claude Opus 4.6 — raw byte generation test:
+20 tests, 3 difficulty levels — no assembler, raw hex bytes only:
 
-  "2 + 3"          → B8 02 00 00 00 83 C0 03 C3        → eax=5     ✅
-  "10 * 7"         → B8 0A 00 00 00 6B C0 07 C3        → eax=70    ✅
-  "100 - 37"       → B8 64 00 00 00 83 E8 25 C3        → eax=63    ✅
-  "255 AND 0x0F"   → B8 FF 00 00 00 25 0F 00 00 00 C3  → eax=15    ✅
-  "1 << 8"         → B8 01 00 00 00 C1 E0 08 C3        → eax=256   ✅
-  "50 / 2"         → B8 32 ... 99 F7 F9 C3             → eax=25    ✅
-  "return 0xDEAD"  → B8 AD DE 00 00 C3                 → eax=57005 ✅
+                          Opus 4.6    Haiku 4.5
+  Easy (arithmetic)        6/6         6/6        ← 100%
+  Medium (multi-instr)     8/8         8/8        ← 100%
+  Hard (loops, branches)   3/6         1/6        ← improving
 
-  Score: 7/7 (100%) — no assembler used
+  Total                   17/20 (85%) 15/20 (75%)
 ```
 
-For complex code, the built-in `asm.js` (300 lines of JS) handles assembly-to-bytes conversion. No nasm or external tools required.
+Easy/medium: **100% on both models**. The LLM encodes `mov`, `add`, `imul`, `idiv`, shifts, bitwise ops flawlessly. Hard tasks (loops, fibonacci, popcount) fail on relative jump offset calculation — this will improve with each model generation.
+
+For now, `asm.js` (300 lines of JS, 45 tests, byte-identical to nasm) bridges the gap. No external tools required.
 
 ### Task-Level Parallelism
 

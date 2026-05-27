@@ -11,15 +11,33 @@ const Anthropic = require('@anthropic-ai/sdk')
 const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
 const POKE_ENDPOINT = 'http://localhost:8080'
 
-// ── 테스트 케이스 ──
+// ── 테스트 케이스 (Easy / Medium / Hard) ──
 const TESTS = [
-  { task: '2 + 3을 계산해라', expected: 5 },
-  { task: '10 * 7을 계산해라', expected: 70 },
-  { task: '100 - 37을 계산해라', expected: 63 },
-  { task: '255 AND 0x0F (비트 연산)', expected: 15 },
-  { task: '1을 왼쪽으로 8번 시프트해라', expected: 256 },
-  { task: '50을 2로 나눠라 (정수 나눗셈)', expected: 25 },
-  { task: '0xDEAD를 리턴해라', expected: 0xDEAD },
+  // ── Easy: single instruction ──
+  { task: 'return 0', expected: 0, difficulty: 'easy' },
+  { task: 'return 42', expected: 42, difficulty: 'easy' },
+  { task: 'return 0xDEAD', expected: 0xDEAD, difficulty: 'easy' },
+  { task: '2 + 3', expected: 5, difficulty: 'easy' },
+  { task: '100 - 37', expected: 63, difficulty: 'easy' },
+  { task: '10 * 7', expected: 70, difficulty: 'easy' },
+
+  // ── Medium: multi-instruction ──
+  { task: '50 / 2 (integer division)', expected: 25, difficulty: 'medium' },
+  { task: '255 AND 0x0F (bitwise AND)', expected: 15, difficulty: 'medium' },
+  { task: '0xF0 OR 0x0F (bitwise OR)', expected: 255, difficulty: 'medium' },
+  { task: 'shift 1 left by 8 bits', expected: 256, difficulty: 'medium' },
+  { task: 'shift 1024 right by 3 bits', expected: 128, difficulty: 'medium' },
+  { task: 'negate -5 (return positive 5)', expected: 5, difficulty: 'medium' },
+  { task: 'compute (3 + 7) * 2', expected: 20, difficulty: 'medium' },
+  { task: 'compute 100 - 30 - 20 - 10', expected: 40, difficulty: 'medium' },
+
+  // ── Hard: complex logic ──
+  { task: 'compute 2 to the power of 10 (use shifts)', expected: 1024, difficulty: 'hard' },
+  { task: 'compute factorial of 5 (5! = 120) using a loop', expected: 120, difficulty: 'hard' },
+  { task: 'sum integers from 1 to 10 using a loop', expected: 55, difficulty: 'hard' },
+  { task: 'compute fibonacci(10) using a loop (fib(0)=0, fib(1)=1)', expected: 55, difficulty: 'hard' },
+  { task: 'count how many bits are set in 0xFF (should be 8)', expected: 8, difficulty: 'hard' },
+  { task: 'return the larger of 37 and 92 (use comparison)', expected: 92, difficulty: 'hard' },
 ]
 
 // ── 엣지에 raw 바이트 전송 ──
@@ -81,8 +99,8 @@ function nasmBytes(task) {
 // ── 메인 ──
 async function main() {
   const models = [
-    'claude-haiku-4-5-20251001',
     'claude-opus-4-6',
+    'claude-haiku-4-5-20251001',
   ]
 
   console.log('═══════════════════════════════════════════')
@@ -93,47 +111,62 @@ async function main() {
     console.log(`\n── Model: ${model} ──\n`)
     let pass = 0, fail = 0, error = 0
 
+    const byDifficulty = { easy: { pass: 0, total: 0 }, medium: { pass: 0, total: 0 }, hard: { pass: 0, total: 0 } }
+    let currentDiff = ''
+
     for (const test of TESTS) {
-      process.stdout.write(`  "${test.task}" → `)
+      if (test.difficulty !== currentDiff) {
+        currentDiff = test.difficulty
+        console.log(`\n  [${currentDiff.toUpperCase()}]`)
+      }
+
+      const label = test.task.padEnd(55)
+      process.stdout.write(`  ${label} `)
+      byDifficulty[test.difficulty].total++
 
       try {
         const hex = await askForBytes(model, test.task)
-        process.stdout.write(`[${hex}] → `)
+        const hexShort = hex.length > 40 ? hex.slice(0, 40) + '...' : hex
 
-        // 엣지에서 실행
         const result = await pokeRaw(hex)
 
         if (!result) {
-          console.log('EXEC FAIL')
+          console.log(`EXEC FAIL  [${hexShort}]`)
           error++
           continue
         }
 
-        // eax= 파싱
         const match = result.match(/eax=(\d+)/)
         if (!match) {
-          console.log(`PARSE FAIL (${result})`)
+          console.log(`PARSE FAIL [${hexShort}]`)
           error++
           continue
         }
 
         const got = parseInt(match[1])
         if (got === test.expected) {
-          console.log(`${got} ✅`)
+          console.log(`= ${got} ✅`)
           pass++
+          byDifficulty[test.difficulty].pass++
         } else {
-          console.log(`${got} ❌ (expected ${test.expected})`)
+          console.log(`= ${got} ❌ (expected ${test.expected}) [${hexShort}]`)
           fail++
         }
       } catch (e) {
-        console.log(`ERROR: ${e.message}`)
+        console.log(`ERROR: ${e.message.slice(0, 60)}`)
         error++
       }
     }
 
     const total = TESTS.length
     const pct = ((pass / total) * 100).toFixed(0)
-    console.log(`\n  Result: ${pass}/${total} passed (${pct}%) | ${fail} wrong | ${error} errors`)
+    console.log(`\n  ┌─────────────────────────────────────┐`)
+    console.log(`  │ Total:   ${String(pass).padStart(2)}/${total} (${pct}%)${' '.repeat(20 - pct.length)}│`)
+    console.log(`  │ Easy:    ${byDifficulty.easy.pass}/${byDifficulty.easy.total}${' '.repeat(25)}│`)
+    console.log(`  │ Medium:  ${byDifficulty.medium.pass}/${byDifficulty.medium.total}${' '.repeat(25)}│`)
+    console.log(`  │ Hard:    ${byDifficulty.hard.pass}/${byDifficulty.hard.total}${' '.repeat(25)}│`)
+    console.log(`  │ Errors:  ${error}${' '.repeat(27)}│`)
+    console.log(`  └─────────────────────────────────────┘`)
   }
 
   console.log('\n═══════════════════════════════════════════')

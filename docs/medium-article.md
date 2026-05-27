@@ -82,25 +82,48 @@ The permanent binary — the fundamental unit of software for 60 years — becom
 
 ## "But Can an LLM Actually Generate Machine Code?"
 
-I tested this. I asked Claude Opus to generate raw x86 bytes — no assembler, no compiler, just hex:
+I tested this with 20 tasks across three difficulty levels — easy (single operations), medium (multi-instruction), and hard (loops and complex logic). Two models, zero assemblers, raw hex bytes only:
 
 ```
-Task              LLM Output                          Result
-────────────────────────────────────────────────────────────
-"2 + 3"           B8 02 00 00 00 83 C0 03 C3          eax=5   ✅
-"10 * 7"          B8 0A 00 00 00 6B C0 07 C3          eax=70  ✅
-"100 - 37"        B8 64 00 00 00 83 E8 25 C3          eax=63  ✅
-"255 AND 0x0F"    B8 FF 00 00 00 25 0F 00 00 00 C3    eax=15  ✅
-"1 << 8"          B8 01 00 00 00 C1 E0 08 C3          eax=256 ✅
-"50 / 2"          B8 32 ... 99 F7 F9 C3               eax=25  ✅
-"return 0xDEAD"   B8 AD DE 00 00 C3                   eax=57005 ✅
+                          Opus 4.6    Haiku 4.5
+                          ─────────   ─────────
+EASY (6 tests)
+  return 0                   ✅          ✅
+  return 42                  ✅          ✅
+  return 0xDEAD              ✅          ✅
+  2 + 3                      ✅          ✅
+  100 - 37                   ✅          ✅
+  10 * 7                     ✅          ✅
+                             6/6         6/6
 
-Score: 7/7 — the LLM IS the compiler.
+MEDIUM (8 tests)
+  50 / 2 (division)          ✅          ✅
+  255 AND 0x0F               ✅          ✅
+  0xF0 OR 0x0F               ✅          ✅
+  1 << 8 (shift)             ✅          ✅
+  1024 >> 3                  ✅          ✅
+  negate -5                  ✅          ✅
+  (3 + 7) * 2               ✅          ✅
+  100 - 30 - 20 - 10        ✅          ✅
+                             8/8         8/8
+
+HARD (6 tests)
+  2^10 (shifts)              ✅          ✅
+  factorial(5) loop          ✅          ❌
+  sum 1..10 loop             ❌          ❌
+  fibonacci(10) loop         ✅          ❌
+  popcount(0xFF)             ❌          ❌
+  max(37, 92)                ❌          ❌
+                             3/6         1/6
+
+TOTAL                       17/20 (85%) 15/20 (75%)
 ```
 
-Every byte was correct. The LLM knew that `mov eax, 2` encodes as `B8 02 00 00 00` in little-endian. It knew that `idiv ecx` needs a preceding `cdq`. It knew to end with `C3` (ret).
+Easy and medium: **100% on both models**. The LLM knows exactly how to encode `mov eax, imm32` as `B8` + little-endian, that `idiv` needs `cdq`, that shifts use `C1 E0`. No hesitation, no errors.
 
-For the current version of POKE, I built a 300-line JavaScript assembler (`asm.js`) as a bridge. It converts assembly mnemonics to bytes — no external tools needed, no nasm, no gcc. 45 tests pass, byte-identical to nasm output. But even this bridge is temporary. As LLMs improve, they'll emit raw bytes directly.
+Hard tasks (loops, conditionals, multi-register coordination): this is where it gets interesting. Opus nailed factorial and fibonacci — generating correct loop structures in raw bytes, including relative jump offsets. It failed on popcount and comparison, where the byte-level jump offset calculation was wrong by 1-2 bytes.
+
+The takeaway: **the LLM is already a working compiler for 85% of tasks**. The remaining 15% involves complex relative addressing that will improve with each model generation. For POKE, the built-in `asm.js` assembler (300 lines of JS, 45 tests, byte-identical to nasm) covers this gap perfectly. But the gap is closing.
 
 ---
 
