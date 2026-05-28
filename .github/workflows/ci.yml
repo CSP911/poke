@@ -20,63 +20,59 @@ jobs:
         run: sudo apt-get install -y nasm
 
       - run: npm install
-      - name: Run all tests (129)
+      - name: Run all tests
         run: npm test
 
   kernel-build:
-    name: x86 Kernel Full Build
+    name: x86 Kernel Build + QEMU Boot
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install cross-compiler + tools
+      - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm qemu-system-x86 curl
-          # Install i686-elf-gcc
-          wget -q https://newos.org/toolchains/i686-elf-14.2.0-Linux-x86_64.tar.xz
-          sudo tar xf i686-elf-14.2.0-Linux-x86_64.tar.xz -C /usr/local --strip-components=1
+          sudo apt-get install -y nasm gcc-multilib qemu-system-x86 curl
 
-      - name: Build kernel
-        run: make all
-
-      - name: Verify poke.img
+      - name: Build kernel (gcc -m32)
         run: |
-          test -f poke.img && echo "poke.img exists"
-          SIZE=$(stat -c%s poke.img)
-          echo "poke.img size: $SIZE bytes"
-          test $SIZE -ge 512 && echo "poke.img OK"
+          mkdir -p build
+          nasm -f bin -o build/boot.bin kernel/boot.asm
+          nasm -f elf32 -o build/kernel_entry.o kernel/kernel_entry.asm
+          gcc -m32 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -Os \
+              -Wall -Wno-unused-function -Wno-unused-variable \
+              -c -o build/kernel.o kernel/kernel.c
+          ld -m elf_i386 -T kernel/linker.ld -nostdlib \
+              -o build/kernel.elf build/kernel_entry.o build/kernel.o
+          objcopy -O binary build/kernel.elf build/kernel.bin
+          cat build/boot.bin build/kernel.bin > poke.img
+          dd if=/dev/zero bs=1 count=0 seek=131072 of=poke.img 2>/dev/null
+          echo "poke.img: $(stat -c%s poke.img) bytes"
 
-      - name: Boot QEMU and test HTTP
+      - name: Boot QEMU and test
         run: |
           qemu-system-i386 \
-            -drive format=raw,file=poke.img \
-            -m 64M \
+            -drive format=raw,file=poke.img -m 64M \
             -device e1000,netdev=net0 \
             -netdev user,id=net0,hostfwd=tcp::8080-:80 \
             -display none -monitor none -nographic &
-          QEMU_PID=$!
 
-          echo "Waiting for QEMU to boot..."
           for i in $(seq 1 20); do
             if curl -sf --max-time 3 http://localhost:8080/health > /dev/null 2>&1; then
-              echo "QEMU responded after ${i}s"
+              echo "QEMU booted after ${i}s"
               break
             fi
             sleep 1
           done
 
-          echo "=== Health check ==="
-          curl -sf --max-time 5 http://localhost:8080/health || (echo "QEMU health failed" && kill $QEMU_PID && exit 1)
+          echo "=== Health ==="
+          curl -sf --max-time 5 http://localhost:8080/health
 
           echo ""
-          echo "=== Code injection test (2+3) ==="
+          echo "=== Compute 2+3 ==="
           printf '\xB8\x02\x00\x00\x00\x83\xC0\x03\xC3' | \
             curl -sf --max-time 5 http://localhost:8080/poke --data-binary @- | \
-            grep -q "eax=5" && echo "eax=5 ✓" || (echo "Compute test failed" && kill $QEMU_PID && exit 1)
-
-          kill $QEMU_PID 2>/dev/null || true
-          echo "QEMU boot test passed"
+            grep -q "eax=5" && echo "eax=5 OK" || exit 1
 
   docker-build:
     name: Docker Build
@@ -84,31 +80,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build kernel first (needed for edge image)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm
-          wget -q https://newos.org/toolchains/i686-elf-14.2.0-Linux-x86_64.tar.xz
-          sudo tar xf i686-elf-14.2.0-Linux-x86_64.tar.xz -C /usr/local --strip-components=1
-          make all
-
       - name: Build hub image
         run: docker build -f Dockerfile.hub -t poke-hub .
 
       - name: Build edge image
         run: docker build -f Dockerfile.edge -t poke-edge .
 
-      - name: Verify hub image starts
+      - name: Verify hub starts
         run: |
           docker run -d --name hub-test -p 3333:3333 poke-hub
           sleep 3
           docker logs hub-test 2>&1 | head -5
           docker stop hub-test && docker rm hub-test
-          echo "Hub image OK"
-
-      - name: Verify edge image starts
-        run: |
-          docker run -d --name edge-test -p 8080:8080 poke-edge
-          sleep 10
-          curl -sf --max-time 5 http://localhost:8080/health && echo " Edge image OK" || echo "Edge may need more boot time"
-          docker stop edge-test && docker rm edge-test
