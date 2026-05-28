@@ -62,8 +62,27 @@ async function compileAssembly(asm) {
   }
 }
 
-// ── ARM64 assembly compile ──
+// ── ARM64 assembly compile + safety scan ──
 async function compileAssemblyARM(asm) {
+  // Try built-in ARM assembler first
+  try {
+    const { assembleAndValidateARM } = require(path.join(__dirname, '..', 'asm_arm.js'))
+    const { binary, scan } = assembleAndValidateARM(asm)
+    if (scan.warnings.length > 0) {
+      scan.warnings.forEach(w => log.warn(`[arm-guard] ${w}`))
+    }
+    log.info(`[asm_arm.js] assembled ${binary.length} bytes (safe)`)
+    return binary
+  } catch (e) {
+    if (e.scan) {
+      e.scan.errors.forEach(err => log.error(`[arm-guard] BLOCKED: ${err}`))
+      log.error('[arm-guard] ARM assembly rejected by safety scanner')
+      return null
+    }
+    log.warn(`[asm_arm.js] failed: ${e.message}`)
+  }
+
+  // Fallback to aarch64-elf-as
   const tmpAsm = '/tmp/poke_arm.s'
   const tmpObj = '/tmp/poke_arm.o'
   const tmpBin = '/tmp/poke_arm.bin'
@@ -72,9 +91,20 @@ async function compileAssemblyARM(asm) {
   try {
     execSync(`aarch64-elf-as -o ${tmpObj} ${tmpAsm} 2>&1`)
     execSync(`aarch64-elf-objcopy -O binary ${tmpObj} ${tmpBin} 2>&1`)
-    return fs.readFileSync(tmpBin)
+    const bin = fs.readFileSync(tmpBin)
+
+    // Scan external assembler output too
+    const { scanBinaryARM } = require(path.join(__dirname, '..', 'asm_arm.js'))
+    const scan = scanBinaryARM(Array.from(bin))
+    if (!scan.safe) {
+      scan.errors.forEach(err => log.error(`[arm-guard] BLOCKED: ${err}`))
+      return null
+    }
+
+    log.info(`[aarch64-elf-as] compiled ${bin.length} bytes (safe)`)
+    return bin
   } catch (e) {
-    log.error(`[arm-as] ${e.message}`)
+    log.error(`[arm-as fallback] ${e.message}`)
     return null
   }
 }

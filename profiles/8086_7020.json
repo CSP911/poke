@@ -1,0 +1,30 @@
+{
+  "vendor_device": "8086:7020",
+  "name": "UHCI USB Controller",
+  "type": "usb",
+  "arch": "i386",
+  "bar4": {
+    "raw": 49185,
+    "isIO": true,
+    "address": "0xC020"
+  },
+  "registers": {
+    "USBSTS":   { "offset": "0x02", "desc": "USB Status Register" },
+    "PORTSC1":  { "offset": "0x10", "desc": "Port 1 Status/Control" }
+  },
+  "operations": [
+    {
+      "name": "read_usb_status",
+      "desc": "Read UHCI USB status register",
+      "asm": "BITS 32\nmov dx, 0xC022\nin ax, dx\nret",
+      "returns": "USB status in AX (bit 0 = USBINT, bit 1 = error, bit 5 = halted)"
+    },
+    {
+      "name": "read_usb_port1",
+      "desc": "Read UHCI USB port 1 status/control",
+      "asm": "BITS 32\nmov dx, 0xC030\nin ax, dx\nret",
+      "returns": "Port 1 status in AX (bit 0 = connected, bit 2 = enabled)"
+    }
+  ],
+  "discovered_at": "2026-05-27T12:00:00.000Z"
+}

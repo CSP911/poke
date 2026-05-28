@@ -1,0 +1,30 @@
+{
+  "vendor_device": "8086:2415",
+  "name": "AC97 Audio (Intel ICH)",
+  "type": "audio",
+  "arch": "i386",
+  "bar0": {
+    "raw": 49153,
+    "isIO": true,
+    "address": "0xC000"
+  },
+  "registers": {
+    "CODEC_ID":       { "offset": "0x7C", "desc": "Codec ID (vendor/device)" },
+    "MASTER_VOLUME":  { "offset": "0x02", "desc": "Master Volume" }
+  },
+  "operations": [
+    {
+      "name": "read_codec_id",
+      "desc": "Read AC97 codec vendor/device ID via NAM BAR0",
+      "asm": "BITS 32\nmov dx, 0xC07C\nin ax, dx\nret",
+      "returns": "Codec ID in AX"
+    },
+    {
+      "name": "read_master_volume",
+      "desc": "Read AC97 master volume register via NAM BAR0",
+      "asm": "BITS 32\nmov dx, 0xC002\nin ax, dx\nret",
+      "returns": "Master volume in AX (bits 5:0 = right, bits 13:8 = left, bit 15 = mute)"
+    }
+  ],
+  "discovered_at": "2026-05-27T12:00:00.000Z"
+}

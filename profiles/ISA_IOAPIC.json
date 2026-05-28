@@ -1,0 +1,25 @@
+{
+  "vendor_device": "ISA:0004",
+  "name": "I/O APIC",
+  "type": "interrupt",
+  "arch": "i386",
+  "mmio": {
+    "IOREGSEL": "0xFEC00000",
+    "IOWIN":    "0xFEC00010"
+  },
+  "operations": [
+    {
+      "name": "read_ioapic_id",
+      "desc": "Read I/O APIC ID register (index 0)",
+      "asm": "BITS 32\nmov ebx, 0xFEC00000\nmov dword [ebx], 0x00\nmov eax, [ebx + 0x10]\nret",
+      "returns": "IOAPIC ID register in EAX (bits 27:24 = APIC ID)"
+    },
+    {
+      "name": "read_ioapic_ver",
+      "desc": "Read I/O APIC version register (index 1)",
+      "asm": "BITS 32\nmov ebx, 0xFEC00000\nmov dword [ebx], 0x01\nmov eax, [ebx + 0x10]\nret",
+      "returns": "IOAPIC version in EAX (bits 7:0 = version, bits 23:16 = max redirection entries)"
+    }
+  ],
+  "discovered_at": "2026-05-27T12:00:00.000Z"
+}

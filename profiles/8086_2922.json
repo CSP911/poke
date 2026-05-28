@@ -1,0 +1,37 @@
+{
+  "vendor_device": "8086:2922",
+  "name": "AHCI/SATA Controller (ICH9)",
+  "type": "storage",
+  "arch": "i386",
+  "bar5": {
+    "raw": 4273479680,
+    "isIO": false,
+    "address": "0xFEBD0000"
+  },
+  "registers": {
+    "CAP":      { "offset": "0x00", "desc": "Host Capabilities" },
+    "VS":       { "offset": "0x10", "desc": "AHCI Version" },
+    "PI":       { "offset": "0x0C", "desc": "Ports Implemented" }
+  },
+  "operations": [
+    {
+      "name": "read_ahci_version",
+      "desc": "Read AHCI version register from ABAR",
+      "asm": "BITS 32\nmov ebx, 0xFEBD0000\nmov eax, [ebx + 0x10]\nret",
+      "returns": "AHCI version in EAX (high 16 = major, low 16 = minor)"
+    },
+    {
+      "name": "read_ahci_cap",
+      "desc": "Read AHCI host capabilities register",
+      "asm": "BITS 32\nmov ebx, 0xFEBD0000\nmov eax, [ebx + 0x00]\nret",
+      "returns": "Capabilities in EAX (bits 4:0 = num ports, bit 31 = 64-bit addressing)"
+    },
+    {
+      "name": "read_ahci_ports",
+      "desc": "Read AHCI ports implemented bitmask",
+      "asm": "BITS 32\nmov ebx, 0xFEBD0000\nmov eax, [ebx + 0x0C]\nret",
+      "returns": "Ports implemented bitmask in EAX (bit N = port N available)"
+    }
+  ],
+  "discovered_at": "2026-05-27T12:00:00.000Z"
+}

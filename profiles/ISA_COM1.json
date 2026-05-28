@@ -1,0 +1,25 @@
+{
+  "vendor_device": "ISA:0001",
+  "name": "Serial Port 16550 UART (COM1)",
+  "type": "serial",
+  "arch": "i386",
+  "registers": {
+    "LSR": { "offset": "0x3FD", "desc": "Line Status Register" },
+    "MSR": { "offset": "0x3FE", "desc": "Modem Status Register" }
+  },
+  "operations": [
+    {
+      "name": "read_serial_lsr",
+      "desc": "Read 16550 UART Line Status Register on COM1",
+      "asm": "BITS 32\nmov dx, 0x3FD\nin al, dx\nret",
+      "returns": "LSR in AL (bit 0 = data ready, bit 5 = THR empty, bit 6 = transmitter idle)"
+    },
+    {
+      "name": "read_serial_msr",
+      "desc": "Read 16550 UART Modem Status Register on COM1",
+      "asm": "BITS 32\nmov dx, 0x3FE\nin al, dx\nret",
+      "returns": "MSR in AL (bit 4 = CTS, bit 5 = DSR, bit 7 = DCD)"
+    }
+  ],
+  "discovered_at": "2026-05-27T12:00:00.000Z"
+}
