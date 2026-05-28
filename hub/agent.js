@@ -88,6 +88,42 @@ Example using SDK:
     },
   },
   {
+    name: 'parallel_execute',
+    description: `Execute the SAME assembly code on multiple edges simultaneously and collect all results.
+Use this for embarrassingly parallel tasks: split a computation into N parts, run each on a different edge.
+Returns an array of results from all edges.
+
+Example: split "sum 1 to 1000000" across 2 edges:
+  Edge 1 sums 1..500000, Edge 2 sums 500001..1000000, hub adds results.
+
+The asm_code is the SAME for all targets. Use the 'params' array to pass different parameters to each edge.
+Each param object has: target (edge ID), asm_code (x86 NASM or ARM64), arch (i386 or aarch64).`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        tasks: {
+          type: 'array',
+          description: 'Array of {target, asm_code, arch} objects to execute in parallel',
+          items: {
+            type: 'object',
+            properties: {
+              target: { type: 'string' },
+              asm_code: { type: 'string' },
+              arch: { type: 'string', description: 'i386 or aarch64 (default: i386)' },
+            },
+            required: ['target', 'asm_code'],
+          },
+        },
+      },
+      required: ['tasks'],
+    },
+  },
+  {
+    name: 'check_edge_load',
+    description: 'Check which edges are idle and available for work. Returns edge status with cpu_busy flag. Use this before parallel_execute to pick the best edges.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
     name: 'reply_text',
     description: 'Send a text reply back to the user. Use this for questions, explanations, or status updates.',
     input_schema: {
@@ -290,6 +326,75 @@ async function executeAgentTool(toolName, toolInput) {
     })
   }
 
+  if (toolName === 'parallel_execute') {
+    const tasks = toolInput.tasks || []
+    if (tasks.length === 0) return 'Error: no tasks provided'
+
+    log.info(`[parallel] launching ${tasks.length} tasks across edges`)
+    const startTime = Date.now()
+
+    const promises = tasks.map(async (task, i) => {
+      const node = nodes.get(task.target)
+      if (!node) return { target: task.target, error: 'edge not found' }
+
+      const arch = task.arch || node.arch || 'i386'
+      const taskStart = Date.now()
+
+      try {
+        let result
+        if (arch === 'aarch64') {
+          const bin = await compileAssemblyARM(task.asm_code)
+          if (!bin) return { target: task.target, error: 'ARM compilation failed' }
+          result = await pokeNodeARM(node.endpoint, bin)
+        } else {
+          const bin = await compileAssembly(task.asm_code)
+          if (!bin) return { target: task.target, error: 'x86 compilation failed' }
+          result = await pokeNode(node.endpoint, bin)
+        }
+
+        return {
+          target: task.target,
+          arch,
+          result,
+          ms: Date.now() - taskStart,
+        }
+      } catch (err) {
+        return { target: task.target, error: err.message, ms: Date.now() - taskStart }
+      }
+    })
+
+    const results = await Promise.all(promises)
+    const wallTime = Date.now() - startTime
+    const successful = results.filter(r => !r.error)
+    const failed = results.filter(r => r.error)
+
+    log.info(`[parallel] done: ${successful.length}/${tasks.length} succeeded in ${wallTime}ms`)
+
+    return JSON.stringify({
+      total: tasks.length,
+      succeeded: successful.length,
+      failed: failed.length,
+      wall_time_ms: wallTime,
+      results,
+    }, null, 2)
+  }
+
+  if (toolName === 'check_edge_load') {
+    const edgeStatus = []
+    for (const [id, node] of nodes) {
+      if (node.endpoint.startsWith('polling:')) continue  // skip mobile
+      edgeStatus.push({
+        node_id: id,
+        arch: node.arch,
+        status: node.status,
+        cpu_busy: node.health?.cpu_busy || false,
+        last_seen: node.last_seen,
+        available: node.status === 'alive' && !node.health?.cpu_busy,
+      })
+    }
+    return JSON.stringify(edgeStatus, null, 2)
+  }
+
   if (toolName === 'reply_text') {
     return toolInput.text
   }
@@ -327,15 +432,23 @@ Rules:
 - If code fails (compile error, wrong result), read the error, fix the code, and retry.
 - For questions/conversation: use reply_text.
 - For images: use draw_image with Node.js code.
-- For device interaction: check profiles first with list_profiles or read_profile, then execute.
+- For device interaction: check profiles first with list_devices, then call auto-generated tools.
 - Keep it concise. Finish as quickly as possible.
 - Respond in the same language as the user's command.
-- Max 5 tool calls per request.`
+- Max 7 tool calls per request.
+
+Distributed computing rules:
+- For large computations, use check_edge_load first to find available edges.
+- Split the task into independent parts and use parallel_execute to run them simultaneously.
+- Example: "sum 1 to 1 billion" with 2 edges → edge1 sums 1..500M, edge2 sums 500M+1..1B → add results.
+- Each parallel task gets its own assembly with different parameters (ranges, offsets, etc.).
+- After parallel_execute, combine the partial results (sum, max, min, average, etc.) and reply.
+- ALWAYS prefer parallel_execute over sequential execute_x86 calls when multiple edges are available and the task is decomposable.`
 
   const messages = [{ role: 'user', content: command }]
   const steps = []
   let finalResult = null
-  const MAX_TURNS = 5
+  const MAX_TURNS = 7
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await client.messages.create({
