@@ -1,13 +1,39 @@
-FROM ubuntu:22.04
+# Stage 1: Build kernel from source (no cross-compiler needed)
+FROM --platform=linux/amd64 ubuntu:22.04 AS builder
+
+RUN apt-get update && apt-get install -y \
+    nasm gcc binutils make \
+    --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY kernel/ ./kernel/
+COPY Makefile ./
+
+# Build using native gcc (x86_64 → i386 via -m32 workaround)
+# nasm handles 16-bit and 32-bit assembly directly
+# For the C kernel, we use a minimal approach:
+RUN mkdir -p build && \
+    nasm -f bin -o build/boot.bin kernel/boot.asm && \
+    nasm -f elf32 -o build/kernel_entry.o kernel/kernel_entry.asm && \
+    gcc -m32 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -Os \
+        -Wall -Wno-unused-function -Wno-unused-variable \
+        -c -o build/kernel.o kernel/kernel.c && \
+    ld -m elf_i386 -T kernel/linker.ld -nostdlib \
+        -o build/kernel.elf build/kernel_entry.o build/kernel.o && \
+    objcopy -O binary build/kernel.elf build/kernel.bin && \
+    cat build/boot.bin build/kernel.bin > poke.img && \
+    dd if=/dev/zero bs=1 count=0 seek=131072 of=poke.img 2>/dev/null
+
+# Stage 2: Runtime (QEMU only)
+FROM --platform=linux/amd64 ubuntu:22.04
 
 RUN apt-get update && \
     apt-get install -y qemu-system-x86 --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /poke
-
-# Pre-built kernel image (built locally with cross-compiler)
-COPY poke.img ./
+COPY --from=builder /build/poke.img ./
 
 EXPOSE 8080
 

@@ -1,11 +1,15 @@
 node_modules
 .env
 *.pem
+poke.img
 poke2.img
+build/
 *.o
 *.elf
 *.bin
-!poke.img
 .git
 debates
 scripts
+examples
+test
+docs
