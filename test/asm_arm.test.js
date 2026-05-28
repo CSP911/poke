@@ -101,6 +101,21 @@ expectBytes('mov x0, #10; mov x1, #7; mul x0, x0, x1; ret',
     0xD65F03C0                      // ret
   ])
 
+// madd x0, x1, x2, x3 → 0x9B000000 | (2<<16) | (3<<10) | (1<<5) | 0 = 0x9B020C20
+expectBytes('madd x0, x1, x2, x3',
+  'madd x0, x1, x2, x3\nret',
+  [0x9B020C20, 0xD65F03C0])
+
+// msub x0, x1, x2, x3 → 0x9B008000 | (2<<16) | (3<<10) | (1<<5) | 0 = 0x9B028C20
+expectBytes('msub x0, x1, x2, x3',
+  'msub x0, x1, x2, x3\nret',
+  [0x9B028C20, 0xD65F03C0])
+
+// madd with xzr as accumulator = mul
+expectBytes('madd x0, x1, x2, xzr (= mul)',
+  'madd x0, x1, x2, xzr\nret',
+  [0x9B027C20, 0xD65F03C0])
+
 // udiv x0, x1, x2 → 0x9AC00800 | (2 << 16) | (1 << 5) | 0 = 0x9AC20820
 expectBytes('udiv x0, x1, x2',
   'udiv x0, x1, x2\nret',

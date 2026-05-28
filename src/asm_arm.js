@@ -117,6 +117,34 @@ function assembleARM(source) {
       throw new Error(`Bad sub: "${raw}"`)
     }
 
+    // ── MADD xd, xn, xm, xa ──
+    if (op === 'madd') {
+      const rd = parseReg(parts[1])
+      const rn = parseReg(parts[2])
+      const rm = parseReg(parts[3])
+      const ra = parseReg(parts[4])
+      if (rd && rn && rm && ra) {
+        const sf = (rd.w) ? 0x1B000000 : 0x9B000000
+        buf.push((sf | (rm.n << 16) | (ra.n << 10) | (rn.n << 5) | rd.n) >>> 0)
+        continue
+      }
+      throw new Error(`Bad madd: "${raw}"`)
+    }
+
+    // ── MSUB xd, xn, xm, xa ──
+    if (op === 'msub') {
+      const rd = parseReg(parts[1])
+      const rn = parseReg(parts[2])
+      const rm = parseReg(parts[3])
+      const ra = parseReg(parts[4])
+      if (rd && rn && rm && ra) {
+        const sf = (rd.w) ? 0x1B008000 : 0x9B008000
+        buf.push((sf | (rm.n << 16) | (ra.n << 10) | (rn.n << 5) | rd.n) >>> 0)
+        continue
+      }
+      throw new Error(`Bad msub: "${raw}"`)
+    }
+
     // ── MUL ── (MADD xd, xn, xm, xzr)
     if (op === 'mul') {
       const rd = parseReg(parts[1])
