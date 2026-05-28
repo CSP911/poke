@@ -1,5 +1,5 @@
 {
-  "name": "@csp911/poke",
+  "name": "@orvian/poke",
   "version": "0.1.0",
   "description": "Protocol for Open Kernel Execution — inject and execute machine code on bare-metal devices via natural language",
   "main": "src/hub.js",
