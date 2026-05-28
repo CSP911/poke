@@ -8,10 +8,11 @@ WORKDIR /poke
 COPY package.json ./
 RUN npm install --production
 
-COPY hub.js asm.js mobile.html ./
+COPY src/ ./src/
 COPY hub/ ./hub/
+COPY web/ ./web/
 COPY profiles/ ./profiles/
 
 EXPOSE 3333
 
-CMD ["node", "hub.js"]
+CMD ["node", "src/hub.js"]

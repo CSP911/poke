@@ -226,7 +226,7 @@ async function handleRequest(req, res) {
   // GET / — mobile POKE edge web UI
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/mobile')) {
     res.setHeader('Content-Type', 'text/html')
-    res.end(require('fs').readFileSync(__dirname + '/../mobile.html', 'utf8'))
+    res.end(require('fs').readFileSync(__dirname + '/../web/mobile.html', 'utf8'))
     return
   }
 

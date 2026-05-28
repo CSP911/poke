@@ -6,7 +6,7 @@
  * Requires: nasm (for verification only — asm.js itself has zero deps)
  */
 
-const { assemble } = require('../asm.js')
+const { assemble } = require('../src/asm.js')
 const { execSync } = require('child_process')
 const fs = require('fs')
 
@@ -110,7 +110,7 @@ if (!hasNasm) console.log('(nasm not found — crash-test only, no byte verifica
 
 // ── Guard Rail Tests ──
 console.log('\n── Guard Rail Tests ──\n')
-const { scanBinary, assembleAndValidate } = require('../asm.js')
+const { scanBinary, assembleAndValidate } = require('../src/asm.js')
 let gPass = 0, gFail = 0
 
 function guardTest(name, fn, expectPass) {

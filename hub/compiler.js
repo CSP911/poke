@@ -9,7 +9,7 @@ const { log } = require('./logger')
 
 let _asmModule = null
 function getAsmModule() {
-  if (!_asmModule) _asmModule = require(path.join(__dirname, '..', 'asm.js'))
+  if (!_asmModule) _asmModule = require(path.join(__dirname, '..', 'src', 'asm.js'))
   return _asmModule
 }
 
@@ -66,7 +66,7 @@ async function compileAssembly(asm) {
 async function compileAssemblyARM(asm) {
   // Try built-in ARM assembler first
   try {
-    const { assembleAndValidateARM } = require(path.join(__dirname, '..', 'asm_arm.js'))
+    const { assembleAndValidateARM } = require(path.join(__dirname, '..', 'src', 'asm_arm.js'))
     const { binary, scan } = assembleAndValidateARM(asm)
     if (scan.warnings.length > 0) {
       scan.warnings.forEach(w => log.warn(`[arm-guard] ${w}`))
@@ -94,7 +94,7 @@ async function compileAssemblyARM(asm) {
     const bin = fs.readFileSync(tmpBin)
 
     // Scan external assembler output too
-    const { scanBinaryARM } = require(path.join(__dirname, '..', 'asm_arm.js'))
+    const { scanBinaryARM } = require(path.join(__dirname, '..', 'src', 'asm_arm.js'))
     const scan = scanBinaryARM(Array.from(bin))
     if (!scan.safe) {
       scan.errors.forEach(err => log.error(`[arm-guard] BLOCKED: ${err}`))

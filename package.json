@@ -2,9 +2,9 @@
   "name": "poke",
   "version": "0.1.0",
   "description": "Protocol for Open Kernel Execution — inject and execute machine code on bare-metal devices via natural language",
-  "main": "hub.js",
+  "main": "src/hub.js",
   "scripts": {
-    "start": "node hub.js",
+    "start": "node src/hub.js",
     "test": "node test/asm.test.js && node test/asm_arm.test.js && node test/hub.test.js"
   },
   "keywords": ["bare-metal", "os", "kernel", "hardware", "ai", "llm", "assembly", "iot", "edge-computing"],
