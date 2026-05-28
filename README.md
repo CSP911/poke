@@ -103,26 +103,30 @@ MCP gives AI hands in the software world. POKE gives AI hands in the physical wo
 
 ## Quick Start
 
-### Option 1: npm (hub only)
+> **Platform support:** Currently tested on **macOS** (Apple Silicon & Intel) and **Linux x86_64**. Windows users should use WSL2. Docker option works on any platform with Docker Desktop.
+
+### Option 1: npm — Hub only
+
+Starts the **hub (LLM agent server) only**. No bare-metal edge. Use this if you already have edge devices running, or just want to explore the hub API.
 
 ```bash
 # Install
 npm install -g @orvian/poke
 
-# Configure LLM API key
-echo "ANTHROPIC_API_KEY=your-key-here" > .env
-
-# Optional: protect hub with a secret token
-echo "HUB_SECRET=my-secret" >> .env
+# Configure LLM API key (required)
+# Get a key at https://console.anthropic.com → API Keys → Create Key
+echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
 
 # Start hub
 poke
 # → POKE Hub running on http://localhost:3333
 ```
 
-Get an API key at [console.anthropic.com](https://console.anthropic.com/) → API Keys → Create Key.
+> **Note:** Hub only — no edge devices are started. You can register external edges via `POST /enroll`, or use Option 2 for the full experience.
 
-### Option 2: Docker (hub + edge, recommended)
+### Option 2: Docker — Hub + Edge (recommended)
+
+Starts **everything**: bare-metal x86 kernel (compiled from source inside Docker), QEMU edge, hub, and auto-registration. Nothing to install except Docker.
 
 ```bash
 git clone https://github.com/CSP911/poke.git
@@ -130,33 +134,38 @@ cd poke
 
 # Configure (required)
 cp .env.example .env
-# Edit .env and add your Anthropic API key:
+# Edit .env — add your Anthropic API key:
 #   ANTHROPIC_API_KEY=sk-ant-your-key-here
 #   HUB_SECRET=optional-secret-for-auth
 
-# Start everything
+# Start everything (builds kernel from source automatically)
 docker compose up --build
 ```
 
-Three services start automatically:
-
-| Service | Port | Description |
+| Service | Port | What it does |
 |---------|------|-------------|
-| Edge | 8080 | Bare-metal x86 OS running in QEMU |
-| Hub | 3333 | LLM agent server |
-| Setup | — | Auto-registers edge with hub |
+| **Edge** | 8080 | Bare-metal x86 OS in QEMU (kernel built from source) |
+| **Hub** | 3333 | LLM agent server (connects to Claude API) |
+| **Setup** | — | Auto-registers edge with hub, then exits |
 
-### Option 3: Manual (full control)
+> **What happens:** Docker compiles the x86 kernel using `nasm` + `gcc -m32`, boots it in QEMU, starts the hub, and registers the edge — all from a fresh clone. No cross-compiler needed on your machine.
+
+### Option 3: Manual — Full control
+
+For developers who want to modify the kernel or run multiple edges. Requires **macOS or Linux x86_64**.
 
 ```bash
-# Prerequisites: nasm, i686-elf-gcc, qemu, node.js
+# Prerequisites
+# macOS:  brew install nasm qemu i686-elf-gcc
+# Ubuntu: apt install nasm qemu-system-x86 gcc-multilib
 
 # Build and start x86 edge
-make                    # Build kernel → poke.img
+make                    # Compile kernel → poke.img
 make run                # Start QEMU edge on port 8080
 
-# In another terminal: start hub
+# In another terminal: install deps + start hub
 npm install
+echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
 node src/hub.js         # Hub on port 3333
 
 # Register edge with hub
@@ -164,6 +173,8 @@ curl -X POST http://localhost:3333/enroll \
   -H 'Content-Type: application/json' \
   -d '{"node_id":"x86","endpoint":"http://localhost:8080","arch":"i386"}'
 ```
+
+> **What you get:** Hub + one x86 edge. You can start more edges on different ports, add ARM edges, or connect real hardware.
 
 ### Try it
 
