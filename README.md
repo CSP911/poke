@@ -176,25 +176,57 @@ curl -X POST http://localhost:3333/enroll \
 
 > **What you get:** Hub + one x86 edge. You can start more edges on different ports, add ARM edges, or connect real hardware.
 
-### Try it
+### Try it — natural language commands
+
+The `/relay` endpoint accepts any natural language. The LLM agent decides what to do — compute, read hardware, fetch APIs, or combine all of them.
 
 ```bash
-# Natural language → machine code → bare-metal execution
+# Math → LLM generates assembly → bare-metal CPU executes
 curl -X POST http://localhost:3333/relay \
   -H 'Content-Type: application/json' \
-  -d '{"from":"x86","command":"calculate 100 * 7"}'
+  -d '{"from":"x86-edge","command":"calculate 100 * 7"}'
 # → { "result": "eax=700" }
+
+# Hardware scan → LLM writes C program → compiles → injects → interprets
+curl -X POST http://localhost:3333/relay \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"x86-edge","command":"what hardware is connected to this machine?"}'
+# → "8 devices found: Intel NIC, QEMU VGA, VirtIO RNG..."
+
+# Device control → auto-generated tool from profile
+curl -X POST http://localhost:3333/relay \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"x86-edge","command":"read the network card MAC address"}'
+# → "MAC: 52:54:00:12:34:56"
+
+# External API + CPU compute in one command
+curl -X POST http://localhost:3333/relay \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"x86-edge","command":"get Seoul weather and convert temperature to Fahrenheit"}'
+# → agent fetches weather API, then runs (25*9/5)+32 on bare-metal CPU → "25°C = 77°F"
+
+# Sensor reading
+curl -X POST http://localhost:3333/relay \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"x86-edge","command":"read temperature from all sensors"}'
+# → reads PIT-based virtual sensors from each edge
+
+# General questions (no hardware needed)
+curl -X POST http://localhost:3333/relay \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"x86-edge","command":"what is POKE protocol?"}'
+# → LLM answers directly, no code execution
 ```
 
 ```bash
-# Direct machine code injection (no LLM)
+# Direct machine code injection (no LLM, raw bytes)
 printf '\xB8\x02\x00\x00\x00\x83\xC0\x03\xC3' | \
   curl http://localhost:8080/poke --data-binary @-
 # → eax=5  (mov eax,2; add eax,3; ret)
 ```
 
 ```bash
-# Voice UI in browser
+# Voice UI in browser (requires HTTPS for mobile)
 open http://localhost:3333
 # Tap the phone icon → speak → hear response
 ```
