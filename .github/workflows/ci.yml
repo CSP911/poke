@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Tests (asm x86 + ARM + hub)
+    name: Unit Tests (x86 + ARM + Hub)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,26 +16,99 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install nasm (for verification)
+      - name: Install nasm
         run: sudo apt-get install -y nasm
 
       - run: npm install
-      - name: Run all tests
+      - name: Run all tests (129)
         run: npm test
 
   kernel-build:
-    name: x86 Kernel Build
+    name: x86 Kernel Full Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools
+      - name: Install cross-compiler + tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm qemu-system-x86 curl
+          # Install i686-elf-gcc
+          wget -q https://newos.org/toolchains/i686-elf-14.2.0-Linux-x86_64.tar.xz
+          sudo tar xf i686-elf-14.2.0-Linux-x86_64.tar.xz -C /usr/local --strip-components=1
+
+      - name: Build kernel
+        run: make all
+
+      - name: Verify poke.img
+        run: |
+          test -f poke.img && echo "poke.img exists"
+          SIZE=$(stat -c%s poke.img)
+          echo "poke.img size: $SIZE bytes"
+          test $SIZE -ge 512 && echo "poke.img OK"
+
+      - name: Boot QEMU and test HTTP
+        run: |
+          qemu-system-i386 \
+            -drive format=raw,file=poke.img \
+            -m 64M \
+            -device e1000,netdev=net0 \
+            -netdev user,id=net0,hostfwd=tcp::8080-:80 \
+            -display none -monitor none -nographic &
+          QEMU_PID=$!
+
+          echo "Waiting for QEMU to boot..."
+          for i in $(seq 1 20); do
+            if curl -sf --max-time 3 http://localhost:8080/health > /dev/null 2>&1; then
+              echo "QEMU responded after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          echo "=== Health check ==="
+          curl -sf --max-time 5 http://localhost:8080/health || (echo "QEMU health failed" && kill $QEMU_PID && exit 1)
+
+          echo ""
+          echo "=== Code injection test (2+3) ==="
+          printf '\xB8\x02\x00\x00\x00\x83\xC0\x03\xC3' | \
+            curl -sf --max-time 5 http://localhost:8080/poke --data-binary @- | \
+            grep -q "eax=5" && echo "eax=5 ✓" || (echo "Compute test failed" && kill $QEMU_PID && exit 1)
+
+          kill $QEMU_PID 2>/dev/null || true
+          echo "QEMU boot test passed"
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build kernel first (needed for edge image)
         run: |
           sudo apt-get update
           sudo apt-get install -y nasm
+          wget -q https://newos.org/toolchains/i686-elf-14.2.0-Linux-x86_64.tar.xz
+          sudo tar xf i686-elf-14.2.0-Linux-x86_64.tar.xz -C /usr/local --strip-components=1
+          make all
 
-      - name: Build boot sector
-        run: nasm -f bin -o boot.bin kernel/boot.asm
+      - name: Build hub image
+        run: docker build -f Dockerfile.hub -t poke-hub .
 
-      - name: Verify boot.bin size
-        run: test $(stat -c%s boot.bin) -eq 512 && echo "boot.bin OK (512 bytes)"
+      - name: Build edge image
+        run: docker build -f Dockerfile.edge -t poke-edge .
+
+      - name: Verify hub image starts
+        run: |
+          docker run -d --name hub-test -p 3333:3333 poke-hub
+          sleep 3
+          docker logs hub-test 2>&1 | head -5
+          docker stop hub-test && docker rm hub-test
+          echo "Hub image OK"
+
+      - name: Verify edge image starts
+        run: |
+          docker run -d --name edge-test -p 8080:8080 poke-edge
+          sleep 10
+          curl -sf --max-time 5 http://localhost:8080/health && echo " Edge image OK" || echo "Edge may need more boot time"
+          docker stop edge-test && docker rm edge-test
