@@ -5,7 +5,7 @@
 const { log } = require('./logger')
 const { nodes, profiles } = require('./nodes')
 const { compileAssembly, compileAssemblyARM, runImageCode } = require('./compiler')
-const { pokeNode, pokeNodeARM, pokeNodeRaw } = require('./transport')
+const { pokeNode, pokeNodeARM, pokeNodeRaw, pokeRelay, streamToEdge } = require('./transport')
 
 // ── Base tools (always present) ──
 const BASE_TOOLS = [
@@ -122,6 +122,33 @@ Each param object has: target (edge ID), asm_code (x86 NASM or ARM64), arch (i38
     name: 'check_edge_load',
     description: 'Check which edges are idle and available for work. Returns edge status with cpu_busy flag. Use this before parallel_execute to pick the best edges.',
     input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'peer_execute',
+    description: `P2P: compile code and send from one edge to another. Hub acts as relay — compiles assembly, then sends the binary to the target edge. Use when one edge wants to trigger computation on another edge.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Source edge ID (who requested)' },
+        to: { type: 'string', description: 'Target edge ID (who executes)' },
+        asm_code: { type: 'string', description: 'Assembly code to compile and send' },
+      },
+      required: ['from', 'to', 'asm_code'],
+    },
+  },
+  {
+    name: 'stream_animation',
+    description: `Stream a series of image frames to an edge display. Generates frames using Node.js code, then streams them as FRM packets. The JS code must export a function generateFrames(frameCount) that returns an array of {width, height, pixels: Buffer(w*h*3 RGB)}.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge to stream to' },
+        js_code: { type: 'string', description: 'Node.js code that exports generateFrames(n)' },
+        frame_count: { type: 'number', description: 'Number of frames (default 30)' },
+        fps: { type: 'number', description: 'Frames per second (default 10)' },
+      },
+      required: ['target', 'js_code'],
+    },
   },
   {
     name: 'reply_text',
@@ -395,6 +422,71 @@ async function executeAgentTool(toolName, toolInput) {
     return JSON.stringify(edgeStatus, null, 2)
   }
 
+  if (toolName === 'peer_execute') {
+    const fromNode = nodes.get(toolInput.from)
+    const toNode = nodes.get(toolInput.to)
+    if (!fromNode) return `Error: source edge "${toolInput.from}" not found`
+    if (!toNode) return `Error: target edge "${toolInput.to}" not found`
+
+    const arch = toNode.arch || 'i386'
+    try {
+      let bin
+      if (arch === 'aarch64') {
+        bin = await compileAssemblyARM(toolInput.asm_code)
+      } else {
+        bin = await compileAssembly(toolInput.asm_code)
+      }
+      if (!bin) return 'Error: compilation failed'
+
+      const result = await pokeRelay(fromNode.endpoint, toNode.endpoint, bin, arch)
+      return `P2P ${toolInput.from} → ${toolInput.to}: ${result}`
+    } catch (err) {
+      return `P2P error: ${err.message}`
+    }
+  }
+
+  if (toolName === 'stream_animation') {
+    const node = nodes.get(toolInput.target)
+    if (!node) return `Error: edge "${toolInput.target}" not found`
+
+    const fs = require('fs')
+    const { execSync } = require('child_process')
+    const frameCount = toolInput.frame_count || 30
+    const fps = toolInput.fps || 10
+
+    // Generate frames using Node.js code
+    const tmpFile = '/tmp/poke_stream_gen.js'
+    const wrapped = toolInput.js_code + `
+;(function() {
+  const frames = generateFrames(${frameCount});
+  const out = frames.map(f => ({
+    width: f.width, height: f.height,
+    pixels: f.pixels.toString('base64')
+  }));
+  process.stdout.write(JSON.stringify(out));
+})();`
+
+    fs.writeFileSync(tmpFile, wrapped)
+
+    try {
+      const result = execSync(`node ${tmpFile}`, { timeout: 10000, maxBuffer: 50 * 1024 * 1024 })
+      const framesData = JSON.parse(result.toString())
+
+      const frames = framesData.map(f => ({
+        width: f.width,
+        height: f.height,
+        pixels: Buffer.from(f.pixels, 'base64'),
+      }))
+
+      log.info(`[stream] generated ${frames.length} frames, streaming at ${fps}fps`)
+
+      const streamResult = await streamToEdge(node.endpoint, frames, fps)
+      return JSON.stringify(streamResult)
+    } catch (err) {
+      return `Stream error: ${err.message}`
+    }
+  }
+
   if (toolName === 'reply_text') {
     return toolInput.text
   }
@@ -443,7 +535,15 @@ Distributed computing rules:
 - Example: "sum 1 to 1 billion" with 2 edges → edge1 sums 1..500M, edge2 sums 500M+1..1B → add results.
 - Each parallel task gets its own assembly with different parameters (ranges, offsets, etc.).
 - After parallel_execute, combine the partial results (sum, max, min, average, etc.) and reply.
-- ALWAYS prefer parallel_execute over sequential execute_x86 calls when multiple edges are available and the task is decomposable.`
+- ALWAYS prefer parallel_execute over sequential execute_x86 calls when multiple edges are available and the task is decomposable.
+
+P2P rules:
+- Use peer_execute when one edge needs to trigger computation on another edge.
+- Hub compiles the code and relays the binary — edges don't need to compile.
+
+Streaming rules:
+- Use stream_animation to send animated frames to an edge display.
+- The JS code must export generateFrames(n) returning [{width, height, pixels: Buffer}].`
 
   const messages = [{ role: 'user', content: command }]
   const steps = []

@@ -127,9 +127,62 @@ function pokeNodeARM(endpoint, machineCode) {
   })
 }
 
+// ── P2P: relay code from one edge to another (edge → hub → edge) ──
+// Hub compiles and sends on behalf of the source edge
+function pokeRelay(fromEndpoint, toEndpoint, machineCode, arch) {
+  log.info(`[p2p] relaying ${machineCode.length}B: ${fromEndpoint} → ${toEndpoint}`)
+  if (arch === 'aarch64') {
+    return pokeNodeARM(toEndpoint, machineCode)
+  }
+  return pokeNode(toEndpoint, machineCode)
+}
+
+// ── Stream frames to edge (raw TCP, FRM protocol) ──
+// Each frame: "FRM" + width(2 LE) + height(2 LE) + RGB pixels
+function streamToEdge(endpoint, frames, fps) {
+  return new Promise((resolve, reject) => {
+    const net = require('net')
+    const url = new URL('/poke', endpoint)
+    const delay = Math.floor(1000 / (fps || 10))
+
+    const sock = new net.Socket()
+    sock.connect(parseInt(url.port), url.hostname, async () => {
+      log.info(`[stream] connected to ${endpoint}, ${frames.length} frames at ${fps}fps`)
+
+      // Send STR header to enter stream mode
+      const header = 'POST /poke HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: chunked\r\n\r\nSTR'
+      sock.write(header)
+
+      for (let i = 0; i < frames.length; i++) {
+        const frame = frames[i]
+        // FRM + width(2 LE) + height(2 LE) + RGB pixels
+        const frmHeader = Buffer.alloc(7)
+        frmHeader[0] = 0x46; frmHeader[1] = 0x52; frmHeader[2] = 0x4D // "FRM"
+        frmHeader.writeUInt16LE(frame.width, 3)
+        frmHeader.writeUInt16LE(frame.height, 5)
+
+        const packet = Buffer.concat([frmHeader, frame.pixels])
+        sock.write(packet)
+
+        if (i < frames.length - 1) {
+          await new Promise(r => setTimeout(r, delay))
+        }
+      }
+
+      sock.end()
+      resolve({ frames_sent: frames.length, fps })
+    })
+
+    sock.on('error', e => reject(new PokeTransportError('stream error: ' + e.message, 'STREAM_ERROR')))
+    setTimeout(() => { sock.destroy(); resolve({ frames_sent: 0, error: 'timeout' }) }, 30000)
+  })
+}
+
 module.exports = {
   pokeNode,
   pokeNodeARM,
   pokeNodeRaw,
+  pokeRelay,
+  streamToEdge,
   PokeTransportError,
 }

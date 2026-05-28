@@ -28,12 +28,12 @@
 ## In Progress
 
 ### Infrastructure
-- [ ] CI 강화: QEMU 부팅 테스트, Docker 빌드 테스트 in GitHub Actions
-- [ ] npm 패키지 배포: `npx poke`로 허브 실행
+- [x] CI 강화: QEMU 부팅 테스트, Docker 빌드 테스트 in GitHub Actions
+- [x] npm 패키지 배포: `npx @orvian/poke`
 
 ### Protocol
-- [ ] 엣지 간 P2P 직접 통신 (허브 없이)
-- [ ] 바이너리 스트리밍 (연속 프레임 업데이트, 실시간 애니메이션)
+- [x] 엣지 간 P2P 통신 (peer_execute: hub가 컴파일 + 릴레이)
+- [x] 바이너리 스트리밍 (stream_animation: FRM 프로토콜, 연속 프레임)
 
 ### AI
 - [ ] 멀티모달: 카메라/이미지 입력 → LLM 분석 → 하드웨어 반응
