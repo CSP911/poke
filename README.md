@@ -1,7 +1,10 @@
 <p align="center">
   <h1 align="center">POKE</h1>
   <p align="center"><strong>Protocol for Open Kernel Execution</strong></p>
+  <p align="center">by <strong>Orvian</strong> — from Orbit and Via, the path that carries intelligence into machines.</p>
   <p align="center">
+    <a href="https://www.npmjs.com/package/@orvian/poke"><img src="https://img.shields.io/npm/v/@orvian/poke" alt="npm"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="license"></a>
     <a href="#quick-start">Quick Start</a> &middot;
     <a href="#why-poke-exists">Why</a> &middot;
     <a href="#architecture">Architecture</a> &middot;
@@ -100,17 +103,42 @@ MCP gives AI hands in the software world. POKE gives AI hands in the physical wo
 
 ## Quick Start
 
-### Docker (recommended)
+### Option 1: npm (hub only)
+
+```bash
+# Install
+npm install -g @orvian/poke
+
+# Configure LLM API key
+echo "ANTHROPIC_API_KEY=your-key-here" > .env
+
+# Optional: protect hub with a secret token
+echo "HUB_SECRET=my-secret" >> .env
+
+# Start hub
+poke
+# → POKE Hub running on http://localhost:3333
+```
+
+Get an API key at [console.anthropic.com](https://console.anthropic.com/) → API Keys → Create Key.
+
+### Option 2: Docker (hub + edge, recommended)
 
 ```bash
 git clone https://github.com/CSP911/poke.git
 cd poke
-echo "ANTHROPIC_API_KEY=your-key-here" > .env
 
+# Configure (required)
+cp .env.example .env
+# Edit .env and add your Anthropic API key:
+#   ANTHROPIC_API_KEY=sk-ant-your-key-here
+#   HUB_SECRET=optional-secret-for-auth
+
+# Start everything
 docker compose up --build
 ```
 
-That's it. Three services start automatically:
+Three services start automatically:
 
 | Service | Port | Description |
 |---------|------|-------------|
@@ -118,14 +146,32 @@ That's it. Three services start automatically:
 | Hub | 3333 | LLM agent server |
 | Setup | — | Auto-registers edge with hub |
 
+### Option 3: Manual (full control)
+
+```bash
+# Prerequisites: nasm, i686-elf-gcc, qemu, node.js
+
+# Build and start x86 edge
+make                    # Build kernel → poke.img
+make run                # Start QEMU edge on port 8080
+
+# In another terminal: start hub
+npm install
+node src/hub.js         # Hub on port 3333
+
+# Register edge with hub
+curl -X POST http://localhost:3333/enroll \
+  -H 'Content-Type: application/json' \
+  -d '{"node_id":"x86","endpoint":"http://localhost:8080","arch":"i386"}'
+```
+
 ### Try it
 
 ```bash
 # Natural language → machine code → bare-metal execution
 curl -X POST http://localhost:3333/relay \
   -H 'Content-Type: application/json' \
-  -d '{"from":"x86-edge","command":"calculate 100 * 7"}'
-
+  -d '{"from":"x86","command":"calculate 100 * 7"}'
 # → { "result": "eax=700" }
 ```
 
@@ -133,29 +179,24 @@ curl -X POST http://localhost:3333/relay \
 # Direct machine code injection (no LLM)
 printf '\xB8\x02\x00\x00\x00\x83\xC0\x03\xC3' | \
   curl http://localhost:8080/poke --data-binary @-
-
 # → eax=5  (mov eax,2; add eax,3; ret)
 ```
 
 ```bash
-# Open voice UI in browser
+# Voice UI in browser
 open http://localhost:3333
 # Tap the phone icon → speak → hear response
 ```
 
-### Manual Setup
+### Configuration
 
-```bash
-# Prerequisites: nasm, i686-elf-gcc, qemu, node.js
-make                    # Build x86 kernel
-make run                # Start QEMU edge (port 8080)
-node hub.js             # Start hub (port 3333)
-
-# Register edge
-curl -X POST http://localhost:3333/enroll \
-  -H 'Content-Type: application/json' \
-  -d '{"node_id":"x86","endpoint":"http://localhost:8080","arch":"i386"}'
-```
+| Variable | Required | Description |
+|----------|:--------:|-------------|
+| `ANTHROPIC_API_KEY` | Yes | Claude API key ([get one here](https://console.anthropic.com/)) |
+| `HUB_SECRET` | No | Bearer token for hub authentication. If set, all POST endpoints require `Authorization: Bearer <token>` header |
+| `LOG_LEVEL` | No | `debug`, `info` (default), `warn`, `error` |
+| `PORT` | No | Hub port (default: 3333) |
+| `HTTPS` | No | Set to `1` to enable HTTPS on port 3334 (needs `key.pem` + `cert.pem`) |
 
 ---
 
