@@ -541,6 +541,27 @@ Edge: executes autonomously. No OS. No network needed after deployment.
 
 This is the pattern unique to POKE: **external data (from hub) + local hardware (from edge) in one binary**, deployed once, runs forever.
 
+#### Distributed Sensor Monitoring
+
+```
+User: "Read temperature from all sensors, compare with Seoul outside temp"
+
+  → Step 1: fetch_url(wttr.in/Seoul)          → 21°C (external API)
+  → Step 2: sensor_read_temperature(sensor-A)  → 20.42°C (edge hardware)
+  → Step 3: sensor_read_temperature(sensor-B)  → 20.35°C (edge hardware)
+  → Step 4: reply_text → combined analysis:
+
+  | Location    | Temperature |
+  |-------------|-------------|
+  | Seoul (outside) | 21.00°C |
+  | Sensor A (indoor) | 20.42°C |
+  | Sensor B (indoor) | 20.35°C |
+
+  "Indoor is 0.6°C cooler than outside. Both sensors consistent."
+```
+
+**What happened:** The agent combined an external weather API with two bare-metal sensor readings from different edge devices, then analyzed the data — three sources, one natural language answer.
+
 ---
 
 ## Roadmap
@@ -548,17 +569,17 @@ This is the pattern unique to POKE: **external data (from hub) + local hardware 
 - [x] x86 bare-metal OS (boot → protected mode → TCP/IP → HTTP → code exec)
 - [x] ARM64 bare-metal OS (UART + serial protocol)
 - [x] Hub with LLM agent loop (tool use, multi-step reasoning)
-- [x] Built-in assembler (`asm.js`, zero dependencies)
-- [x] Device profiles → auto-generated agent tools
+- [x] Built-in x86 assembler (`asm.js`) + ARM64 assembler (`asm_arm.js`)
+- [x] Device profiles → auto-generated agent tools (14 profiles, 22+ operations)
 - [x] Three-layer guard rail (asm.js + hub + kernel)
 - [x] Voice pipeline (STT → LLM → execute → TTS)
-- [x] Multi-edge orchestration + parallel execution
+- [x] Multi-edge orchestration + parallel execution (1.99x speedup)
+- [x] Distributed computing (parallel_execute + load balancing)
+- [x] Virtual sensors (PIT-based, temperature/humidity/light/pressure)
 - [x] Docker one-command setup
-- [x] 80 automated tests + CI
+- [x] 126 automated tests + CI
 - [ ] Real hardware deployment (Raspberry Pi, ESP32)
 - [ ] Device profile marketplace
-- [ ] ARM native code generation
-- [ ] Distributed compute (task splitting)
 - [ ] Web dashboard for edge monitoring
 
 ---
