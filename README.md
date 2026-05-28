@@ -365,12 +365,11 @@ Serial (ARM):
 
 ```
 poke/
-├── kernel.c              x86 bare-metal kernel
-│                         (boot → TCP/IP → HTTP → code injection)
-├── boot.asm              Bootloader (Real Mode → Protected Mode)
-├── kernel_entry.asm      BSS init + C entry point
-├── linker.ld             Linker script
-├── Makefile              Build + QEMU launch
+├── kernel/               x86 bare-metal kernel
+│   ├── kernel.c          TCP/IP + HTTP + code injection + keyboard ring buffer
+│   ├── boot.asm          Bootloader (Real Mode → Protected Mode)
+│   ├── kernel_entry.asm  BSS init + C entry point
+│   └── linker.ld         Linker script
 │
 ├── arm/                  ARM64 bare-metal kernel
 │   ├── kernel.c          UART + serial protocol + audio
@@ -387,12 +386,15 @@ poke/
 │   ├── nodes.js          Node registry + device profiles
 │   └── logger.js         Structured logging
 │
-├── asm.js                Built-in x86 assembler (replaces nasm)
-│                         Zero external dependencies
-│
+├── asm.js                Built-in x86 assembler (zero deps)
+├── asm_arm.js            Built-in ARM64 assembler (zero deps)
 ├── mobile.html           Browser edge (voice UI + canvas)
-├── profiles/             Device profile database
+├── profiles/             Device profile database (14 profiles)
 │
+├── test/                 Automated tests (npm test)
+├── examples/             Demo scripts (voice, parallel, sensors, etc.)
+│
+├── Makefile              Build x86 kernel + QEMU launch
 ├── Dockerfile.hub        Hub container
 ├── Dockerfile.edge       Edge container (QEMU)
 ├── docker-compose.yml    One-command startup

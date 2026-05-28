@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  asm-test:
-    name: Mini Assembler Tests
+  test:
+    name: Tests (asm x86 + ARM + hub)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,22 +19,9 @@ jobs:
       - name: Install nasm (for verification)
         run: sudo apt-get install -y nasm
 
-      - name: Run asm.js tests
-        run: node test/asm.test.js
-
-  hub-test:
-    name: Hub Lint + Load
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
       - run: npm install
-      - name: Verify hub loads without error
-        run: node -e "require('./hub.js'); setTimeout(() => process.exit(0), 2000)" || true
-      - name: Verify asm.js loads
-        run: node -e "const {assemble} = require('./asm.js'); console.log('asm.js OK')"
+      - name: Run all tests
+        run: npm test
 
   kernel-build:
     name: x86 Kernel Build
@@ -42,13 +29,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install cross-compiler
+      - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm gcc-multilib
+          sudo apt-get install -y nasm
 
       - name: Build boot sector
-        run: nasm -f bin -o boot.bin boot.asm
+        run: nasm -f bin -o boot.bin kernel/boot.asm
 
       - name: Verify boot.bin size
         run: test $(stat -c%s boot.bin) -eq 512 && echo "boot.bin OK (512 bytes)"
