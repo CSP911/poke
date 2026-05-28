@@ -1,0 +1,26 @@
+graph TB
+    User["🗣 Human / Voice"]
+
+    subgraph Hub["Hub (Node.js + LLM)"]
+        Agent["Agent Loop\nobserve → think → act → check"]
+        Tools["Tools\nexecute_x86 | execute_arm\nfetch_url | draw_image"]
+        ASM["asm.js\nBuilt-in Assembler\n300 lines, zero deps"]
+        Guard["Guard Rail\nScans for dangerous opcodes\nBlocks before sending"]
+        Agent --> Tools
+        Tools --> ASM
+        ASM --> Guard
+    end
+
+    subgraph Edges["Edge Devices (bare metal)"]
+        X86["🖥 x86 Edge\nTCP/IP + HTTP\nQEMU / Real HW"]
+        ARM["📟 ARM64 Edge\nUART Serial\nQEMU / RPi"]
+        Mobile["📱 Mobile Edge\nBrowser\nWeb Speech API"]
+    end
+
+    User -->|natural language| Hub
+    Guard -->|raw bytes| X86
+    Guard -->|raw bytes| ARM
+    Guard -->|image data| Mobile
+    X86 -->|"eax=result"| Hub
+    ARM -->|"x0=result"| Hub
+    Mobile -->|voice input| Hub

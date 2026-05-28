@@ -1,0 +1,16 @@
+graph LR
+    subgraph Traditional["Permanent Binary"]
+        direction LR
+        W["Write"] --> C["Compile"] --> I["Install"] --> S["Store on disk"] --> R["Run for months"]
+        R --> U["Update?"]
+        U --> C
+    end
+
+    subgraph Ephemeral["Ephemeral Binary (POKE)"]
+        direction LR
+        SP["Speak"] --> G["LLM generates"] --> IN["Inject"] --> EX["Execute"] --> D["Discard"]
+        D -.->|next request| SP
+    end
+
+    style Traditional fill:#ff634720,stroke:#ff6347
+    style Ephemeral fill:#4CAF5020,stroke:#4CAF50

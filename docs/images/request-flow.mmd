@@ -1,0 +1,34 @@
+sequenceDiagram
+    actor User
+    participant Hub as Hub (LLM Agent)
+    participant API as Weather API
+    participant ASM as asm.js + Guard Rail
+    participant E1 as x86 Edge #1
+    participant E2 as x86 Edge #2
+
+    User->>Hub: "Get Seoul temperature,<br/>convert to Fahrenheit on CPU,<br/>and check network card status"
+
+    Note over Hub: Agent Loop: Step 1
+
+    Hub->>API: GET wttr.in/Seoul
+    API-->>Hub: 25°C
+
+    Note over Hub: Agent Loop: Step 2
+
+    Hub->>Hub: LLM calls network_read_status()<br/>(auto-generated from device profile)
+    Hub->>ASM: assemble profile ASM
+    ASM-->>Hub: bytes [safe ✓]
+    Hub->>E1: POST /poke (read NIC register)
+    E1-->>Hub: eax=2148009859 → link UP
+
+    Note over Hub: Agent Loop: Step 3
+
+    Hub->>Hub: LLM generates Fahrenheit conversion:<br/>mov eax,25 → imul eax,9<br/>cdq → div 5 → add eax,32
+    Hub->>ASM: assemble + scan
+    ASM-->>Hub: bytes [safe ✓]
+    Hub->>E2: POST /poke (compute)
+    E2-->>Hub: eax=77
+
+    Note over Hub: Agent Loop: Step 4
+
+    Hub-->>User: Seoul: 25°C = 77°F<br/>NIC: link UP (e1000)

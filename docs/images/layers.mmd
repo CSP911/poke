@@ -1,0 +1,19 @@
+graph LR
+    subgraph Traditional["Traditional Stack"]
+        direction TB
+        H1["Human"] --> A1["App"]
+        A1 --> F1["Framework"]
+        F1 --> O1["OS"]
+        O1 --> D1["Driver"]
+        D1 --> HW1["Hardware"]
+    end
+
+    subgraph POKE["POKE"]
+        direction TB
+        H2["Human"] --> L2["LLM"]
+        L2 --> MC["Machine Code"]
+        MC --> HW2["Hardware"]
+    end
+
+    style Traditional fill:#ff634720,stroke:#ff6347
+    style POKE fill:#4CAF5020,stroke:#4CAF50
