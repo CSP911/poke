@@ -586,6 +586,80 @@ User: "Read temperature from all sensors, compare with Seoul outside temp"
 
 ---
 
+## Industry Targets
+
+POKE is most valuable where hardware is fragmented, legacy equipment is alive, and software maintenance costs are high.
+
+### Phase 1: Smart Farm & Smart Factory
+
+```
+Problem:
+  Factory: 10 PLCs, 5 CNCs, 50 sensors — each with different protocols
+           (Modbus, OPC-UA, PROFINET). Adding one machine = 6 months + integrator.
+  Farm:    Soil sensors, valves, fans, CO2 sensors — all different vendors.
+           Internet unreliable. Must work offline.
+
+POKE:
+  Attach one edge per device → profile auto-discovery
+  "Set conveyor speed to 120 RPM" → hub reads Modbus profile → generates register write
+  "If temperature > 30°C and humidity < 70%, turn on mist" → binary deployed, runs offline
+
+Value: Integration cost -90%. Legacy equipment modernized without replacement.
+```
+
+### Phase 2: Industrial Robotics
+
+```
+Problem:
+  FANUC, ABB, KUKA, Hyundai Robotics — each has its own language and IDE.
+  Replace one robot = rewrite all programs.
+  Vision + gripper + sensor integration is custom every time.
+
+POKE:
+  "Pick red parts from conveyor, move to line B" → hub generates robot commands
+  Switch robot brand? Change the profile, same commands work.
+  Camera → multimodal LLM → real-time motion adjustment
+
+Value: Vendor independence. One protocol for any robot.
+```
+
+### Phase 3: Building Automation
+
+```
+Problem:
+  HVAC + lighting + elevators + access control + fire safety
+  BACnet, KNX, LonWorks, Modbus — mixed protocols, $M+ to replace BMS.
+
+POKE:
+  Bridge into existing BMS → profile each subsystem
+  "If meeting room is empty, dim lights to 30%, reduce HVAC"
+  Hub integrates Google Calendar + occupancy sensors + HVAC control
+
+Value: 30% energy savings. No BMS replacement needed.
+```
+
+### Future: Autonomous Vehicles, Defense, Maritime
+
+```
+Automotive:  100+ ECUs on CAN bus → diagnostics & analysis (read-only first)
+Defense:     Closed networks, offline autonomy, minimal attack surface
+Maritime:    Engine + navigation + cargo — unreliable connectivity, onboard hub
+Mining:      Remote sites, hazardous environments, autonomous monitoring
+```
+
+### Industry Fit Matrix
+
+| Industry | HW Fragmentation | Legacy | Real-time | Offline | Market |
+|----------|:---:|:---:|:---:|:---:|:---:|
+| Smart Factory | ★★★★★ | ★★★★★ | ★★★★ | ★★★ | $300B |
+| Smart Farm | ★★★ | ★★ | ★★★ | ★★★★★ | $25B |
+| Robotics | ★★★★ | ★★★ | ★★★★★ | ★★ | $70B |
+| Building | ★★★★★ | ★★★★ | ★★★ | ★★ | $120B |
+| Medical | ★★★★ | ★★★★ | ★★ | ★★ | $500B |
+| Automotive | ★★★ | ★★ | ★★★★★ | ★★★ | $200B |
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The easiest way to start:
