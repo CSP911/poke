@@ -4,7 +4,7 @@ LD = i686-elf-ld
 OBJCOPY = i686-elf-objcopy
 QEMU = qemu-system-i386
 
-CFLAGS = -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -O0 -Wall -Wno-unused-function -Wno-unused-variable
+CFLAGS = -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -Os -Wall -Wno-unused-function -Wno-unused-variable
 LDFLAGS = -T linker.ld -nostdlib
 
 all: poke.img

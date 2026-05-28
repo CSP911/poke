@@ -140,11 +140,33 @@ static const char scancode_table[58] = {
     0, 0, 0, ' '
 };
 
+/* Keyboard ring buffer — kernel pushes scancodes, injected code reads.
+ * Injected code accesses via result_buf: after execution,
+ * kernel copies latest scancode count + last key into result. */
+#define KB_BUF_SIZE  256
+
+static volatile u32 kb_write_idx = 0;
+static volatile u8  kb_ring[KB_BUF_SIZE];
+
+static void kb_buf_init(void) {
+    kb_write_idx = 0;
+    for (int i = 0; i < KB_BUF_SIZE; i++) kb_ring[i] = 0;
+}
+
+static void __attribute__((noinline)) kb_buf_push(u8 scancode) {
+    kb_ring[kb_write_idx % KB_BUF_SIZE] = scancode;
+    kb_write_idx++;
+}
+
 char kb_read(void) {
     u8 status = inb(0x64);
     if (!(status & 1)) return 0;
 
     u8 code = inb(0x60);
+
+    /* Always push raw scancode to ring buffer (for injected code) */
+    kb_buf_push(code);
+
     if (code & 0x80) return 0; /* release */
     if (code >= 58) return 0;
     return scancode_table[code];
@@ -1005,6 +1027,23 @@ void handle_http(void) {
     serial_hex(body_start);
     serial_print("\n");
 
+    /* Check for GET /key — return last scancode */
+    for (int i = 0; i < http_buf_len - 3; i++) {
+        if (http_buf[i]=='/' && http_buf[i+1]=='k' && http_buf[i+2]=='e' && http_buf[i+3]=='y') {
+            volatile u32 wi = kb_write_idx;  /* force re-read from memory */
+            u8 last = (wi > 0) ? kb_ring[(wi - 1) % KB_BUF_SIZE] : 0;
+            u8 kr[80]; int kl = 0;
+            const char *kh = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n";
+            while (*kh) kr[kl++] = *kh++;
+            kh = "key="; while (*kh) kr[kl++] = *kh++;
+            if (last == 0) { kr[kl++] = '0'; }
+            else { char d[4]; int di=0; u32 lv=last; while(lv>0){d[di++]='0'+lv%10;lv/=10;} while(di>0)kr[kl++]=d[--di]; }
+            kr[kl++] = '\n';
+            tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, kr, kl);
+            return;
+        }
+    }
+
     /* Check for GET /health */
     int is_health = 0;
     for (int i = 0; i < http_buf_len - 6; i++) {
@@ -1344,6 +1383,7 @@ void shell_exec(void) {
 void kernel_main(void) {
     serial_init();
     serial_print("[POKE] kernel_main start\n");
+    kb_buf_init();
 
     /* Force IP — static initializer may not work */
     my_ip[0] = 10; my_ip[1] = 0; my_ip[2] = 2; my_ip[3] = 15;
