@@ -1093,9 +1093,11 @@ void handle_http(void) {
     result_len = 0;
     u32 ret_eax = 0;
 
-    /* Guard: reject HLT (0xF4) and CLI (0xFA) at any position */
-    for (int gi = 0; gi < code_len && has_ret; gi++) {
-        if (code_buf[gi] == 0xF4 || code_buf[gi] == 0xFA) { has_ret = 0; break; }
+    /* Guard: reject if first byte is HLT (0xF4) or CLI (0xFA).
+     * Full byte scan has false positives (jump offsets contain 0xFA).
+     * Hub-side asm.js guard does proper instruction-level scanning. */
+    if (has_ret && code_len > 0 && (code_buf[0] == 0xF4 || code_buf[0] == 0xFA)) {
+        has_ret = 0;
     }
 
     if (has_ret) {
