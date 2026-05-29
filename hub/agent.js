@@ -3,9 +3,12 @@
  */
 
 const { log } = require('./logger')
-const { nodes, profiles } = require('./nodes')
+const { nodes, profiles, loadProfiles } = require('./nodes')
 const { compileAssembly, compileAssemblyARM, runImageCode } = require('./compiler')
 const { pokeNode, pokeNodeARM, pokeNodeRaw, pokeRelay, streamToEdge } = require('./transport')
+
+// ── Active monitors (Task 2: Autonomous Agent) ──
+const activeMonitors = new Map()
 
 // ── Base tools (always present) ──
 const BASE_TOOLS = [
@@ -157,6 +160,64 @@ Each param object has: target (edge ID), asm_code (x86 NASM or ARM64), arch (i38
       type: 'object',
       properties: { text: { type: 'string' } },
       required: ['text'],
+    },
+  },
+  // ── Task 1: Multimodal — image input → LLM analysis → hardware reaction ──
+  {
+    name: 'analyze_image',
+    description: 'Analyze an image using Claude vision API. Accepts an image URL or base64-encoded image data with an instruction. Returns analysis text describing the image content and suggested hardware actions.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        image_url: { type: 'string', description: 'URL of the image to analyze' },
+        image_base64: { type: 'string', description: 'Base64-encoded image data (PNG/JPEG)' },
+        instruction: { type: 'string', description: 'What to analyze or do with the image (default: describe and suggest hardware action)' },
+        target: { type: 'string', description: 'Edge node to act on based on analysis' },
+      },
+      required: [],
+    },
+  },
+  // ── Task 2: Autonomous Agent — deploy condition-checking monitors ──
+  {
+    name: 'deploy_autonomous',
+    description: `Deploy an autonomous monitor on an edge. Generates a C binary that checks a hardware condition. The hub periodically re-executes the binary and reports results. Returns monitor ID.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID to monitor' },
+        condition: { type: 'string', description: 'Condition to check (e.g. "temperature above 80C")' },
+        action: { type: 'string', description: 'Action description when condition is met (e.g. "alert user")' },
+        check_interval_ms: { type: 'number', description: 'Check interval in milliseconds (default: 5000)' },
+      },
+      required: ['target', 'condition', 'action'],
+    },
+  },
+  {
+    name: 'list_monitors',
+    description: 'List all active autonomous monitors with their status and last check results.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'stop_monitor',
+    description: 'Stop an active autonomous monitor by its ID.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        monitor_id: { type: 'string', description: 'Monitor ID to stop' },
+      },
+      required: ['monitor_id'],
+    },
+  },
+  // ── Task 3: Auto Profile Generation ──
+  {
+    name: 'auto_profile',
+    description: `Automatically scan the PCI bus on a target edge, probe each discovered device, generate device profiles with operations, save them to profiles/ directory, and reload so new tools are immediately available.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID to scan (default: x86-qemu)' },
+      },
+      required: [],
     },
   },
 ]
@@ -487,6 +548,357 @@ async function executeAgentTool(toolName, toolInput) {
     }
   }
 
+  // ── Task 1: analyze_image ──
+  if (toolName === 'analyze_image') {
+    try {
+      const Anthropic = require('@anthropic-ai/sdk')
+      const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+      let imageContent = null
+
+      if (toolInput.image_base64) {
+        // Direct base64 data
+        const mediaType = detectMediaType(toolInput.image_base64)
+        imageContent = {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mediaType,
+            data: toolInput.image_base64,
+          },
+        }
+      } else if (toolInput.image_url) {
+        // Fetch image from URL
+        const imageData = await fetchImageAsBase64(toolInput.image_url)
+        if (!imageData) return 'Error: failed to fetch image from URL'
+        imageContent = {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: imageData.mediaType,
+            data: imageData.data,
+          },
+        }
+      } else {
+        return 'Error: provide either image_url or image_base64'
+      }
+
+      const instruction = toolInput.instruction || 'Describe this image and suggest what hardware action a POKE edge device should take based on what you see. Be specific about registers, I/O ports, or display actions.'
+
+      const msg = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            imageContent,
+            { type: 'text', text: instruction },
+          ],
+        }],
+      })
+
+      const analysis = msg.content[0].type === 'text' ? msg.content[0].text.trim() : 'No analysis generated'
+      log.info(`[analyze_image] analysis: ${analysis.slice(0, 100)}...`)
+      return `Image analysis:\n${analysis}`
+    } catch (err) {
+      log.error(`[analyze_image] error: ${err.message}`)
+      return `Error analyzing image: ${err.message}`
+    }
+  }
+
+  // ── Task 2: deploy_autonomous ──
+  if (toolName === 'deploy_autonomous') {
+    const target = toolInput.target
+    const node = nodes.get(target)
+    if (!node) return `Error: edge "${target}" not found`
+
+    const interval = toolInput.check_interval_ms || 5000
+    const monitorId = `mon_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+
+    // Generate monitoring C code using LLM
+    const Anthropic = require('@anthropic-ai/sdk')
+    const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const arch = node.arch || 'i386'
+
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      system: `You generate bare-metal C code for the POKE system. The code runs in freestanding mode (no libc).
+Entry: void _start(char *buf, int *len). Write results to buf, set *len = bytes written.
+
+Available SDK headers:
+- <poke/io.h> — u8/u16/u32, inb/outb/inl/outl, mmio_read32/write32, poke_delay
+- <poke/string.h> — poke_strlen, poke_memcpy, poke_memset, poke_strcmp, poke_strcpy, poke_strcat
+- <poke/format.h> — poke_itoa, poke_utoh, poke_btoh
+- <poke/pci.h> — pci_read, pci_vendor, pci_device, pci_bar0, pci_class, pci_scan
+
+Generate a monitoring check that:
+1. Reads the hardware state relevant to the condition
+2. Writes "CONDITION_MET:1" or "CONDITION_MET:0" to buf
+3. Optionally appends sensor data after a newline
+
+Output ONLY C code, no explanation.`,
+      messages: [{ role: 'user', content: `Condition to check: "${toolInput.condition}"\nAction when met: "${toolInput.action}"\nTarget architecture: ${arch}` }],
+    })
+
+    const cCode = msg.content[0].type === 'text'
+      ? msg.content[0].text.trim().replace(/^```\w*\n?/, '').replace(/\n?```$/, '').trim()
+      : null
+
+    if (!cCode) return 'Error: LLM failed to generate monitoring code'
+
+    log.info(`[deploy_autonomous] generated ${cCode.length} chars of C for monitor ${monitorId}`)
+
+    // Compile the code
+    const fs = require('fs')
+    const { execSync } = require('child_process')
+    const path = require('path')
+    const sdkInclude = path.join(__dirname, '..', 'sdk', 'include')
+    const tmpC = `/tmp/poke_monitor_${monitorId}.c`
+    const tmpObj = `/tmp/poke_monitor_${monitorId}.o`
+    const tmpBin = `/tmp/poke_monitor_${monitorId}.bin`
+
+    fs.writeFileSync(tmpC, cCode)
+
+    let bin
+    try {
+      if (arch === 'aarch64') {
+        execSync(`aarch64-elf-gcc -I${sdkInclude} -ffreestanding -nostdlib -fno-builtin -O1 -c -o ${tmpObj} ${tmpC} 2>&1`)
+        execSync(`aarch64-elf-objcopy -O binary -j .text ${tmpObj} ${tmpBin} 2>&1`)
+      } else {
+        execSync(`i686-elf-gcc -I${sdkInclude} -ffreestanding -nostdlib -fno-builtin -O1 -c -o ${tmpObj} ${tmpC} 2>&1`)
+        execSync(`i686-elf-objcopy -O binary -j .text ${tmpObj} ${tmpBin} 2>&1`)
+      }
+      bin = fs.readFileSync(tmpBin)
+    } catch (e) {
+      const stderr = e.stderr ? e.stderr.toString() : e.message
+      log.error(`[deploy_autonomous] compile error: ${stderr}`)
+      return `Error compiling monitor: ${stderr.slice(0, 500)}`
+    }
+
+    // Set up periodic re-execution
+    const monitor = {
+      id: monitorId,
+      target,
+      condition: toolInput.condition,
+      action: toolInput.action,
+      interval,
+      binary: bin,
+      arch,
+      created_at: new Date().toISOString(),
+      last_check: null,
+      last_result: null,
+      check_count: 0,
+      condition_met_count: 0,
+      timer: null,
+    }
+
+    // Deploy and check function
+    const checkFn = async () => {
+      try {
+        let result
+        if (arch === 'aarch64') {
+          result = await pokeNodeARM(node.endpoint, bin)
+        } else {
+          result = await pokeNode(node.endpoint, bin)
+        }
+        monitor.last_check = new Date().toISOString()
+        monitor.last_result = result
+        monitor.check_count++
+
+        if (result && result.includes('CONDITION_MET:1')) {
+          monitor.condition_met_count++
+          log.info(`[monitor:${monitorId}] CONDITION MET (${monitor.condition_met_count}x): ${toolInput.condition}`)
+        }
+      } catch (err) {
+        monitor.last_check = new Date().toISOString()
+        monitor.last_result = `Error: ${err.message}`
+        log.warn(`[monitor:${monitorId}] check failed: ${err.message}`)
+      }
+    }
+
+    // Run initial check
+    await checkFn()
+
+    // Set up periodic re-execution
+    monitor.timer = setInterval(checkFn, interval)
+    activeMonitors.set(monitorId, monitor)
+
+    log.info(`[deploy_autonomous] monitor ${monitorId} deployed, checking every ${interval}ms`)
+    return `Monitor deployed: ${monitorId}\nTarget: ${target}\nCondition: ${toolInput.condition}\nAction: ${toolInput.action}\nInterval: ${interval}ms\nBinary: ${bin.length} bytes\nInitial result: ${monitor.last_result}`
+  }
+
+  if (toolName === 'list_monitors') {
+    if (activeMonitors.size === 0) return 'No active monitors.'
+    const list = []
+    for (const [id, mon] of activeMonitors) {
+      list.push({
+        id,
+        target: mon.target,
+        condition: mon.condition,
+        action: mon.action,
+        interval_ms: mon.interval,
+        created_at: mon.created_at,
+        last_check: mon.last_check,
+        last_result: mon.last_result,
+        check_count: mon.check_count,
+        condition_met_count: mon.condition_met_count,
+      })
+    }
+    return JSON.stringify(list, null, 2)
+  }
+
+  if (toolName === 'stop_monitor') {
+    const monitorId = toolInput.monitor_id
+    const monitor = activeMonitors.get(monitorId)
+    if (!monitor) return `Error: monitor "${monitorId}" not found`
+    if (monitor.timer) clearInterval(monitor.timer)
+    activeMonitors.delete(monitorId)
+    log.info(`[monitor] stopped: ${monitorId}`)
+    return `Monitor ${monitorId} stopped. Was checking: "${monitor.condition}" (ran ${monitor.check_count} checks, condition met ${monitor.condition_met_count} times)`
+  }
+
+  // ── Task 3: auto_profile ──
+  if (toolName === 'auto_profile') {
+    const target = toolInput.target || 'x86-qemu'
+    const node = nodes.get(target)
+    if (!node) return `Error: edge "${target}" not found`
+    const arch = node.arch || 'i386'
+
+    if (arch !== 'i386') return 'Error: auto_profile currently supports x86 (i386) edges only (PCI config space uses I/O ports 0xCF8/0xCFC)'
+
+    const Anthropic = require('@anthropic-ai/sdk')
+    const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const fs = require('fs')
+    const path = require('path')
+
+    const PCI_VENDORS = {
+      '8086': 'Intel', '1234': 'QEMU', '1AF4': 'Red Hat (VirtIO)',
+      '10EC': 'Realtek', '14E4': 'Broadcom', '10DE': 'NVIDIA', '1002': 'AMD/ATI',
+    }
+    const PCI_DEVICES = {
+      '8086:100E': { name: 'Intel 82540EM (e1000)', type: 'network' },
+      '8086:2415': { name: 'Intel AC97 Audio', type: 'audio' },
+      '1234:1111': { name: 'QEMU stdvga', type: 'graphics' },
+      '1AF4:1000': { name: 'VirtIO Network', type: 'network' },
+      '1AF4:1005': { name: 'VirtIO RNG', type: 'rng' },
+    }
+
+    log.info(`[auto_profile] scanning PCI bus on ${target}...`)
+    const results = []
+
+    // Scan all 32 PCI slots
+    const discoveredDevices = []
+    for (let slot = 0; slot < 32; slot++) {
+      const addr = 0x80000000 | (slot << 11)
+      const asmCode = `BITS 32\nmov eax, ${addr}\nmov dx, 0xCF8\nout dx, eax\nmov dx, 0xCFC\nin eax, dx\nret`
+      try {
+        const bin = await compileAssembly(asmCode)
+        if (!bin) continue
+        const result = await pokeNode(node.endpoint, bin)
+        const match = result && result.match(/eax=(\d+)/)
+        if (!match) continue
+        const val = parseInt(match[1])
+        if ((val & 0xFFFF) === 0xFFFF) continue
+
+        const vendor = (val & 0xFFFF).toString(16).toUpperCase().padStart(4, '0')
+        const device = ((val >> 16) & 0xFFFF).toString(16).toUpperCase().padStart(4, '0')
+        discoveredDevices.push({ slot, vendor, device })
+        log.info(`[auto_profile] slot ${slot}: ${vendor}:${device}`)
+      } catch (err) {
+        continue
+      }
+    }
+
+    if (discoveredDevices.length === 0) return 'No PCI devices found on this edge.'
+
+    // For each device: read BAR0, probe, generate profile
+    const profileDir = path.join(__dirname, '..', 'profiles')
+    if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true })
+
+    for (const dev of discoveredDevices) {
+      const key = `${dev.vendor}:${dev.device}`
+      const vendorName = PCI_VENDORS[dev.vendor] || 'Unknown'
+      const known = PCI_DEVICES[key]
+
+      // Read BAR0
+      const bar0Addr = 0x80000000 | (dev.slot << 11) | 0x10
+      const bar0Asm = `BITS 32\nmov eax, ${bar0Addr}\nmov dx, 0xCF8\nout dx, eax\nmov dx, 0xCFC\nin eax, dx\nret`
+      let bar0 = null
+      try {
+        const bar0Bin = await compileAssembly(bar0Asm)
+        if (bar0Bin) {
+          const bar0Result = await pokeNode(node.endpoint, bar0Bin)
+          const bar0Match = bar0Result && bar0Result.match(/eax=(\d+)/)
+          if (bar0Match) {
+            const bar0Val = parseInt(bar0Match[1]) >>> 0
+            bar0 = { raw: bar0Val, isIO: bar0Val & 1, address: bar0Val & 0xFFFFFFF0 }
+          }
+        }
+      } catch (err) {
+        log.warn(`[auto_profile] BAR0 read failed for slot ${dev.slot}: ${err.message}`)
+      }
+
+      // Ask LLM to generate probe code and profile
+      const probeQuestion = `PCI device: vendor=${dev.vendor} (${vendorName}), device=${dev.device}${known ? `, known as ${known.name} (${known.type})` : ', UNKNOWN device'}.
+BAR0: ${bar0 ? `0x${bar0.address.toString(16)} (${bar0.isIO ? 'I/O' : 'MMIO'})` : 'not available'}.
+
+Generate a JSON device profile for the POKE system. The profile should include useful operations that read hardware state.
+
+Return ONLY valid JSON (no markdown, no explanation) with this structure:
+{
+  "vendor_device": "${key}",
+  "name": "${known ? known.name : vendorName + ' ' + key}",
+  "type": "${known ? known.type : 'unknown'}",
+  "arch": "i386",
+  "bar0": ${bar0 ? JSON.stringify(bar0) : 'null'},
+  "operations": [
+    {
+      "name": "operation_name",
+      "desc": "What this operation does",
+      "returns": "What the return value means",
+      "asm": "BITS 32\\n...assembly code...\\nret"
+    }
+  ]
+}`
+
+      try {
+        const probeMsg = await client.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1500,
+          system: 'You are a hardware expert. Generate device profiles for a bare-metal OS. Output ONLY valid JSON, no markdown fences, no explanation.',
+          messages: [{ role: 'user', content: probeQuestion }],
+        })
+
+        let profileText = probeMsg.content[0].type === 'text' ? probeMsg.content[0].text.trim() : ''
+        profileText = profileText.replace(/^```\w*\n?/, '').replace(/\n?```$/, '').trim()
+
+        const profile = JSON.parse(profileText)
+
+        // Validate and save
+        if (profile.vendor_device && profile.name && profile.type) {
+          const filename = path.join(profileDir, `${key.replace(':', '_')}.json`)
+          fs.writeFileSync(filename, JSON.stringify(profile, null, 2))
+          results.push(`Saved: ${key} (${profile.name}) with ${(profile.operations || []).length} operations -> ${filename}`)
+          log.info(`[auto_profile] saved profile: ${filename}`)
+        } else {
+          results.push(`Skipped: ${key} — invalid profile structure`)
+        }
+      } catch (err) {
+        results.push(`Error profiling ${key}: ${err.message}`)
+        log.warn(`[auto_profile] error profiling ${key}: ${err.message}`)
+      }
+    }
+
+    // Reload all profiles so new tools are immediately available
+    profiles.clear()
+    loadProfiles()
+
+    const summary = `Auto-profile complete for ${target}.\nDiscovered ${discoveredDevices.length} PCI devices.\n${results.join('\n')}\nProfiles reloaded: ${profiles.size} total.`
+    log.info(`[auto_profile] done: ${discoveredDevices.length} devices, ${profiles.size} profiles loaded`)
+    return summary
+  }
+
   if (toolName === 'reply_text') {
     return toolInput.text
   }
@@ -543,7 +955,20 @@ P2P rules:
 
 Streaming rules:
 - Use stream_animation to send animated frames to an edge display.
-- The JS code must export generateFrames(n) returning [{width, height, pixels: Buffer}].`
+- The JS code must export generateFrames(n) returning [{width, height, pixels: Buffer}].
+
+Vision/Multimodal rules:
+- Use analyze_image to analyze images (URL or base64) with Claude vision.
+- The analysis result is text. You can then decide follow-up actions (draw, execute, reply).
+
+Autonomous monitoring rules:
+- Use deploy_autonomous to set up periodic hardware condition checking on an edge.
+- Use list_monitors to see all active monitors and their status.
+- Use stop_monitor to stop a monitor by ID.
+
+Auto-profiling rules:
+- Use auto_profile to scan PCI bus, probe devices, and generate profiles.
+- After auto_profile, new device tools become available immediately.`
 
   const messages = [{ role: 'user', content: command }]
   const steps = []
@@ -600,9 +1025,60 @@ Streaming rules:
   return { steps, result: finalResult }
 }
 
+// ── Task 1 helpers: image fetching and media type detection ──
+function detectMediaType(base64Data) {
+  // Check magic bytes from base64 prefix
+  if (base64Data.startsWith('/9j/')) return 'image/jpeg'
+  if (base64Data.startsWith('iVBOR')) return 'image/png'
+  if (base64Data.startsWith('R0lGO')) return 'image/gif'
+  if (base64Data.startsWith('UklGR')) return 'image/webp'
+  return 'image/png' // default
+}
+
+function fetchImageAsBase64(url) {
+  return new Promise((resolve) => {
+    let fetchUrl = url
+    if (!fetchUrl.startsWith('http')) fetchUrl = 'http://' + fetchUrl
+    const mod = fetchUrl.startsWith('https') ? require('https') : require('http')
+
+    const doFetch = (targetUrl, redirectCount) => {
+      if (redirectCount > 5) { resolve(null); return }
+      mod.get(targetUrl, { timeout: 15000, headers: { 'User-Agent': 'POKE-Hub/1.0' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          doFetch(res.headers.location, redirectCount + 1)
+          return
+        }
+        const chunks = []
+        let totalBytes = 0
+        const MAX_SIZE = 20 * 1024 * 1024 // 20MB max
+        res.on('data', (c) => {
+          totalBytes += c.length
+          if (totalBytes <= MAX_SIZE) chunks.push(c)
+        })
+        res.on('end', () => {
+          if (totalBytes > MAX_SIZE) { resolve(null); return }
+          const buf = Buffer.concat(chunks)
+          const contentType = res.headers['content-type'] || 'image/png'
+          let mediaType = 'image/png'
+          if (contentType.includes('jpeg') || contentType.includes('jpg')) mediaType = 'image/jpeg'
+          else if (contentType.includes('gif')) mediaType = 'image/gif'
+          else if (contentType.includes('webp')) mediaType = 'image/webp'
+          else if (contentType.includes('png')) mediaType = 'image/png'
+          resolve({ data: buf.toString('base64'), mediaType })
+        })
+      }).on('error', () => resolve(null))
+    }
+
+    doFetch(fetchUrl, 0)
+  })
+}
+
 module.exports = {
   agentLoop,
   executeAgentTool,
   getAgentTools,
   BASE_TOOLS,
+  activeMonitors,
+  fetchImageAsBase64,
+  detectMediaType,
 }

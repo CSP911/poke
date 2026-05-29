@@ -36,9 +36,9 @@
 - [x] 바이너리 스트리밍 (stream_animation: FRM 프로토콜, 연속 프레임)
 
 ### AI
-- [ ] 멀티모달: 카메라/이미지 입력 → LLM 분석 → 하드웨어 반응
-- [ ] 자율 에이전트: 배치된 바이너리가 조건 판단 + 허브 보고
-- [ ] 프로파일 자동 생성: 미지 디바이스 → LLM 탐침 → 프로파일 JSON 자동 생성
+- [x] 멀티모달: analyze_image 도구 + /camera 엔드포인트 (Claude Vision API)
+- [x] 자율 에이전트: deploy_autonomous + list_monitors + stop_monitor (주기적 재실행)
+- [x] 프로파일 자동 생성: auto_profile (PCI 스캔 → LLM 프로브 → 프로파일 저장 → 자동 리로드)
 
 ---
 

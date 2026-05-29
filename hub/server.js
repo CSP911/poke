@@ -367,6 +367,32 @@ except Exception as e:
     return
   }
 
+  // POST /camera — multimodal: image → LLM vision analysis → agent action
+  if (req.method === 'POST' && url.pathname === '/camera') {
+    if (!checkAuth(req, res)) return
+    const data = safeJSON(body)
+    if (!data) { jsonError(res, 400, 'invalid JSON body'); return }
+
+    const { image_url, image_base64, instruction, from, target } = data
+    if (!image_url && !image_base64) { jsonError(res, 400, 'need image_url or image_base64'); return }
+
+    const fromId = from || 'hub'
+    log.info(`[camera] image analysis request from=${fromId}`)
+
+    // Build the agent command with vision context
+    const visionInstruction = instruction || 'Analyze this image and take appropriate hardware action on the target edge.'
+    const command = `[VISION REQUEST] ${visionInstruction}\nImage provided via ${image_url ? 'URL: ' + image_url : 'base64 data (' + (image_base64 || '').length + ' chars)'}.\nUse the analyze_image tool first to understand the image, then decide on follow-up actions.`
+
+    try {
+      const result = await agentLoop(command, fromId, target)
+      res.end(JSON.stringify({ from: fromId, instruction: visionInstruction, ...result }, null, 2))
+    } catch (err) {
+      log.error(`[camera] ERROR: ${err.message}`)
+      jsonError(res, 500, err.message)
+    }
+    return
+  }
+
   res.statusCode = 404
   res.end(JSON.stringify({ error: 'not found' }))
 }
