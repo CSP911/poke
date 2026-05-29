@@ -810,6 +810,10 @@ static int http_buf_len = 0;
 #define CODE_BUF_SIZE 4096
 static u8 code_buf[CODE_BUF_SIZE] __attribute__((aligned(4096)));
 
+/* Resident processes: not needed in kernel.
+ * LLM generates code with loops/delays/conditions.
+ * Hub re-deploys as needed. Kernel stays simple. */
+
 /* ── BochsVBE Graphics ── */
 #define VBE_INDEX 0x01CE
 #define VBE_DATA  0x01CF
