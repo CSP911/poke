@@ -1,0 +1,39 @@
+{
+  "vendor_device": "FAB:LT01",
+  "name": "Lithography Stepper (ASML-type)",
+  "type": "litho",
+  "arch": "i386",
+  "description": "Photolithography stepper/scanner — exposure energy, overlay accuracy, lens temperature, wafer throughput",
+  "operations": [
+    {
+      "name": "read_exposure_energy",
+      "desc": "Read exposure dose energy (target: 30.0 mJ/cm², tolerance ± 0.5)",
+      "asm": "BITS 32\nmov al, 0x00\nout 0x43, al\nin al, 0x40\nmovzx eax, al\nin al, 0x40\nmovzx ecx, al\nshl ecx, 8\nor eax, ecx\nxor edx, edx\nmov ecx, 6553\ndiv ecx\nadd eax, 2950\nret",
+      "returns": "Exposure energy * 100 in EAX (e.g., 3000 = 30.00 mJ/cm², range 2950-3050)"
+    },
+    {
+      "name": "read_overlay_accuracy",
+      "desc": "Read overlay alignment accuracy (target: < 3nm)",
+      "asm": "BITS 32\nmov al, 0x00\nout 0x43, al\nin al, 0x40\nmovzx eax, al\nin al, 0x40\nmovzx ecx, al\nshl ecx, 8\nor eax, ecx\nxor edx, edx\nmov ecx, 10922\ndiv ecx\nadd eax, 10\nret",
+      "returns": "Overlay in 0.1nm units (e.g., 25 = 2.5nm, range 10-60, alert if > 30)"
+    },
+    {
+      "name": "read_lens_temperature",
+      "desc": "Read projection lens temperature (target: 22.000°C ± 0.005°C)",
+      "asm": "BITS 32\nmov al, 0x00\nout 0x43, al\nin al, 0x40\nmovzx eax, al\nin al, 0x40\nmovzx ecx, al\nshl ecx, 8\nor eax, ecx\nxor edx, edx\nmov ecx, 6553\ndiv ecx\nadd eax, 21995\nret",
+      "returns": "Temperature * 1000 in EAX (e.g., 22000 = 22.000°C, range 21995-22005)"
+    },
+    {
+      "name": "read_wafer_throughput",
+      "desc": "Read current wafers per hour (WPH)",
+      "asm": "BITS 32\nmov al, 0x00\nout 0x43, al\nin al, 0x40\nmovzx eax, al\nin al, 0x40\nmovzx ecx, al\nshl ecx, 8\nor eax, ecx\nxor edx, edx\nmov ecx, 2184\ndiv ecx\nadd eax, 180\nret",
+      "returns": "WPH in EAX (range 180-210, target > 200)"
+    },
+    {
+      "name": "read_light_source_hours",
+      "desc": "Read excimer laser source hours (replace at 20 billion pulses / ~5000 hours)",
+      "asm": "BITS 32\nmov al, 0x00\nout 0x43, al\nin al, 0x40\nmovzx eax, al\nin al, 0x40\nmovzx ecx, al\nshl ecx, 8\nor eax, ecx\nxor edx, edx\nmov ecx, 13\ndiv ecx\nadd eax, 3200\nret",
+      "returns": "Hours in EAX (range 3200-8200, warn if > 4500, replace at 5000)"
+    }
+  ]
+}
