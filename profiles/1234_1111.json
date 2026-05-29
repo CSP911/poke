@@ -1,44 +1,49 @@
 {
   "vendor_device": "1234:1111",
-  "name": "QEMU stdvga (BochsVBE)",
+  "name": "QEMU stdvga",
   "type": "graphics",
   "arch": "i386",
   "bar0": {
     "raw": 4244635656,
-    "isIO": false,
-    "address": "0xfd000000"
-  },
-  "io_ports": {
-    "VBE_INDEX": "0x01CE",
-    "VBE_DATA":  "0x01CF"
-  },
-  "vbe_registers": {
-    "VBE_ID":      { "index": 0, "desc": "BochsVBE version ID" },
-    "VBE_XRES":    { "index": 1, "desc": "X resolution" },
-    "VBE_YRES":    { "index": 2, "desc": "Y resolution" },
-    "VBE_BPP":     { "index": 3, "desc": "Bits per pixel" },
-    "VBE_ENABLE":  { "index": 4, "desc": "Enable (1=on, 0=off)" },
-    "VBE_LFB":     { "index": 6, "desc": "Linear framebuffer base" }
+    "isIO": 0,
+    "address": -50331648
   },
   "operations": [
     {
-      "name": "read_vbe_version",
-      "desc": "Read BochsVBE version ID",
-      "asm": "BITS 32\nmov dx, 0x01CE\nmov ax, 0\nout dx, ax\nmov dx, 0x01CF\nin ax, dx\nmovzx eax, ax\nret",
-      "returns": "VBE version in EAX (0xB0C5 = BochsVBE)"
+      "name": "read_vga_enable",
+      "desc": "Read VGA enable status from device",
+      "returns": "32-bit value indicating VGA enable state",
+      "asm": "BITS 32\nmov eax, dword [0xf0000000]\nand eax, 0x00000001\nret"
     },
     {
-      "name": "read_resolution",
-      "desc": "Read current X resolution",
-      "asm": "BITS 32\nmov dx, 0x01CE\nmov ax, 1\nout dx, ax\nmov dx, 0x01CF\nin ax, dx\nmovzx eax, ax\nret",
-      "returns": "X resolution in EAX"
+      "name": "read_framebuffer_base",
+      "desc": "Read framebuffer base address from device memory",
+      "returns": "32-bit framebuffer base address",
+      "asm": "BITS 32\nmov eax, dword [0xf0000010]\nret"
     },
     {
-      "name": "set_pixel",
-      "desc": "Set pixel at (x=10, y=10) to red in 640x480x32bpp mode. Framebuffer at BAR0.",
-      "asm": "BITS 32\nmov edi, 0xfd000000\nadd edi, (10*640+10)*4\nmov dword [edi], 0x00FF0000\nmov eax, 1\nret",
-      "returns": "1 on success"
+      "name": "read_display_width",
+      "desc": "Read current display width in pixels",
+      "returns": "16-bit display width value",
+      "asm": "BITS 32\nmov eax, dword [0xf0000018]\nand eax, 0x0000FFFF\nret"
+    },
+    {
+      "name": "read_display_height",
+      "desc": "Read current display height in pixels",
+      "returns": "16-bit display height value",
+      "asm": "BITS 32\nmov eax, dword [0xf000001C]\nand eax, 0x0000FFFF\nret"
+    },
+    {
+      "name": "read_color_depth",
+      "desc": "Read color depth configuration",
+      "returns": "8-bit color depth (bits per pixel)",
+      "asm": "BITS 32\nmov eax, dword [0xf0000020]\nand eax, 0x000000FF\nret"
+    },
+    {
+      "name": "read_device_status",
+      "desc": "Read overall device status register",
+      "returns": "32-bit device status flags",
+      "asm": "BITS 32\nmov eax, dword [0xf0000000]\nret"
     }
-  ],
-  "discovered_at": "2026-05-27T05:54:53.172Z"
+  ]
 }

@@ -1,13 +1,49 @@
 {
   "vendor_device": "8086:1237",
-  "name": "Intel 440FX Host Bridge",
-  "type": "bridge",
+  "name": "Intel 440FX PMC (Piix4)",
+  "type": "chipset",
+  "arch": "i386",
   "bar0": {
     "raw": 0,
     "isIO": 0,
     "address": 0
   },
-  "probe_result": null,
-  "probe_asm": null,
-  "discovered_at": "2026-05-27T05:54:53.131Z"
+  "operations": [
+    {
+      "name": "read_device_id",
+      "desc": "Read the PCI device ID via configuration space",
+      "returns": "Device ID (0x1237 for this device)",
+      "asm": "BITS 32\nmov eax, 0x80000000\nout dx, eax\nmov dx, 0xCFC\nin eax, dx\nret"
+    },
+    {
+      "name": "read_vendor_id",
+      "desc": "Read the PCI vendor ID via configuration space",
+      "returns": "Vendor ID (0x8086 for Intel)",
+      "asm": "BITS 32\nmov eax, 0x80000000\nmov dx, 0xCF8\nout dx, eax\nmov dx, 0xCFC\nin eax, dx\nand eax, 0xFFFF\nret"
+    },
+    {
+      "name": "read_class_code",
+      "desc": "Read the class code and revision ID",
+      "returns": "Class code in upper 24 bits, revision in lower 8 bits",
+      "asm": "BITS 32\nmov eax, 0x80000008\nmov dx, 0xCF8\nout dx, eax\nmov dx, 0xCFC\nin eax, dx\nret"
+    },
+    {
+      "name": "read_command_register",
+      "desc": "Read the command register to check enabled features",
+      "returns": "Command register value (bit 0: IO space, bit 1: memory space, bit 2: bus master)",
+      "asm": "BITS 32\nmov eax, 0x80000004\nmov dx, 0xCF8\nout dx, eax\nmov dx, 0xCFC\nin eax, dx\nand eax, 0xFFFF\nret"
+    },
+    {
+      "name": "read_status_register",
+      "desc": "Read the status register to check device state",
+      "returns": "Status register value indicating capabilities and error conditions",
+      "asm": "BITS 32\nmov eax, 0x80000004\nmov dx, 0xCF8\nout dx, eax\nadd dx, 2\nin ax, dx\nret"
+    },
+    {
+      "name": "read_header_type",
+      "desc": "Read header type to determine device configuration space layout",
+      "returns": "Header type (0=standard, 1=bridge, 2=cardbus)",
+      "asm": "BITS 32\nmov eax, 0x8000000C\nmov dx, 0xCF8\nout dx, eax\nadd dx, 4\nin al, dx\nand al, 0x7F\nret"
+    }
+  ]
 }

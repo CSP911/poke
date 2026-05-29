@@ -1,25 +1,49 @@
 {
   "vendor_device": "1AF4:1002",
-  "name": "VirtIO Balloon",
-  "type": "memory",
+  "name": "Red Hat (VirtIO) 1AF4:1002",
+  "type": "unknown",
   "arch": "i386",
   "bar0": {
-    "raw": 49217,
+    "raw": 49216,
     "isIO": 1,
     "address": 49216
   },
-  "registers": {
-    "MAGIC": { "offset": "0x00", "desc": "VirtIO Magic Value (expect 0x74726976)" }
-  },
   "operations": [
     {
-      "name": "read_balloon_magic",
-      "desc": "Read VirtIO magic value from MMIO BAR0",
-      "asm": "BITS 32\nmov ebx, 0xC040\nmov eax, [ebx + 0x00]\nret",
-      "returns": "Magic value in EAX (expected 0x74726976 = 'virt')"
+      "name": "read_device_status",
+      "desc": "Read device status register from VirtIO device",
+      "returns": "Device status byte (bit 7=driver_ok, bit 6=features_ok, bit 5=device_needs_reset, bit 4=failed)",
+      "asm": "BITS 32\nmov dx, 0xc040\nin al, dx\nret"
+    },
+    {
+      "name": "read_interrupt_status",
+      "desc": "Read interrupt status from VirtIO device",
+      "returns": "Interrupt status byte indicating which virtqueues have pending work",
+      "asm": "BITS 32\nmov dx, 0xc041\nin al, dx\nret"
+    },
+    {
+      "name": "read_device_features_low",
+      "desc": "Read lower 16 bits of device feature flags",
+      "returns": "Feature flags indicating device capabilities (bits 0-15)",
+      "asm": "BITS 32\nmov dx, 0xc042\nin ax, dx\nret"
+    },
+    {
+      "name": "read_queue_size",
+      "desc": "Read current virtqueue size",
+      "returns": "Queue size in entries",
+      "asm": "BITS 32\nmov dx, 0xc043\nin ax, dx\nret"
+    },
+    {
+      "name": "read_queue_ready",
+      "desc": "Read queue ready status flag",
+      "returns": "Non-zero if queue is ready for operation",
+      "asm": "BITS 32\nmov dx, 0xc044\nin al, dx\nret"
+    },
+    {
+      "name": "probe_device",
+      "desc": "Probe device identity by reading status and feature flags",
+      "returns": "EAX contains status (AL) and features (AH)",
+      "asm": "BITS 32\nmov dx, 0xc040\nin al, dx\nmov cl, al\nmov dx, 0xc042\nin ax, dx\nmov ah, cl\nret"
     }
-  ],
-  "probe_result": "eax=0",
-  "probe_asm": "BITS 32\n\n    mov eax, 0xc040      ; Base MMIO address\n    mov eax, [eax]       ; Read magic at offset 0x00\n    \n    ret",
-  "discovered_at": "2026-05-27T05:54:56.676Z"
+  ]
 }

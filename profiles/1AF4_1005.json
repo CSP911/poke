@@ -4,23 +4,40 @@
   "type": "rng",
   "arch": "i386",
   "bar0": {
-    "raw": 49281,
-    "isIO": true,
-    "address": "0xC080"
-  },
-  "virtio_registers": {
-    "MAGIC":       { "offset": "0x00", "desc": "Magic value (0x74726976 = 'virt')" },
-    "VERSION":     { "offset": "0x04", "desc": "Device version" },
-    "DEVICE_ID":   { "offset": "0x08", "desc": "VirtIO device ID (4 = RNG)" },
-    "STATUS":      { "offset": "0x70", "desc": "Device status" }
+    "raw": 49280,
+    "isIO": 1,
+    "address": 49280
   },
   "operations": [
     {
-      "name": "read_magic",
-      "desc": "Read VirtIO magic number to verify device",
-      "asm": "BITS 32\nmov eax, 0xC080\nmov eax, [eax]\nret",
-      "returns": "Magic value in EAX (expect 0x74726976)"
+      "name": "read_rng_data",
+      "desc": "Read 4 bytes of random data from VirtIO RNG device",
+      "returns": "32-bit random value in EAX",
+      "asm": "BITS 32\nmov edx, 0xc080\nin eax, dx\nret"
+    },
+    {
+      "name": "read_device_status",
+      "desc": "Read device status register at offset 0x70 in configuration space",
+      "returns": "Device status flags in EAX",
+      "asm": "BITS 32\nmov edx, 0xc0f0\nin eax, dx\nret"
+    },
+    {
+      "name": "check_device_features",
+      "desc": "Query device features at offset 0x04 in configuration space",
+      "returns": "Feature bits in EAX",
+      "asm": "BITS 32\nmov edx, 0xc084\nin eax, dx\nret"
+    },
+    {
+      "name": "read_interrupt_status",
+      "desc": "Read interrupt status register at offset 0x13 in configuration space",
+      "returns": "Interrupt status in EAX",
+      "asm": "BITS 32\nmov edx, 0xc093\nin al, dx\nzero eax high byte\nret"
+    },
+    {
+      "name": "read_queue_size",
+      "desc": "Read queue size indicator at offset 0x12 in configuration space",
+      "returns": "Queue size in EAX",
+      "asm": "BITS 32\nmov edx, 0xc092\nin ax, dx\nzero eax high word\nret"
     }
-  ],
-  "discovered_at": "2026-05-27T05:54:55.472Z"
+  ]
 }

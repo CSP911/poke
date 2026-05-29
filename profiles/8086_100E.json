@@ -5,28 +5,99 @@
   "arch": "i386",
   "bar0": {
     "raw": 4273733632,
-    "isIO": false,
-    "address": "0xfebc0000"
-  },
-  "registers": {
-    "CTRL":   { "offset": "0x0000", "desc": "Device Control" },
-    "STATUS": { "offset": "0x0008", "desc": "Device Status" },
-    "RAL":    { "offset": "0x5400", "desc": "MAC Address Low 32 bits" },
-    "RAH":    { "offset": "0x5404", "desc": "MAC Address High 16 bits + flags" }
+    "isIO": 0,
+    "address": -21233664
   },
   "operations": [
     {
-      "name": "read_mac",
-      "desc": "Read MAC address from e1000 NIC",
-      "asm": "BITS 32\nmov ebx, 0xfebc0000\nmov eax, [ebx + 0x5400]\nret",
-      "returns": "MAC low 32 bits in EAX"
+      "name": "read_device_control",
+      "desc": "Read the Device Control register to get hardware state and capabilities",
+      "returns": "32-bit control register value containing FD, LRST, ASDE, SLU bits",
+      "asm": "BITS 32\nmov eax, [ecx + 0x0]\nret"
     },
     {
-      "name": "read_status",
-      "desc": "Read link status of e1000 NIC",
-      "asm": "BITS 32\nmov ebx, 0xfebc0000\nmov eax, [ebx + 0x0008]\nret",
-      "returns": "Status register in EAX (bit 1 = link up)"
+      "name": "read_device_status",
+      "desc": "Read the Device Status register for link state and speed information",
+      "returns": "32-bit status register with FD, LU, TXOFF, SPEED bits",
+      "asm": "BITS 32\nmov eax, [ecx + 0x8]\nret"
+    },
+    {
+      "name": "read_interrupt_cause",
+      "desc": "Read the Interrupt Cause register to check pending interrupts",
+      "returns": "32-bit value with TXDW, TXQE, LSC, RXSEQ, RXDMT0, RXO, RXT0, MDAC, RXCFG, PHYINT, GPI bits",
+      "asm": "BITS 32\nmov eax, [ecx + 0xC0]\nret"
+    },
+    {
+      "name": "read_rx_control",
+      "desc": "Read the Receive Control register for RX configuration",
+      "returns": "32-bit RX control with EN, SBP, UPE, MPE, LPE, LBM, RDMTS, MO, SZ, SECRC, DTYP bits",
+      "asm": "BITS 32\nmov eax, [ecx + 0x100]\nret"
+    },
+    {
+      "name": "read_tx_control",
+      "desc": "Read the Transmit Control register for TX configuration",
+      "returns": "32-bit TX control with EN, PSP, CT, COLD, SWXP, PXE bits",
+      "asm": "BITS 32\nmov eax, [ecx + 0x400]\nret"
+    },
+    {
+      "name": "read_rx_desc_base",
+      "desc": "Read the RX Descriptor Base Address Low register",
+      "returns": "32-bit lower address of RX descriptor ring",
+      "asm": "BITS 32\nmov eax, [ecx + 0x2800]\nret"
+    },
+    {
+      "name": "read_rx_desc_length",
+      "desc": "Read the RX Descriptor Length register",
+      "returns": "32-bit value with descriptor ring size in bytes",
+      "asm": "BITS 32\nmov eax, [ecx + 0x2808]\nret"
+    },
+    {
+      "name": "read_rx_desc_head",
+      "desc": "Read the RX Descriptor Head pointer",
+      "returns": "32-bit head pointer index into RX descriptor ring",
+      "asm": "BITS 32\nmov eax, [ecx + 0x2810]\nret"
+    },
+    {
+      "name": "read_rx_desc_tail",
+      "desc": "Read the RX Descriptor Tail pointer",
+      "returns": "32-bit tail pointer index into RX descriptor ring",
+      "asm": "BITS 32\nmov eax, [ecx + 0x2818]\nret"
+    },
+    {
+      "name": "read_tx_desc_base",
+      "desc": "Read the TX Descriptor Base Address Low register",
+      "returns": "32-bit lower address of TX descriptor ring",
+      "asm": "BITS 32\nmov eax, [ecx + 0x3800]\nret"
+    },
+    {
+      "name": "read_tx_desc_length",
+      "desc": "Read the TX Descriptor Length register",
+      "returns": "32-bit value with descriptor ring size in bytes",
+      "asm": "BITS 32\nmov eax, [ecx + 0x3808]\nret"
+    },
+    {
+      "name": "read_tx_desc_head",
+      "desc": "Read the TX Descriptor Head pointer",
+      "returns": "32-bit head pointer index into TX descriptor ring",
+      "asm": "BITS 32\nmov eax, [ecx + 0x3810]\nret"
+    },
+    {
+      "name": "read_tx_desc_tail",
+      "desc": "Read the TX Descriptor Tail pointer",
+      "returns": "32-bit tail pointer index into TX descriptor ring",
+      "asm": "BITS 32\nmov eax, [ecx + 0x3818]\nret"
+    },
+    {
+      "name": "read_statistics_crcerrs",
+      "desc": "Read CRC Errors counter from statistics",
+      "returns": "32-bit count of CRC errors detected",
+      "asm": "BITS 32\nmov eax, [ecx + 0x4000]\nret"
+    },
+    {
+      "name": "read_statistics_rxerrs",
+      "desc": "Read RX Errors counter",
+      "returns": "32-bit count of RX errors",
+      "asm": "BITS 32\nmov eax, [ecx + 0x4004]\nret"
     }
-  ],
-  "discovered_at": "2026-05-27T05:54:54.508Z"
+  ]
 }
