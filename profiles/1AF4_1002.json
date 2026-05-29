@@ -1,10 +1,10 @@
 {
   "vendor_device": "1AF4:1002",
   "name": "Red Hat (VirtIO) 1AF4:1002",
-  "type": "unknown",
+  "type": "virtio_device",
   "arch": "i386",
   "bar0": {
-    "raw": 49216,
+    "raw": 49217,
     "isIO": 1,
     "address": 49216
   },
@@ -12,38 +12,44 @@
     {
       "name": "read_device_status",
       "desc": "Read device status register from VirtIO device",
-      "returns": "Device status byte (bit 7=driver_ok, bit 6=features_ok, bit 5=device_needs_reset, bit 4=failed)",
+      "returns": "Device status byte indicating device state and features",
       "asm": "BITS 32\nmov dx, 0xc040\nin al, dx\nret"
     },
     {
-      "name": "read_interrupt_status",
-      "desc": "Read interrupt status from VirtIO device",
-      "returns": "Interrupt status byte indicating which virtqueues have pending work",
-      "asm": "BITS 32\nmov dx, 0xc041\nin al, dx\nret"
+      "name": "read_isr_status",
+      "desc": "Read Interrupt Status Register to check for pending interrupts",
+      "returns": "ISR status byte; bit 0 = device events, bit 1 = config change",
+      "asm": "BITS 32\nmov dx, 0xc049\nin al, dx\nret"
     },
     {
-      "name": "read_device_features_low",
-      "desc": "Read lower 16 bits of device feature flags",
-      "returns": "Feature flags indicating device capabilities (bits 0-15)",
-      "asm": "BITS 32\nmov dx, 0xc042\nin ax, dx\nret"
+      "name": "read_device_features",
+      "desc": "Read device feature flags from offset 0x04",
+      "returns": "32-bit feature flags supported by device",
+      "asm": "BITS 32\nmov dx, 0xc044\nin eax, dx\nret"
+    },
+    {
+      "name": "read_config_vector",
+      "desc": "Read MSI-X config vector at offset 0x06",
+      "returns": "16-bit config interrupt vector",
+      "asm": "BITS 32\nmov dx, 0xc046\nin ax, dx\nret"
+    },
+    {
+      "name": "read_queue_select",
+      "desc": "Read currently selected queue index from offset 0x0E",
+      "returns": "16-bit queue index",
+      "asm": "BITS 32\nmov dx, 0xc04e\nin ax, dx\nret"
     },
     {
       "name": "read_queue_size",
-      "desc": "Read current virtqueue size",
-      "returns": "Queue size in entries",
-      "asm": "BITS 32\nmov dx, 0xc043\nin ax, dx\nret"
+      "desc": "Read size of selected queue from offset 0x10",
+      "returns": "16-bit queue size",
+      "asm": "BITS 32\nmov dx, 0xc050\nin ax, dx\nret"
     },
     {
-      "name": "read_queue_ready",
-      "desc": "Read queue ready status flag",
-      "returns": "Non-zero if queue is ready for operation",
-      "asm": "BITS 32\nmov dx, 0xc044\nin al, dx\nret"
-    },
-    {
-      "name": "probe_device",
-      "desc": "Probe device identity by reading status and feature flags",
-      "returns": "EAX contains status (AL) and features (AH)",
-      "asm": "BITS 32\nmov dx, 0xc040\nin al, dx\nmov cl, al\nmov dx, 0xc042\nin ax, dx\nmov ah, cl\nret"
+      "name": "read_queue_vector",
+      "desc": "Read MSI-X vector for selected queue from offset 0x12",
+      "returns": "16-bit queue interrupt vector",
+      "asm": "BITS 32\nmov dx, 0xc052\nin ax, dx\nret"
     }
   ]
 }

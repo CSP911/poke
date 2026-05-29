@@ -4,40 +4,46 @@
   "type": "rng",
   "arch": "i386",
   "bar0": {
-    "raw": 49280,
+    "raw": 49217,
     "isIO": 1,
-    "address": 49280
+    "address": 49216
   },
   "operations": [
     {
-      "name": "read_rng_data",
-      "desc": "Read 4 bytes of random data from VirtIO RNG device",
-      "returns": "32-bit random value in EAX",
-      "asm": "BITS 32\nmov edx, 0xc080\nin eax, dx\nret"
+      "name": "read_device_features",
+      "desc": "Read the device features register to determine supported RNG capabilities",
+      "returns": "32-bit feature flags indicating supported operations",
+      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 0\nin eax, dx\nret"
     },
     {
       "name": "read_device_status",
-      "desc": "Read device status register at offset 0x70 in configuration space",
-      "returns": "Device status flags in EAX",
-      "asm": "BITS 32\nmov edx, 0xc0f0\nin eax, dx\nret"
-    },
-    {
-      "name": "check_device_features",
-      "desc": "Query device features at offset 0x04 in configuration space",
-      "returns": "Feature bits in EAX",
-      "asm": "BITS 32\nmov edx, 0xc084\nin eax, dx\nret"
+      "desc": "Read the device status register to check current device state",
+      "returns": "8-bit status value (bit 0=ACKNOWLEDGE, bit 1=DRIVER, bit 2=DRIVER_OK, bit 3=FEATURES_OK)",
+      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 6\nin al, dx\nmovzx eax, al\nret"
     },
     {
       "name": "read_interrupt_status",
-      "desc": "Read interrupt status register at offset 0x13 in configuration space",
-      "returns": "Interrupt status in EAX",
-      "asm": "BITS 32\nmov edx, 0xc093\nin al, dx\nzero eax high byte\nret"
+      "desc": "Read the interrupt status register to check for pending device events",
+      "returns": "8-bit interrupt status (bit 0=used buffer notification, bit 1=configuration change)",
+      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 4\nin al, dx\nmovzx eax, al\nret"
     },
     {
       "name": "read_queue_size",
-      "desc": "Read queue size indicator at offset 0x12 in configuration space",
-      "returns": "Queue size in EAX",
-      "asm": "BITS 32\nmov edx, 0xc092\nin ax, dx\nzero eax high word\nret"
+      "desc": "Read the queue size register for the RNG request queue",
+      "returns": "16-bit maximum queue size supported",
+      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 12\nin ax, dx\nmovzx eax, ax\nret"
+    },
+    {
+      "name": "read_device_id",
+      "desc": "Verify device identity by reading magic value and device ID",
+      "returns": "Device ID value (should be 0x1005 for VirtIO RNG)",
+      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 8\nin ax, dx\nmovzx eax, ax\nret"
+    },
+    {
+      "name": "check_device_ready",
+      "desc": "Poll device ready state to ensure RNG is initialized and operational",
+      "returns": "Non-zero if device is ready and features negotiated, zero otherwise",
+      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 6\nin al, dx\nand al, 0x7\ncmp al, 0x7\njne .not_ready\nmov eax, 1\nret\n.not_ready:\nxor eax, eax\nret"
     }
   ]
 }

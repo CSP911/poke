@@ -10,40 +10,40 @@
   },
   "operations": [
     {
-      "name": "read_vga_enable",
-      "desc": "Read VGA enable status from device",
-      "returns": "32-bit value indicating VGA enable state",
-      "asm": "BITS 32\nmov eax, dword [0xf0000000]\nand eax, 0x00000001\nret"
+      "name": "read_vram_size",
+      "desc": "Read VRAM size from VGA memory configuration",
+      "returns": "VRAM size in bytes",
+      "asm": "BITS 32\nmov eax, [0xfca00000]\nand eax, 0xFF\nshl eax, 20\nret"
     },
     {
-      "name": "read_framebuffer_base",
-      "desc": "Read framebuffer base address from device memory",
-      "returns": "32-bit framebuffer base address",
-      "asm": "BITS 32\nmov eax, dword [0xf0000010]\nret"
+      "name": "read_framebuffer_offset",
+      "desc": "Read current framebuffer base offset in VRAM",
+      "returns": "Framebuffer offset in bytes",
+      "asm": "BITS 32\nmov eax, [0xfca00004]\nand eax, 0xFFFFFF00\nret"
     },
     {
       "name": "read_display_width",
-      "desc": "Read current display width in pixels",
-      "returns": "16-bit display width value",
-      "asm": "BITS 32\nmov eax, dword [0xf0000018]\nand eax, 0x0000FFFF\nret"
+      "desc": "Read current display width resolution",
+      "returns": "Width in pixels",
+      "asm": "BITS 32\nmov eax, [0xfca00008]\nand eax, 0xFFFF\nret"
     },
     {
       "name": "read_display_height",
-      "desc": "Read current display height in pixels",
-      "returns": "16-bit display height value",
-      "asm": "BITS 32\nmov eax, dword [0xf000001C]\nand eax, 0x0000FFFF\nret"
+      "desc": "Read current display height resolution",
+      "returns": "Height in pixels",
+      "asm": "BITS 32\nmov eax, [0xfca0000C]\nand eax, 0xFFFF\nret"
     },
     {
       "name": "read_color_depth",
-      "desc": "Read color depth configuration",
-      "returns": "8-bit color depth (bits per pixel)",
-      "asm": "BITS 32\nmov eax, dword [0xf0000020]\nand eax, 0x000000FF\nret"
+      "desc": "Read color depth bits per pixel",
+      "returns": "Bits per pixel (8, 16, 24, or 32)",
+      "asm": "BITS 32\nmov eax, [0xfca00010]\nand eax, 0xFF\nret"
     },
     {
       "name": "read_device_status",
-      "desc": "Read overall device status register",
-      "returns": "32-bit device status flags",
-      "asm": "BITS 32\nmov eax, dword [0xf0000000]\nret"
+      "desc": "Read device status and capabilities flags",
+      "returns": "Status flags (bit 0=enabled, bit 1=LFB mode)",
+      "asm": "BITS 32\nmov eax, [0xfca00014]\nand eax, 0x000F\nret"
     }
   ]
 }

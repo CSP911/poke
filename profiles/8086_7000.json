@@ -12,38 +12,32 @@
     {
       "name": "read_bar0_offset",
       "desc": "Read 32-bit value from BAR0 at specified offset",
-      "returns": "32-bit value at BAR0 + offset",
-      "asm": "BITS 32\nmov eax, [esp+4]\nmov edx, [esp+8]\nmov eax, [edx+eax]\nret"
-    },
-    {
-      "name": "write_bar0_offset",
-      "desc": "Write 32-bit value to BAR0 at specified offset",
-      "returns": "void",
-      "asm": "BITS 32\nmov eax, [esp+4]\nmov edx, [esp+8]\nmov ecx, [esp+12]\nmov [edx+eax], ecx\nret"
-    },
-    {
-      "name": "read_bar0_dword",
-      "desc": "Read first DWORD from BAR0",
-      "returns": "32-bit value at BAR0+0x00",
-      "asm": "BITS 32\nmov eax, [esp+4]\nmov eax, [eax]\nret"
+      "returns": "32-bit MMIO register value at offset",
+      "asm": "BITS 32\nmov eax, [ebx + ecx]\nret"
     },
     {
       "name": "read_pci_config",
-      "desc": "Read PCI configuration space via I/O ports (CF8/CFC)",
-      "returns": "32-bit config value",
-      "asm": "BITS 32\nmov eax, 0x80000000\nor eax, [esp+4]\nmov edx, 0xcf8\nout dx, eax\nmov edx, 0xcfc\nin eax, dx\nret"
+      "desc": "Read PCI configuration space register",
+      "returns": "32-bit PCI config register value",
+      "asm": "BITS 32\nmov eax, 0xcf8\nmov edx, ebx\nout dx, eax\nmov eax, 0xcfc\nin eax, dx\nret"
     },
     {
-      "name": "probe_bar0_size",
-      "desc": "Probe BAR0 size by writing/reading size detection pattern",
-      "returns": "Detected BAR0 size in bytes",
-      "asm": "BITS 32\nmov edx, [esp+4]\nmov eax, 0xffffffff\nmov [edx], eax\nmov eax, [edx]\nnot eax\nadd eax, 1\nret"
+      "name": "detect_device_status",
+      "desc": "Detect if device is present and functional",
+      "returns": "0 = not present, 1 = present, eax = device status flags",
+      "asm": "BITS 32\nmov eax, 0xcf8\nmov edx, 0x80000000\nor edx, ebx\nout dx, eax\nmov eax, 0xcfc\nin eax, dx\ncmp eax, 0xffffffff\njne .present\nxor eax, eax\nret\n.present:\nmov eax, 1\nret"
     },
     {
-      "name": "detect_interrupt_line",
-      "desc": "Read interrupt line from PCI configuration space",
-      "returns": "Interrupt line number",
-      "asm": "BITS 32\nmov eax, 0x8000003c\nmov edx, 0xcf8\nout dx, eax\nmov edx, 0xcfc\nin eax, dx\nand eax, 0xff\nret"
+      "name": "read_device_id",
+      "desc": "Read vendor and device ID from config space",
+      "returns": "eax = 0x8086 (vendor) in high word, device ID in low word",
+      "asm": "BITS 32\nmov eax, 0xcf8\nmov edx, 0x80000000\nor edx, ebx\nout dx, eax\nmov eax, 0xcfc\nin eax, dx\nret"
+    },
+    {
+      "name": "check_bar0_enabled",
+      "desc": "Check if BAR0 is mapped and enabled",
+      "returns": "eax = BAR0 address if enabled, 0 if disabled",
+      "asm": "BITS 32\nmov eax, 0xcf8\nmov edx, 0x80000010\nor edx, ebx\nout dx, eax\nmov eax, 0xcfc\nin eax, dx\nand eax, 0xfffffff0\nret"
     }
   ]
 }

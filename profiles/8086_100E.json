@@ -11,93 +11,87 @@
   "operations": [
     {
       "name": "read_device_control",
-      "desc": "Read the Device Control register to get hardware state and capabilities",
-      "returns": "32-bit control register value containing FD, LRST, ASDE, SLU bits",
-      "asm": "BITS 32\nmov eax, [ecx + 0x0]\nret"
+      "desc": "Read the Device Control Register (CTRL) to get device status and capabilities",
+      "returns": "32-bit control register value with device enable/disable, link reset, and other control flags",
+      "asm": "BITS 32\nmov eax, [0xffc00000]\nret"
     },
     {
       "name": "read_device_status",
-      "desc": "Read the Device Status register for link state and speed information",
-      "returns": "32-bit status register with FD, LU, TXOFF, SPEED bits",
-      "asm": "BITS 32\nmov eax, [ecx + 0x8]\nret"
+      "desc": "Read the Device Status Register (STATUS) to check link state and speed",
+      "returns": "32-bit status register with link up/down, duplex mode, and speed information",
+      "asm": "BITS 32\nmov eax, [0xffc00008]\nret"
     },
     {
       "name": "read_interrupt_cause",
-      "desc": "Read the Interrupt Cause register to check pending interrupts",
-      "returns": "32-bit value with TXDW, TXQE, LSC, RXSEQ, RXDMT0, RXO, RXT0, MDAC, RXCFG, PHYINT, GPI bits",
-      "asm": "BITS 32\nmov eax, [ecx + 0xC0]\nret"
-    },
-    {
-      "name": "read_rx_control",
-      "desc": "Read the Receive Control register for RX configuration",
-      "returns": "32-bit RX control with EN, SBP, UPE, MPE, LPE, LBM, RDMTS, MO, SZ, SECRC, DTYP bits",
-      "asm": "BITS 32\nmov eax, [ecx + 0x100]\nret"
-    },
-    {
-      "name": "read_tx_control",
-      "desc": "Read the Transmit Control register for TX configuration",
-      "returns": "32-bit TX control with EN, PSP, CT, COLD, SWXP, PXE bits",
-      "asm": "BITS 32\nmov eax, [ecx + 0x400]\nret"
+      "desc": "Read the Interrupt Cause Read Register (ICR) to identify pending interrupts",
+      "returns": "32-bit interrupt flags indicating transmit, receive, link change, or error events",
+      "asm": "BITS 32\nmov eax, [0xffc000c0]\nret"
     },
     {
       "name": "read_rx_desc_base",
-      "desc": "Read the RX Descriptor Base Address Low register",
-      "returns": "32-bit lower address of RX descriptor ring",
-      "asm": "BITS 32\nmov eax, [ecx + 0x2800]\nret"
-    },
-    {
-      "name": "read_rx_desc_length",
-      "desc": "Read the RX Descriptor Length register",
-      "returns": "32-bit value with descriptor ring size in bytes",
-      "asm": "BITS 32\nmov eax, [ecx + 0x2808]\nret"
-    },
-    {
-      "name": "read_rx_desc_head",
-      "desc": "Read the RX Descriptor Head pointer",
-      "returns": "32-bit head pointer index into RX descriptor ring",
-      "asm": "BITS 32\nmov eax, [ecx + 0x2810]\nret"
-    },
-    {
-      "name": "read_rx_desc_tail",
-      "desc": "Read the RX Descriptor Tail pointer",
-      "returns": "32-bit tail pointer index into RX descriptor ring",
-      "asm": "BITS 32\nmov eax, [ecx + 0x2818]\nret"
+      "desc": "Read the Receive Descriptor Base Address Register (RDBAL) for RX queue location",
+      "returns": "32-bit physical address of the receive descriptor ring base",
+      "asm": "BITS 32\nmov eax, [0xffc00100]\nret"
     },
     {
       "name": "read_tx_desc_base",
-      "desc": "Read the TX Descriptor Base Address Low register",
-      "returns": "32-bit lower address of TX descriptor ring",
-      "asm": "BITS 32\nmov eax, [ecx + 0x3800]\nret"
+      "desc": "Read the Transmit Descriptor Base Address Register (TDBAL) for TX queue location",
+      "returns": "32-bit physical address of the transmit descriptor ring base",
+      "asm": "BITS 32\nmov eax, [0xffc00420]\nret"
     },
     {
-      "name": "read_tx_desc_length",
-      "desc": "Read the TX Descriptor Length register",
-      "returns": "32-bit value with descriptor ring size in bytes",
-      "asm": "BITS 32\nmov eax, [ecx + 0x3808]\nret"
+      "name": "read_rx_queue_head",
+      "desc": "Read the Receive Queue Head pointer (RDH) for current RX position",
+      "returns": "32-bit index of the next descriptor to be processed by hardware",
+      "asm": "BITS 32\nmov eax, [0xffc00110]\nret"
     },
     {
-      "name": "read_tx_desc_head",
-      "desc": "Read the TX Descriptor Head pointer",
-      "returns": "32-bit head pointer index into TX descriptor ring",
-      "asm": "BITS 32\nmov eax, [ecx + 0x3810]\nret"
+      "name": "read_tx_queue_head",
+      "desc": "Read the Transmit Queue Head pointer (TDH) for current TX position",
+      "returns": "32-bit index of the next descriptor to be transmitted",
+      "asm": "BITS 32\nmov eax, [0xffc00410]\nret"
     },
     {
-      "name": "read_tx_desc_tail",
-      "desc": "Read the TX Descriptor Tail pointer",
-      "returns": "32-bit tail pointer index into TX descriptor ring",
-      "asm": "BITS 32\nmov eax, [ecx + 0x3818]\nret"
+      "name": "read_mac_addr_low",
+      "desc": "Read MAC address lower 32-bits from Receive Address Low Register (RAL)",
+      "returns": "32-bit value containing MAC address bytes 0-3",
+      "asm": "BITS 32\nmov eax, [0xffc00540]\nret"
     },
     {
-      "name": "read_statistics_crcerrs",
-      "desc": "Read CRC Errors counter from statistics",
-      "returns": "32-bit count of CRC errors detected",
-      "asm": "BITS 32\nmov eax, [ecx + 0x4000]\nret"
+      "name": "read_mac_addr_high",
+      "desc": "Read MAC address upper 16-bits from Receive Address High Register (RAH)",
+      "returns": "32-bit value with MAC address bytes 4-5 in lower 16 bits and valid flag",
+      "asm": "BITS 32\nmov eax, [0xffc00544]\nret"
     },
     {
-      "name": "read_statistics_rxerrs",
-      "desc": "Read RX Errors counter",
-      "returns": "32-bit count of RX errors",
-      "asm": "BITS 32\nmov eax, [ecx + 0x4004]\nret"
+      "name": "read_statistics_rx_packets",
+      "desc": "Read total packets received counter (GPRC)",
+      "returns": "32-bit count of good packets received",
+      "asm": "BITS 32\nmov eax, [0xffc04000]\nret"
+    },
+    {
+      "name": "read_statistics_tx_packets",
+      "desc": "Read total packets transmitted counter (GPTC)",
+      "returns": "32-bit count of good packets transmitted",
+      "asm": "BITS 32\nmov eax, [0xffc04004]\nret"
+    },
+    {
+      "name": "read_statistics_rx_bytes",
+      "desc": "Read total bytes received counter (GORCL)",
+      "returns": "32-bit count of good octets received",
+      "asm": "BITS 32\nmov eax, [0xffc04008]\nret"
+    },
+    {
+      "name": "read_statistics_tx_bytes",
+      "desc": "Read total bytes transmitted counter (GOTCL)",
+      "returns": "32-bit count of good octets transmitted",
+      "asm": "BITS 32\nmov eax, [0xffc0400c]\nret"
+    },
+    {
+      "name": "read_rx_errors",
+      "desc": "Read receive error counter (RLEC)",
+      "returns": "32-bit count of receive errors detected",
+      "asm": "BITS 32\nmov eax, [0xffc04018]\nret"
     }
   ]
 }
