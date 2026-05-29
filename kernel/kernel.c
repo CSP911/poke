@@ -419,6 +419,236 @@ int e1000_recv(u8 *buf) {
     return len;
 }
 
+/* ══════════════════════════════════════════
+ * NE2000 NIC Driver (for v86 browser emulator)
+ * I/O port based, much simpler than e1000
+ * ══════════════════════════════════════════ */
+
+#define NE2K_VENDOR  0x10EC
+#define NE2K_DEVICE  0x8029
+/* v86 also uses Realtek 8029 (same as NE2000 PCI) */
+
+static u16 ne2k_iobase = 0;
+static int nic_is_ne2k = 0;  /* 0 = e1000, 1 = ne2000 */
+
+/* NE2000 register offsets */
+#define NE2K_CR      0x00  /* Command Register */
+#define NE2K_PSTART  0x01  /* Page Start (write, page 0) */
+#define NE2K_PSTOP   0x02  /* Page Stop (write, page 0) */
+#define NE2K_BNRY    0x03  /* Boundary Pointer */
+#define NE2K_TSR     0x04  /* Transmit Status (read, page 0) */
+#define NE2K_TPSR    0x04  /* Transmit Page Start (write, page 0) */
+#define NE2K_TBCR0   0x05  /* Transmit Byte Count 0 */
+#define NE2K_TBCR1   0x06  /* Transmit Byte Count 1 */
+#define NE2K_ISR     0x07  /* Interrupt Status */
+#define NE2K_RSAR0   0x08  /* Remote Start Address 0 */
+#define NE2K_RSAR1   0x09  /* Remote Start Address 1 */
+#define NE2K_RBCR0   0x0A  /* Remote Byte Count 0 */
+#define NE2K_RBCR1   0x0B  /* Remote Byte Count 1 */
+#define NE2K_RCR     0x0C  /* Receive Configuration */
+#define NE2K_TCR     0x0D  /* Transmit Configuration */
+#define NE2K_DCR     0x0E  /* Data Configuration */
+#define NE2K_IMR     0x0F  /* Interrupt Mask */
+#define NE2K_CURR    0x07  /* Current Page (read, page 1) */
+#define NE2K_DATA    0x10  /* Data port (DMA) */
+#define NE2K_RESET   0x1F  /* Reset port */
+
+/* Ring buffer: pages 0x46-0x80 for RX, 0x40-0x46 for TX */
+#define NE2K_TX_START  0x40
+#define NE2K_RX_START  0x46
+#define NE2K_RX_STOP   0x80
+
+static u8 ne2k_next_pkt = NE2K_RX_START;
+
+int ne2k_find(void) {
+    for (int bus = 0; bus < 256; bus++) {
+        for (int slot = 0; slot < 32; slot++) {
+            u32 id = pci_read(bus, slot, 0, 0);
+            u16 vendor = id & 0xFFFF;
+            u16 device = (id >> 16) & 0xFFFF;
+
+            if (vendor == NE2K_VENDOR && device == NE2K_DEVICE) {
+                u32 bar0 = pci_read(bus, slot, 0, 0x10);
+                ne2k_iobase = bar0 & 0xFFFC;  /* I/O port */
+
+                /* Enable bus mastering + I/O space */
+                u32 cmd = pci_read(bus, slot, 0, 0x04);
+                cmd |= (1 << 0) | (1 << 2);
+                pci_write(bus, slot, 0, 0x04, cmd);
+
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+void ne2k_init(void) {
+    u16 base = ne2k_iobase;
+
+    /* Stop NIC, select page 0 */
+    outb(base + NE2K_CR, 0x21);  /* STP + DMA abort + page 0 */
+
+    /* DCR: word transfer, normal mode, FIFO=8 */
+    outb(base + NE2K_DCR, 0x49);
+
+    /* Clear remote byte count */
+    outb(base + NE2K_RBCR0, 0x00);
+    outb(base + NE2K_RBCR1, 0x00);
+
+    /* RCR: accept broadcast + multicast */
+    outb(base + NE2K_RCR, 0x0C);
+
+    /* TCR: internal loopback (for init) */
+    outb(base + NE2K_TCR, 0x02);
+
+    /* Setup ring buffer */
+    outb(base + NE2K_PSTART, NE2K_RX_START);
+    outb(base + NE2K_PSTOP, NE2K_RX_STOP);
+    outb(base + NE2K_BNRY, NE2K_RX_START);
+
+    /* Clear ISR */
+    outb(base + NE2K_ISR, 0xFF);
+
+    /* IMR: enable all interrupts */
+    outb(base + NE2K_IMR, 0x00);
+
+    /* Read MAC from NE2000 PROM (first 6 bytes at address 0) */
+    outb(base + NE2K_CR, 0x0A);    /* remote read, start */
+    outb(base + NE2K_RBCR0, 32);   /* 32 bytes */
+    outb(base + NE2K_RBCR1, 0);
+    outb(base + NE2K_RSAR0, 0);    /* address 0 */
+    outb(base + NE2K_RSAR1, 0);
+    outb(base + NE2K_CR, 0x0A);    /* start remote read DMA */
+
+    for (int i = 0; i < 6; i++) {
+        my_mac[i] = inb(base + NE2K_DATA);
+        inb(base + NE2K_DATA);  /* skip duplicate byte (word mode) */
+    }
+
+    /* Set Physical Address (page 1) */
+    outb(base + NE2K_CR, 0x61);  /* STP + page 1 */
+    for (int i = 0; i < 6; i++) {
+        outb(base + 0x01 + i, my_mac[i]);  /* PAR0-PAR5 */
+    }
+
+    /* Set multicast filter to accept all */
+    for (int i = 0; i < 8; i++) {
+        outb(base + 0x08 + i, 0xFF);  /* MAR0-MAR7 */
+    }
+
+    /* Set current page pointer */
+    outb(base + NE2K_CURR, NE2K_RX_START + 1);
+
+    /* Back to page 0, start NIC */
+    outb(base + NE2K_CR, 0x22);  /* STA + DMA abort + page 0 */
+
+    /* TCR: normal operation */
+    outb(base + NE2K_TCR, 0x00);
+
+    ne2k_next_pkt = NE2K_RX_START + 1;
+}
+
+void ne2k_send(u8 *data, u16 len) {
+    u16 base = ne2k_iobase;
+
+    /* Write packet to NE2000 TX buffer via remote DMA */
+    outb(base + NE2K_CR, 0x22);   /* page 0, start, DMA abort */
+    outb(base + NE2K_ISR, 0xFF);  /* clear ISR */
+
+    /* Set remote DMA address and count */
+    outb(base + NE2K_RSAR0, 0x00);
+    outb(base + NE2K_RSAR1, NE2K_TX_START);
+    outb(base + NE2K_RBCR0, len & 0xFF);
+    outb(base + NE2K_RBCR1, (len >> 8) & 0xFF);
+
+    /* Start remote write DMA */
+    outb(base + NE2K_CR, 0x12);  /* STA + remote write */
+
+    /* Write data word by word */
+    for (int i = 0; i < len; i += 2) {
+        u16 word = data[i];
+        if (i + 1 < len) word |= (data[i+1] << 8);
+        outw(base + NE2K_DATA, word);
+    }
+
+    /* Wait for DMA complete */
+    while (!(inb(base + NE2K_ISR) & 0x40));
+    outb(base + NE2K_ISR, 0x40);
+
+    /* Set TX page start and byte count */
+    outb(base + NE2K_TPSR, NE2K_TX_START);
+    outb(base + NE2K_TBCR0, len & 0xFF);
+    outb(base + NE2K_TBCR1, (len >> 8) & 0xFF);
+
+    /* Transmit */
+    outb(base + NE2K_CR, 0x26);  /* STA + TXP + DMA abort */
+
+    /* Wait for transmit complete */
+    for (int t = 0; t < 1000000; t++) {
+        if (inb(base + NE2K_ISR) & 0x02) break;  /* PTX */
+    }
+    outb(base + NE2K_ISR, 0x02);
+}
+
+int ne2k_recv(u8 *buf) {
+    u16 base = ne2k_iobase;
+
+    /* Check if there's a packet */
+    outb(base + NE2K_CR, 0x62);  /* page 1 */
+    u8 curr = inb(base + NE2K_CURR);
+    outb(base + NE2K_CR, 0x22);  /* page 0 */
+
+    if (ne2k_next_pkt == curr) return 0;  /* no packet */
+
+    /* Read 4-byte NE2000 header via remote DMA (word mode) */
+    outb(base + NE2K_RSAR0, 0x00);
+    outb(base + NE2K_RSAR1, ne2k_next_pkt);
+    outb(base + NE2K_RBCR0, 4);
+    outb(base + NE2K_RBCR1, 0);
+    outb(base + NE2K_CR, 0x0A);  /* remote read */
+
+    u16 w0 = inw(base + NE2K_DATA);  /* rsr + next_page */
+    u16 w1 = inw(base + NE2K_DATA);  /* pkt_len (little-endian) */
+    u8 next = (w0 >> 8) & 0xFF;
+    u16 pkt_len = w1;
+
+    /* Sanity check */
+    pkt_len -= 4;  /* subtract header */
+    if (pkt_len > PKT_BUF_SIZE) pkt_len = PKT_BUF_SIZE;
+
+    /* Read packet data */
+    outb(base + NE2K_RSAR0, 4);
+    outb(base + NE2K_RSAR1, ne2k_next_pkt);
+    outb(base + NE2K_RBCR0, pkt_len & 0xFF);
+    outb(base + NE2K_RBCR1, (pkt_len >> 8) & 0xFF);
+    outb(base + NE2K_CR, 0x0A);  /* remote read */
+
+    for (int i = 0; i < pkt_len; i += 2) {
+        u16 word = inw(base + NE2K_DATA);
+        buf[i] = word & 0xFF;
+        if (i + 1 < pkt_len) buf[i+1] = (word >> 8) & 0xFF;
+    }
+
+    /* Update boundary */
+    ne2k_next_pkt = next;
+    if (next == NE2K_RX_START) next = NE2K_RX_STOP;
+    outb(base + NE2K_BNRY, next - 1);
+
+    return pkt_len;
+}
+
+/* ── Unified NIC interface ── */
+static void nic_send(u8 *data, u16 len) {
+    if (nic_is_ne2k) ne2k_send(data, len);
+    else e1000_send(data, len);
+}
+
+static int nic_recv(u8 *buf) {
+    if (nic_is_ne2k) return ne2k_recv(buf);
+    else return e1000_recv(buf);
+}
+
 /* ── Ethernet ── */
 struct eth_header {
     u8 dst[6];
@@ -503,7 +733,7 @@ void handle_arp(u8 *pkt, int len) {
             reply[38] = arp->sender_ip[0]; reply[39] = arp->sender_ip[1];
             reply[40] = arp->sender_ip[2]; reply[41] = arp->sender_ip[3];
 
-            e1000_send(reply, 60);
+            nic_send(reply, 60);
 
             /* Debug: mark reply sent */
             u16 *rdbg = (u16 *)(VGA_BASE + (VGA_WIDTH * 2 + 30) * 2);
@@ -774,7 +1004,7 @@ void tcp_send(u8 *dst_mac, u8 *dst_ip, u16 dst_port, u8 flags, u8 *data, int dat
     /* Store in network byte order */
     tcp->checksum = cksum;
 
-    e1000_send(pkt, offset + data_len);
+    nic_send(pkt, offset + data_len);
 
     if (flags & TCP_SYN) tcp_local_seq++;
     if (flags & TCP_FIN) tcp_local_seq++;
@@ -892,7 +1122,7 @@ void handle_http(void) {
                 }
 
                 /* Receive more TCP data */
-                int rlen = e1000_recv(recv_buf2);
+                int rlen = nic_recv(recv_buf2);
                 if (rlen > 0) {
                     struct eth_header *re = (struct eth_header *)recv_buf2;
                     if (re->type == ETH_ARP) {
@@ -1399,6 +1629,7 @@ void kernel_main(void) {
     serial_print("[POKE] PCI scan...\n");
     vga_print("  [NIC] Scanning PCI... ");
     if (e1000_find()) {
+        nic_is_ne2k = 0;
         vga_set_color(0x0A, 0x00);
         vga_print("e1000 found at ");
         vga_print_hex(e1000_base);
@@ -1412,6 +1643,20 @@ void kernel_main(void) {
         vga_print("  [NIC] Initializing... ");
         serial_print("[POKE] e1000_init start\n");
         e1000_init();
+    } else if (ne2k_find()) {
+        nic_is_ne2k = 1;
+        vga_set_color(0x0A, 0x00);
+        vga_print("NE2000 found at I/O ");
+        vga_print_hex(ne2k_iobase);
+        vga_print("\n");
+
+        serial_print("[POKE] NE2000 found at ");
+        serial_hex(ne2k_iobase);
+        serial_print("\n");
+
+        vga_set_color(0x07, 0x00);
+        vga_print("  [NIC] Initializing NE2000... ");
+        ne2k_init();
         serial_print("[POKE] e1000_init done\n");
         vga_set_color(0x0A, 0x00);
         vga_print("OK\n");
@@ -1451,7 +1696,7 @@ void kernel_main(void) {
         ann[38]=10; ann[39]=0; ann[40]=2; ann[41]=2;   /* 10.0.2.2 */
 
         serial_print("[POKE] sending ARP announce\n");
-        e1000_send(ann, 60);
+        nic_send(ann, 60);
         serial_print("[POKE] ARP sent\n");
         vga_print("  [NET] ARP announce sent\n");
     }
@@ -1480,7 +1725,7 @@ void kernel_main(void) {
         }
 
         /* Poll network */
-        int len = e1000_recv(recv_buf);
+        int len = nic_recv(recv_buf);
         if (len > 0) {
             pkt_count++;
             if (pkt_count <= 5) { serial_print("[LOOP] pkt "); serial_hex(pkt_count); serial_print("\n"); }

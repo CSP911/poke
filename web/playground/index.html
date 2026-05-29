@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POKE Playground — Bare Metal in Your Browser</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0a; color: #e0e0e0; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; }
+.header { padding: 20px; text-align: center; border-bottom: 1px solid #333; }
+.header h1 { font-size: 24px; color: #4CAF50; }
+.header p { color: #888; margin-top: 5px; font-size: 13px; }
+.container { display: flex; height: calc(100vh - 80px); }
+.left { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #333; }
+.right { flex: 1; display: flex; flex-direction: column; }
+.panel-header { padding: 10px 15px; background: #1a1a1a; border-bottom: 1px solid #333; font-size: 12px; color: #888; }
+#screen { flex: 1; background: #000; display: flex; align-items: center; justify-content: center; }
+#screen canvas { max-width: 100%; max-height: 100%; }
+#serial-output { flex: 1; padding: 10px; overflow-y: auto; font-size: 12px; line-height: 1.6; background: #0d0d0d; white-space: pre-wrap; word-break: break-all; }
+.input-area { padding: 10px; background: #1a1a1a; border-top: 1px solid #333; }
+.input-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.input-row input { flex: 1; background: #222; border: 1px solid #444; color: #fff; padding: 8px 12px; border-radius: 4px; font-family: inherit; font-size: 13px; }
+.input-row input:focus { outline: none; border-color: #4CAF50; }
+.input-row button { background: #4CAF50; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 13px; }
+.input-row button:hover { background: #45a049; }
+.input-row button:disabled { background: #333; cursor: not-allowed; }
+.input-row button.red { background: #f44336; }
+.input-row button.red:hover { background: #d32f2f; }
+.input-row button.blue { background: #2196F3; }
+.status { padding: 8px 15px; background: #111; font-size: 11px; color: #666; border-top: 1px solid #333; }
+.status .alive { color: #4CAF50; }
+.status .dead { color: #f44336; }
+.log-line { margin: 2px 0; }
+.log-line.ok { color: #4CAF50; }
+.log-line.err { color: #f44336; }
+.log-line.info { color: #2196F3; }
+.log-line.dim { color: #555; }
+.examples { padding: 10px 15px; background: #111; border-top: 1px solid #222; font-size: 11px; }
+.examples span { cursor: pointer; color: #4CAF50; margin-right: 12px; }
+.examples span:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>POKE Playground</h1>
+  <p>Bare-metal x86 OS running in your browser. No install. No VM. Just machine code on a CPU.</p>
+</div>
+
+<div class="container">
+  <div class="left">
+    <div class="panel-header">VGA Display</div>
+    <div id="screen"><span style="color:#555">Booting POKE kernel...</span></div>
+    <div class="status">
+      Kernel: <span id="kernel-status" class="dead">booting...</span> |
+      Uptime: <span id="uptime">0s</span>
+    </div>
+  </div>
+  <div class="right">
+    <div class="panel-header">Console</div>
+    <div id="serial-output"></div>
+    <div class="examples">
+      Try:
+      <span onclick="setCmd('calculate 2 + 3')">2+3</span>
+      <span onclick="setCmd('calculate 15 * 7')">15×7</span>
+      <span onclick="setCmd('return 0xDEAD')">0xDEAD</span>
+      <span onclick="setHex('B8 02 00 00 00 83 C0 03 C3')">raw bytes</span>
+    </div>
+    <div class="input-area">
+      <div class="input-row">
+        <input id="asm-input" placeholder="Assembly: mov eax, 42 / ret" />
+        <button id="asm-btn" onclick="sendAsm()" disabled>Assemble & Run</button>
+      </div>
+      <div class="input-row">
+        <input id="hex-input" placeholder="Raw hex: B8 2A 00 00 00 C3" />
+        <button id="hex-btn" class="blue" onclick="sendHex()" disabled>Inject Bytes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="node_modules/v86/build/libv86.js"></script>
+<script>
+const output = document.getElementById('serial-output')
+const kernelStatus = document.getElementById('kernel-status')
+const uptimeEl = document.getElementById('uptime')
+let emulator = null
+let bootTime = null
+
+function log(text, cls = '') {
+  const line = document.createElement('div')
+  line.className = 'log-line ' + cls
+  line.textContent = text
+  output.appendChild(line)
+  output.scrollTop = output.scrollHeight
+}
+
+function setCmd(cmd) { document.getElementById('asm-input').value = cmd }
+function setHex(hex) { document.getElementById('hex-input').value = hex }
+
+// Simple assembler (subset) — maps common instructions to bytes
+function miniAssemble(source) {
+  // Use the POKE asm.js logic in a simplified form for the browser
+  const lines = source.split(/[\/\n]/).map(l => l.trim()).filter(l => l && !l.startsWith('BITS'))
+  const bytes = []
+
+  for (const raw of lines) {
+    const line = raw.toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
+    const parts = line.split(' ')
+    const op = parts[0]
+
+    const regs = { eax:0, ecx:1, edx:2, ebx:3, esp:4, ebp:5, esi:6, edi:7 }
+    const reg = s => regs[s] !== undefined ? regs[s] : null
+    const imm = s => { if (!s) return null; if (s.startsWith('0x')) return parseInt(s,16); return parseInt(s,10) }
+    const le32 = v => { v = v >>> 0; return [v&0xFF,(v>>8)&0xFF,(v>>16)&0xFF,(v>>24)&0xFF] }
+
+    if (op === 'ret') { bytes.push(0xC3); continue }
+    if (op === 'nop') { bytes.push(0x90); continue }
+    if (op === 'cdq') { bytes.push(0x99); continue }
+
+    if (op === 'mov' && reg(parts[1]) !== null) {
+      const d = reg(parts[1]), v = imm(parts[2])
+      if (v !== null) { bytes.push(0xB8 + d, ...le32(v)); continue }
+      const s = reg(parts[2])
+      if (s !== null) { bytes.push(0x89, 0xC0|(s<<3)|d); continue }
+    }
+    if (op === 'add' && reg(parts[1]) !== null) {
+      const d = reg(parts[1]), v = imm(parts[2])
+      if (v !== null && v >= -128 && v <= 127) { bytes.push(0x83, 0xC0|d, v&0xFF); continue }
+      const s = reg(parts[2])
+      if (s !== null) { bytes.push(0x01, 0xC0|(s<<3)|d); continue }
+    }
+    if (op === 'sub' && reg(parts[1]) !== null) {
+      const d = reg(parts[1]), v = imm(parts[2])
+      if (v !== null && v >= -128 && v <= 127) { bytes.push(0x83, 0xE8|d, v&0xFF); continue }
+    }
+    if (op === 'imul' && reg(parts[1]) !== null) {
+      const d = reg(parts[1]), v = imm(parts[2])
+      if (v !== null && v >= -128 && v <= 127) { bytes.push(0x6B, 0xC0|(d<<3)|d, v&0xFF); continue }
+      if (v !== null) { bytes.push(0x69, 0xC0|(d<<3)|d, ...le32(v)); continue }
+      const s = reg(parts[2])
+      if (s !== null) { bytes.push(0x0F, 0xAF, 0xC0|(d<<3)|s); continue }
+    }
+    if (op === 'idiv') { const s = reg(parts[1]); if (s !== null) { bytes.push(0xF7, 0xF8|s); continue } }
+    if (op === 'xor') { const d=reg(parts[1]),s=reg(parts[2]); if(d!==null&&s!==null){bytes.push(0x31,0xC0|(s<<3)|d);continue} }
+    if (op === 'and') { const d=reg(parts[1]),v=imm(parts[2]); if(d!==null&&v!==null){if(d===0){bytes.push(0x25,...le32(v))}else{bytes.push(0x83,0xE0|d,v&0xFF)};continue} }
+    if (op === 'or') { const d=reg(parts[1]),v=imm(parts[2]); if(d!==null&&v!==null){if(d===0){bytes.push(0x0D,...le32(v))};continue} }
+    if (op === 'shl') { const d=reg(parts[1]),v=imm(parts[2]); if(d!==null&&v!==null){bytes.push(0xC1,0xE0|d,v&0xFF);continue} }
+    if (op === 'shr') { const d=reg(parts[1]),v=imm(parts[2]); if(d!==null&&v!==null){bytes.push(0xC1,0xE8|d,v&0xFF);continue} }
+    if (op === 'inc') { const d=reg(parts[1]); if(d!==null){bytes.push(0x40+d);continue} }
+    if (op === 'dec') { const d=reg(parts[1]); if(d!==null){bytes.push(0x48+d);continue} }
+    if (op === 'neg') { const d=reg(parts[1]); if(d!==null){bytes.push(0xF7,0xD8|d);continue} }
+    if (op === 'not') { const d=reg(parts[1]); if(d!==null){bytes.push(0xF7,0xD0|d);continue} }
+
+    if (op === 'return') {
+      const v = imm(parts[1])
+      if (v !== null) { bytes.push(0xB8, ...le32(v), 0xC3); continue }
+    }
+    if (op === 'calculate') {
+      // Simple expression parser: "calculate A op B"
+      const expr = parts.slice(1).join(' ')
+      const m = expr.match(/(\d+)\s*([+\-*\/])\s*(\d+)/)
+      if (m) {
+        const a = parseInt(m[1]), b = parseInt(m[3]), op2 = m[2]
+        bytes.push(0xB8, ...le32(a))
+        if (op2 === '+') bytes.push(0x83, 0xC0, b & 0xFF)
+        else if (op2 === '-') bytes.push(0x83, 0xE8, b & 0xFF)
+        else if (op2 === '*') bytes.push(0x6B, 0xC0, b & 0xFF)
+        else if (op2 === '/') { bytes.push(0xB9, ...le32(b), 0x99, 0xF7, 0xF9) }
+        bytes.push(0xC3)
+        continue
+      }
+    }
+
+    throw new Error('Unknown: ' + raw)
+  }
+
+  if (bytes.length === 0) throw new Error('Empty code')
+  if (bytes[bytes.length - 1] !== 0xC3) bytes.push(0xC3)
+  return new Uint8Array(bytes)
+}
+
+async function sendAsm() {
+  const input = document.getElementById('asm-input').value.trim()
+  if (!input) return
+
+  log('> ' + input, 'info')
+
+  try {
+    const bin = miniAssemble(input)
+    log('  assembled: ' + Array.from(bin).map(b => b.toString(16).padStart(2,'0')).join(' '), 'dim')
+    await injectAndRun(bin)
+  } catch (e) {
+    log('  error: ' + e.message, 'err')
+  }
+}
+
+async function sendHex() {
+  const input = document.getElementById('hex-input').value.trim()
+  if (!input) return
+
+  log('> hex: ' + input, 'info')
+  const bytes = input.split(/\s+/).map(h => parseInt(h, 16))
+  await injectAndRun(new Uint8Array(bytes))
+}
+
+// ── Ethernet frame builder for v86 inbrowser network ──
+let guestMac = null
+const hostMac = [0x00, 0x22, 0x15, 0xAA, 0xBB, 0xCC]
+const hostIp = [10, 0, 2, 2]
+const guestIp = [10, 0, 2, 15]
+let tcpSeq = 1000
+let tcpAck = 0
+let pendingResolve = null
+
+function buildEthFrame(dstMac, srcMac, type, payload) {
+  const frame = new Uint8Array(14 + payload.length)
+  frame.set(dstMac, 0)
+  frame.set(srcMac, 6)
+  frame[12] = (type >> 8) & 0xFF
+  frame[13] = type & 0xFF
+  frame.set(payload, 14)
+  return frame
+}
+
+function buildIpHeader(srcIp, dstIp, protocol, dataLen) {
+  const h = new Uint8Array(20)
+  h[0] = 0x45  // version=4, IHL=5
+  h[2] = ((20 + dataLen) >> 8) & 0xFF
+  h[3] = (20 + dataLen) & 0xFF
+  h[6] = 0x40  // don't fragment
+  h[8] = 64    // TTL
+  h[9] = protocol
+  h.set(srcIp, 12)
+  h.set(dstIp, 16)
+  // checksum
+  let sum = 0
+  for (let i = 0; i < 20; i += 2) sum += (h[i] << 8) | h[i+1]
+  while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16)
+  h[10] = ((~sum >> 8) & 0xFF)
+  h[11] = (~sum & 0xFF)
+  return h
+}
+
+function sendPacketToGuest(frame) {
+  if (emulator && emulator.bus) {
+    emulator.bus.send('net0-receive', frame)
+  }
+}
+
+// Listen for packets from guest
+function setupNetworkListener() {
+  if (!emulator || !emulator.bus) return
+
+  emulator.bus.register('net0-send', function(frame) {
+    const data = new Uint8Array(frame)
+    const etherType = (data[12] << 8) | data[13]
+
+    // log('  [NET] guest→host ' + data.length + 'B type=0x' + etherType.toString(16), 'dim')
+
+    // Save guest MAC from first packet
+    if (!guestMac) {
+      guestMac = Array.from(data.slice(6, 12))
+      log('  [NET] guest MAC: ' + guestMac.map(b => b.toString(16).padStart(2,'0')).join(':'), 'info')
+    }
+
+    // Handle ARP
+    if (etherType === 0x0806) {
+      const opcode = (data[20] << 8) | data[21]
+      // log('  [ARP] opcode=' + opcode, 'dim')
+      if (opcode === 1) { // ARP request
+        // Build ARP reply
+        const reply = new Uint8Array(42)
+        // eth header
+        reply.set(data.slice(6, 12), 0)  // dst = sender
+        reply.set(hostMac, 6)             // src = us
+        reply[12] = 0x08; reply[13] = 0x06
+        // ARP
+        reply[14] = 0; reply[15] = 1     // hw type
+        reply[16] = 0x08; reply[17] = 0   // proto type
+        reply[18] = 6; reply[19] = 4     // hw/proto size
+        reply[20] = 0; reply[21] = 2     // reply
+        reply.set(hostMac, 22)             // sender hw
+        reply.set(hostIp, 28)              // sender ip
+        reply.set(data.slice(22, 28), 32) // target hw
+        reply.set(data.slice(28, 32), 38) // target ip
+        sendPacketToGuest(reply)
+      }
+      return
+    }
+
+    // Handle IP/TCP
+    if (etherType === 0x0800) {
+      const ipProto = data[23]
+      if (ipProto === 6) { // TCP
+        const ipHdrLen = (data[14] & 0x0F) * 4
+        const ipLen = (data[16] << 8) | data[17]
+        const tcpStart = 14 + ipHdrLen
+        const srcPort = (data[tcpStart] << 8) | data[tcpStart+1]
+        const dstPort = (data[tcpStart+2] << 8) | data[tcpStart+3]
+        const seqNum = ((data[tcpStart+4] << 24) | (data[tcpStart+5] << 16) | (data[tcpStart+6] << 8) | data[tcpStart+7]) >>> 0
+        const tcpFlags = data[tcpStart+13]
+        const tcpHdrLen = (data[tcpStart+12] >> 4) * 4
+        const dataStart = 14 + ipHdrLen + tcpHdrLen
+        const dataLen = ipLen - ipHdrLen - tcpHdrLen
+
+        // log('  [TCP] ' + srcPort + '→' + dstPort + ' flags=0x' + tcpFlags.toString(16) + ' data=' + dataLen, 'dim')
+
+        // SYN+ACK from guest
+        if ((tcpFlags & 0x12) === 0x12) {
+          log('  [TCP] SYN+ACK received', 'info')
+          tcpAck = seqNum + 1
+          sendTcpPacket(dstPort, srcPort, tcpSeq, tcpAck, 0x10, new Uint8Array(0))
+          return
+        }
+
+        // Data (possibly with FIN) — HTTP response
+        if (dataLen > 0) {
+          const responseData = new TextDecoder().decode(data.slice(dataStart, dataStart + dataLen))
+          tcpAck = seqNum + dataLen
+          if (tcpFlags & 0x01) tcpAck++ // FIN consumes 1 seq
+          sendTcpPacket(dstPort, srcPort, tcpSeq, tcpAck, 0x10, new Uint8Array(0))
+
+          const bodyIdx = responseData.indexOf('\r\n\r\n')
+          const body = bodyIdx >= 0 ? responseData.slice(bodyIdx + 4) : responseData
+          if (body.trim() && pendingResolve) {
+            log('  ' + body.trim(), 'ok')
+            pendingResolve()
+            pendingResolve = null
+          }
+          return
+        }
+
+        // FIN only (no data)
+        if (tcpFlags & 0x01) {
+          tcpAck = seqNum + 1
+          sendTcpPacket(dstPort, srcPort, tcpSeq, tcpAck, 0x10, new Uint8Array(0))
+          return
+        }
+
+        // Pure ACK — ignore
+        return
+      }
+    }
+  }, this)
+}
+
+function sendTcpPacket(srcPort, dstPort, seq, ack, flags, payload) {
+  const tcpLen = 20 + payload.length
+  const tcp = new Uint8Array(tcpLen)
+  tcp[0] = (srcPort >> 8) & 0xFF; tcp[1] = srcPort & 0xFF
+  tcp[2] = (dstPort >> 8) & 0xFF; tcp[3] = dstPort & 0xFF
+  tcp[4] = (seq >> 24) & 0xFF; tcp[5] = (seq >> 16) & 0xFF
+  tcp[6] = (seq >> 8) & 0xFF; tcp[7] = seq & 0xFF
+  tcp[8] = (ack >> 24) & 0xFF; tcp[9] = (ack >> 16) & 0xFF
+  tcp[10] = (ack >> 8) & 0xFF; tcp[11] = ack & 0xFF
+  tcp[12] = 0x50 // data offset = 5 (20 bytes)
+  tcp[13] = flags
+  tcp[14] = 0xFF; tcp[15] = 0xFF // window
+  if (payload.length > 0) tcp.set(payload, 20)
+
+  // TCP checksum
+  let sum = 0
+  // pseudo header
+  for (let i = 0; i < 4; i += 2) sum += (hostIp[i] << 8) | hostIp[i+1]
+  for (let i = 0; i < 4; i += 2) sum += (guestIp[i] << 8) | guestIp[i+1]
+  sum += 6 // protocol TCP
+  sum += tcpLen
+  for (let i = 0; i < tcpLen; i += 2) {
+    sum += (tcp[i] << 8) | (i+1 < tcpLen ? tcp[i+1] : 0)
+  }
+  while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16)
+  tcp[16] = ((~sum >> 8) & 0xFF); tcp[17] = (~sum & 0xFF)
+
+  const ip = buildIpHeader(hostIp, guestIp, 6, tcpLen)
+  const frame = buildEthFrame(guestMac || [0xFF,0xFF,0xFF,0xFF,0xFF,0xFF], hostMac, 0x0800,
+    new Uint8Array([...ip, ...tcp]))
+  sendPacketToGuest(frame)
+
+  if (payload.length > 0) tcpSeq += payload.length
+}
+
+async function injectAndRun(bin) {
+  if (!emulator) { log('  emulator not ready', 'err'); return }
+
+  // Build HTTP POST /poke request
+  const httpReq = `POST /poke HTTP/1.1\r\nHost: 10.0.2.15\r\nContent-Type: application/octet-stream\r\nContent-Length: ${bin.length}\r\nConnection: close\r\n\r\n`
+  const httpBytes = new TextEncoder().encode(httpReq)
+  const payload = new Uint8Array(httpBytes.length + bin.length)
+  payload.set(httpBytes, 0)
+  payload.set(bin, httpBytes.length)
+
+  // TCP handshake + data
+  tcpSeq = 1000 + Math.floor(Math.random() * 50000)
+  tcpAck = 0
+  const srcPort = 40000 + Math.floor(Math.random() * 20000)
+
+  log('  connecting to guest (port ' + srcPort + ')...', 'dim')
+
+  return new Promise((resolve) => {
+    pendingResolve = resolve
+
+    // SYN
+    log('  [TCP] sending SYN to guest port 80 from ' + srcPort, 'dim')
+    sendTcpPacket(srcPort, 80, tcpSeq, 0, 0x02, new Uint8Array(0))
+    tcpSeq++
+
+    // After SYN+ACK (handled in listener), send data
+    setTimeout(() => {
+      if (tcpAck > 0) {
+        log('  [TCP] sending HTTP POST /poke (' + payload.length + 'B)', 'dim')
+        sendTcpPacket(srcPort, 80, tcpSeq, tcpAck, 0x18, payload) // PSH+ACK
+      } else {
+        log('  [TCP] no SYN+ACK received, cannot send data', 'err')
+      }
+    }, 1000)
+
+    // Timeout
+    setTimeout(() => {
+      if (pendingResolve) {
+        log('  timeout waiting for response', 'err')
+        pendingResolve = null
+        resolve()
+      }
+    }, 10000)
+  })
+}
+
+// Boot POKE kernel
+async function boot() {
+  log('Initializing x86 emulator...', 'info')
+
+  emulator = new V86({
+    wasm_path: 'node_modules/v86/build/v86.wasm',
+    bios: { url: 'bios/seabios.bin' },
+    vga_bios: { url: 'bios/vgabios.bin' },
+    fda: { url: 'poke.img', size: 131072 },
+    memory_size: 64 * 1024 * 1024,
+    vga_memory_size: 8 * 1024 * 1024,
+    autostart: true,
+    screen_container: document.getElementById('screen'),
+    disable_keyboard: false,
+    disable_mouse: false,
+    net_device: {
+      relay_url: 'inbrowser',
+      type: 'ne2k',
+    },
+  })
+
+  // Serial output
+  emulator.add_listener('serial0-output-byte', function(byte) {
+    const ch = String.fromCharCode(byte)
+    if (ch === '\n') {
+      // newline
+    } else {
+      const last = output.lastElementChild
+      if (last && !last.textContent.endsWith('\n')) {
+        last.textContent += ch
+      } else {
+        const line = document.createElement('div')
+        line.className = 'log-line dim'
+        line.textContent = ch
+        output.appendChild(line)
+      }
+    }
+    output.scrollTop = output.scrollHeight
+  })
+
+  // Enable buttons after boot
+  bootTime = Date.now()
+  setTimeout(() => {
+    setupNetworkListener()
+    kernelStatus.textContent = 'alive'
+    kernelStatus.className = 'alive'
+    document.getElementById('asm-btn').disabled = false
+    document.getElementById('hex-btn').disabled = false
+    log('POKE kernel booted. Network listener active.', 'ok')
+    log('Ready for code injection.', 'ok')
+  }, 8000)
+
+  // Uptime counter
+  setInterval(() => {
+    if (bootTime) {
+      const s = Math.floor((Date.now() - bootTime) / 1000)
+      uptimeEl.textContent = s + 's'
+    }
+  }, 1000)
+}
+
+boot()
+</script>
+</body>
+</html>
