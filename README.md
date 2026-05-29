@@ -103,7 +103,32 @@ MCP gives AI hands in the software world. POKE gives AI hands in the physical wo
 
 ## Quick Start
 
-> **Platform support:** Currently tested on **macOS** (Apple Silicon & Intel) and **Linux x86_64**. Windows users should use WSL2. Docker option works on any platform with Docker Desktop.
+> **Platform support:**
+> | Platform | Docker (Option 2) | Manual (Option 3) | npm (Option 1) |
+> |----------|:--:|:--:|:--:|
+> | macOS (Intel/Apple Silicon) | ✅ Tested | ✅ Tested | ✅ |
+> | Linux x86_64 (Ubuntu, etc.) | ✅ CI verified | ✅ `apt install gcc-multilib nasm qemu-system-x86` | ✅ |
+> | Windows 10/11 | ✅ via Docker Desktop | ✅ via WSL2 | ✅ via WSL2 |
+> | Linux arm64 (RPi OS) | ⚠️ Slow (x86 emulation) | ❌ Needs x86 cross-compiler | ✅ Hub only |
+
+### Windows Setup
+
+```bash
+# 1. Install WSL2 (if not already)
+wsl --install
+
+# 2. Install Docker Desktop: https://docs.docker.com/desktop/install/windows-install/
+#    Enable "Use WSL2 based engine" in Docker Desktop settings
+
+# 3. Open WSL2 terminal, then:
+git clone https://github.com/CSP911/poke.git
+cd poke
+cp .env.example .env
+# Edit .env — add your Anthropic API key
+
+docker compose up --build
+# → Edge + Hub + auto-register, same as macOS/Linux
+```
 
 ### Option 1: npm — Hub only
 
