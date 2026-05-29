@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POKE Hub Dashboard</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.header { padding: 12px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 16px; color: #58a6ff; }
+.header .status { font-size: 11px; color: #8b949e; }
+.header .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3fb950; margin-right: 4px; }
+
+.edge-bar { padding: 12px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; overflow-x: auto; }
+.edge-card { min-width: 180px; padding: 12px 16px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; cursor: pointer; transition: all 0.15s; flex-shrink: 0; }
+.edge-card:hover { border-color: #58a6ff; }
+.edge-card.selected { border-color: #58a6ff; background: #1f6feb15; }
+.edge-card .name { font-size: 13px; font-weight: 600; }
+.edge-card .meta { font-size: 10px; color: #8b949e; margin-top: 4px; }
+.edge-card .badge { display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 8px; margin-top: 4px; }
+.badge.alive { background: #23863620; color: #3fb950; }
+.badge.dead { background: #f8514920; color: #f85149; }
+.edge-card .sensor-val { font-size: 18px; font-weight: 700; color: #e6edf3; margin-top: 6px; }
+.edge-card .sensor-label { font-size: 10px; color: #8b949e; }
+
+.main { display: flex; height: calc(100vh - 120px); }
+
+.panel-left { width: 320px; border-right: 1px solid #30363d; overflow-y: auto; }
+.panel-left::-webkit-scrollbar { width: 6px; }
+.panel-left::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.accordion { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; padding: 10px 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; border-bottom: 1px solid #21262d; background: #161b22; user-select: none; }
+.accordion:hover { background: #1c2128; }
+.accordion-arrow { font-size: 9px; transition: transform 0.2s; }
+.accordion-arrow.open { transform: rotate(90deg); }
+.accordion-body { border-bottom: 1px solid #21262d; max-height: 40vh; overflow-y: auto; }
+.accordion-body::-webkit-scrollbar { width: 6px; }
+.accordion-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.task-detail { scrollbar-width: thin; scrollbar-color: #30363d #0d1117; }
+.task-detail::-webkit-scrollbar { width: 5px; }
+.task-detail::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.btn-sm { font-size: 10px; color: #58a6ff; background: none; border: 1px solid #30363d; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+.btn-sm:hover { background: #21262d; }
+
+.device-item { padding: 8px 10px; background: #161b22; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 6px; }
+.device-item .dev-name { font-size: 12px; font-weight: 600; }
+.device-item .dev-type { font-size: 10px; color: #8b949e; }
+.device-item .dev-ops { margin-top: 4px; font-size: 10px; color: #58a6ff; }
+
+.panel-right { flex: 1; display: flex; flex-direction: column; }
+
+.cmd-bar { padding: 16px 24px; background: #161b22; border-bottom: 1px solid #30363d; }
+.cmd-row { display: flex; gap: 8px; }
+.cmd-row input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+.cmd-row input:focus { outline: none; border-color: #58a6ff; }
+.cmd-row button { background: #238636; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.cmd-row button:hover { background: #2ea043; }
+.cmd-hint { font-size: 11px; color: #484f58; margin-top: 6px; }
+.cmd-hint span { color: #58a6ff; cursor: pointer; margin-right: 12px; }
+.cmd-hint span:hover { text-decoration: underline; }
+
+.result-panel { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.result-panel::-webkit-scrollbar { width: 6px; }
+.result-panel::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+.step { display: flex; align-items: flex-start; margin-bottom: 10px; }
+.step-num { min-width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; margin-right: 10px; margin-top: 1px; color: #fff; }
+.step-body { flex: 1; }
+.step-tool { font-size: 12px; font-weight: 600; }
+.step-target { font-size: 11px; color: #8b949e; }
+.step-code { font-size: 10px; color: #484f58; font-family: monospace; margin-top: 2px; }
+.step-result { font-size: 11px; margin-top: 2px; }
+
+.final-result { border-top: 1px solid #21262d; padding-top: 16px; margin-top: 8px; font-size: 13px; line-height: 1.9; }
+
+.empty-msg { text-align: center; padding: 80px 20px; color: #484f58; }
+.empty-msg h3 { color: #8b949e; margin-bottom: 6px; }
+
+.gear-btn { font-size: 14px; cursor: pointer; color: #484f58; padding: 2px; line-height: 1; }
+.gear-btn:hover { color: #e6edf3; }
+
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 24px; width: 360px; }
+.modal h3 { font-size: 14px; margin-bottom: 16px; color: #e6edf3; }
+.modal label { font-size: 11px; color: #8b949e; display: block; margin-bottom: 4px; }
+.modal input { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 10px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; }
+.modal input:focus { outline: none; border-color: #58a6ff; }
+.modal .meta-row { font-size: 11px; color: #8b949e; padding: 4px 0; display: flex; justify-content: space-between; border-bottom: 1px solid #21262d; }
+.modal .meta-row span:first-child { color: #484f58; }
+.modal-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal-btns button { padding: 6px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; border: none; }
+.modal-btns .btn-cancel { background: #21262d; color: #8b949e; }
+.modal-btns .btn-save { background: #238636; color: #fff; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>POKE Hub</h1>
+  <div class="status"><span class="dot" id="hub-dot"></span><span id="hub-status">Connecting...</span></div>
+</div>
+
+<div class="edge-bar" id="edge-bar"></div>
+
+<div class="main">
+  <div class="panel-left">
+    <div class="accordion" onclick="toggleSection('devices')">
+      <span class="accordion-arrow" id="arrow-devices">▶</span>
+      <span>DEVICES</span>
+      <span style="flex:1;"></span>
+      <button class="btn-sm" onclick="event.stopPropagation();scanDevices()">Scan</button>
+    </div>
+    <div class="accordion-body" id="section-devices" style="display:none;">
+      <div id="device-list"><div class="empty-msg" style="padding:20px;"><h3>Select an edge</h3></div></div>
+    </div>
+
+    <div class="accordion" onclick="toggleSection('tasks')">
+      <span class="accordion-arrow" id="arrow-tasks">▶</span>
+      <span>TASKS</span>
+      <span style="flex:1;"></span>
+      <span id="task-count" style="font-size:10px;color:#8b949e;"></span>
+      <button class="btn-sm" onclick="event.stopPropagation();clearTasks()" style="color:#f85149;">Clear</button>
+    </div>
+    <div class="accordion-body" id="section-tasks" style="display:none;">
+      <div id="task-list"><div style="font-size:11px;color:#484f58;padding:12px;">No tasks deployed yet.</div></div>
+    </div>
+  </div>
+
+  <div class="panel-right">
+    <div class="cmd-bar">
+      <div class="cmd-row">
+        <input id="cmd-input" placeholder="Ask anything — hub routes to the right edge automatically" onkeydown="if(event.key==='Enter')sendCommand()" />
+        <button onclick="sendCommand()">Run</button>
+      </div>
+      <div class="cmd-hint">
+        Try:
+        <span onclick="setCmd('모든 엣지 상태 알려줘')">전체 상태</span>
+        <span onclick="setCmd('edge-A에서 2+3 계산해줘')">계산</span>
+        <span onclick="setCmd('네트워크 카드 MAC 읽어줘')">MAC 읽기</span>
+        <span onclick="setCmd('클린룸 온도, 습도, 파티클 확인해줘')">클린룸</span>
+        <span onclick="setCmd('전체 팹 라인 수율 분석해줘')">수율 분석</span>
+      </div>
+    </div>
+
+    <div class="result-panel" id="result-panel">
+      <div class="empty-msg">
+        <h3>Ready</h3>
+        <p>Type a command or click a suggestion above.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="settings-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeSettings()">
+  <div class="modal">
+    <h3>⚙ Edge Settings</h3>
+    <div id="settings-meta"></div>
+    <div style="margin-top:14px;">
+      <label>Alias</label>
+      <input id="settings-alias" placeholder="e.g. cleanroom-1, etch-chamber-A" />
+    </div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
+      <button class="btn-save" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const HUB = location.port === '3333' ? '' : `http://${location.hostname}:3333`
+let edges = []
+let selectedEdge = null
+let aliases = JSON.parse(localStorage.getItem('poke-aliases') || '{}')
+
+function setCmd(cmd) { document.getElementById('cmd-input').value = cmd; document.getElementById('cmd-input').focus() }
+
+async function api(path, body) {
+  const opts = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}
+  const res = await fetch(HUB + path, opts)
+  return res.json()
+}
+
+async function refreshEdges() {
+  try {
+    const data = await api('/nodes')
+    edges = data.nodes.filter(n => !n.endpoint.startsWith('polling:'))
+    document.getElementById('hub-status').textContent = `${edges.length} edges online`
+    document.getElementById('hub-dot').style.background = '#3fb950'
+    renderEdgeBar()
+  } catch {
+    document.getElementById('hub-status').textContent = 'Disconnected'
+    document.getElementById('hub-dot').style.background = '#f85149'
+  }
+}
+
+function renderEdgeBar() {
+  const bar = document.getElementById('edge-bar')
+  bar.innerHTML = edges.map(e => `
+    <div class="edge-card ${selectedEdge === e.node_id ? 'selected' : ''}" onclick="selectedEdge==='${e.node_id}' ? deselectEdge() : selectEdge('${e.node_id}')">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div class="name">${aliases[e.node_id] || e.node_id}</div>
+        <span class="gear-btn" onclick="event.stopPropagation();openSettings('${e.node_id}')">⚙</span>
+      </div>
+      <div class="meta">${e.arch} · ${e.endpoint.replace('http://localhost:','')}</div>
+      <span class="badge ${e.status === 'alive' ? 'alive' : 'dead'}">${e.status}</span>
+    </div>
+  `).join('')
+}
+
+// Task history per edge
+const edgeTasks = JSON.parse(localStorage.getItem('poke-tasks') || '{}')
+
+function toggleSection(name) {
+  const body = document.getElementById('section-' + name)
+  const arrow = document.getElementById('arrow-' + name)
+  if (body.style.display === 'none') {
+    body.style.display = 'block'
+    arrow.classList.add('open')
+  } else {
+    body.style.display = 'none'
+    arrow.classList.remove('open')
+  }
+}
+
+function addTask(edgeId, task) {
+  if (!edgeId) return
+  if (!edgeTasks[edgeId]) edgeTasks[edgeId] = []
+  // Prevent duplicate: same command within 5 seconds
+  const last = edgeTasks[edgeId][0]
+  if (last && last.command === task.command && Math.abs(new Date(last.time) - new Date(task.time)) < 5000) return
+  edgeTasks[edgeId].unshift(task)
+  if (edgeTasks[edgeId].length > 20) edgeTasks[edgeId] = edgeTasks[edgeId].slice(0, 20)
+  localStorage.setItem('poke-tasks', JSON.stringify(edgeTasks))
+  renderTasks()
+}
+
+function clearTasks() {
+  if (!selectedEdge) return
+  delete edgeTasks[selectedEdge]
+  localStorage.setItem('poke-tasks', JSON.stringify(edgeTasks))
+  renderTasks()
+}
+
+function deleteTask(index) {
+  if (!selectedEdge || !edgeTasks[selectedEdge]) return
+  edgeTasks[selectedEdge].splice(index, 1)
+  localStorage.setItem('poke-tasks', JSON.stringify(edgeTasks))
+  renderTasks()
+}
+
+function renderTasks() {
+  const el = document.getElementById('task-list')
+  const countEl = document.getElementById('task-count')
+  if (!selectedEdge) { el.innerHTML = '<div style="font-size:11px;color:#484f58;padding:12px;">Select an edge.</div>'; return }
+
+  const tasks = edgeTasks[selectedEdge] || []
+  countEl.textContent = tasks.length > 0 ? tasks.length : ''
+
+  if (tasks.length === 0) {
+    el.innerHTML = '<div style="font-size:11px;color:#484f58;padding:12px;">No tasks yet. Send a command to create one.</div>'
+    return
+  }
+
+  el.innerHTML = tasks.map((t, i) => {
+    const statusColor = t.status === 'ok' ? '#3fb950' : t.status === 'error' ? '#f85149' : '#d29922'
+    const icon = t.status === 'ok' ? '✅' : t.status === 'error' ? '❌' : '⏳'
+    const time = new Date(t.time).toLocaleTimeString()
+    return `
+      <div class="device-item" style="cursor:pointer;" onclick="this.querySelector('.task-detail').style.display=this.querySelector('.task-detail').style.display==='none'?'block':'none'">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <span style="font-size:11px;">${icon}</span>
+            <span class="dev-name" style="font-size:11px;">${t.command.slice(0, 35)}${t.command.length > 35 ? '...' : ''}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:9px;color:#484f58;">${time}</span>
+            <span style="font-size:11px;color:#484f58;cursor:pointer;" onclick="event.stopPropagation();deleteTask(${i})" title="Delete">✕</span>
+          </div>
+        </div>
+        <div class="task-detail" style="display:none;margin-top:8px;padding:8px;background:#0d1117;border-radius:4px;font-size:10px;max-height:250px;overflow-y:auto;">
+          ${(t.steps || []).map((s, j) => {
+            let detail = `<div style="margin-bottom:6px;padding:4px;border-left:2px solid #30363d;padding-left:8px;">`
+            detail += `<div><span style="color:#58a6ff;font-weight:600;">${s.tool}</span>`
+            if (s.target) detail += ` <span style="color:#8b949e;">→ ${s.target}</span>`
+            detail += `</div>`
+            if (s.asm) detail += `<div style="margin-top:3px;padding:4px 6px;background:#161b22;border-radius:3px;font-family:monospace;color:#d2a8ff;white-space:pre-wrap;">${s.asm}</div>`
+            if (s.c_code) detail += `<div style="margin-top:3px;padding:4px 6px;background:#161b22;border-radius:3px;font-family:monospace;color:#79c0ff;white-space:pre-wrap;max-height:80px;overflow-y:auto;">${s.c_code.slice(0,300)}</div>`
+            if (s.result) detail += `<div style="margin-top:3px;color:#3fb950;">${s.result}</div>`
+            detail += `</div>`
+            return detail
+          }).join('')}
+          <div style="border-top:1px solid #21262d;padding-top:6px;margin-top:4px;color:${statusColor};white-space:pre-wrap;">${(t.result || '').slice(0, 200)}</div>
+        </div>
+      </div>`
+  }).join('')
+}
+
+let settingsEdgeId = null
+
+function openSettings(id) {
+  settingsEdgeId = id
+  const edge = edges.find(e => e.node_id === id)
+  if (!edge) return
+
+  const meta = document.getElementById('settings-meta')
+  meta.innerHTML = `
+    <div class="meta-row"><span>Node ID</span><span>${id}</span></div>
+    <div class="meta-row"><span>Architecture</span><span>${edge.arch}</span></div>
+    <div class="meta-row"><span>Endpoint</span><span>${edge.endpoint}</span></div>
+    <div class="meta-row"><span>Status</span><span>${edge.status}</span></div>
+    <div class="meta-row"><span>Last Seen</span><span>${edge.last_seen ? new Date(edge.last_seen).toLocaleString() : '—'}</span></div>
+  `
+  document.getElementById('settings-alias').value = aliases[id] || ''
+  document.getElementById('settings-modal').style.display = 'flex'
+}
+
+function closeSettings() {
+  document.getElementById('settings-modal').style.display = 'none'
+  settingsEdgeId = null
+}
+
+function saveSettings() {
+  const alias = document.getElementById('settings-alias').value.trim()
+  if (settingsEdgeId) {
+    if (alias) {
+      aliases[settingsEdgeId] = alias
+    } else {
+      delete aliases[settingsEdgeId]
+    }
+    localStorage.setItem('poke-aliases', JSON.stringify(aliases))
+    renderEdgeBar()
+  }
+  closeSettings()
+}
+
+function deselectEdge() {
+  selectedEdge = null
+  renderEdgeBar()
+  updateCmdPlaceholder()
+  document.getElementById('device-list').innerHTML = '<div style="font-size:11px;color:#484f58;padding:12px;">Select an edge to view devices.</div>'
+  document.getElementById('task-list').innerHTML = '<div style="font-size:11px;color:#484f58;padding:12px;">Select an edge to view tasks.</div>'
+  document.getElementById('task-count').textContent = ''
+  document.getElementById('section-devices').style.display = 'none'
+  document.getElementById('arrow-devices').classList.remove('open')
+  document.getElementById('section-tasks').style.display = 'none'
+  document.getElementById('arrow-tasks').classList.remove('open')
+}
+
+function updateCmdPlaceholder() {
+  const input = document.getElementById('cmd-input')
+  if (selectedEdge) {
+    const name = aliases[selectedEdge] || selectedEdge
+    input.placeholder = `Command → ${name} (click card again to switch to Hub mode)`
+  } else {
+    input.placeholder = `Hub mode — AI routes to the right edge automatically`
+  }
+}
+
+function selectEdge(id) {
+  selectedEdge = id
+  renderEdgeBar()
+  updateCmdPlaceholder()
+  // Auto-open devices section
+  document.getElementById('section-devices').style.display = 'block'
+  document.getElementById('arrow-devices').classList.add('open')
+  loadDevices()
+  renderTasks()
+}
+
+async function loadDevices() {
+  const el = document.getElementById('device-list')
+  if (!selectedEdge) {
+    el.innerHTML = '<div style="font-size:11px;color:#484f58;padding:12px;">Select an edge.</div>'
+    return
+  }
+  el.innerHTML = '<div style="font-size:11px;color:#8b949e;padding:12px;">Loading...</div>'
+
+  try {
+    const profiles = await api('/profiles')
+    const icons = {
+      network:'🌐', graphics:'📺', audio:'🔊', input:'⌨️', serial:'📡',
+      usb:'🔌', storage:'💾', rng:'🎲', rtc:'⏰', sensor:'🌡️',
+      interrupt:'⚡', bridge:'🔗', memory:'🧠',
+      cleanroom:'🏭', litho:'📸', etch:'⚗️', metrology:'🔬',
+    }
+
+    if (profiles.length === 0) {
+      el.innerHTML = '<div style="color:#8b949e;font-size:11px;padding:12px;">No profiles. Click Scan.</div>'
+      return
+    }
+
+    el.innerHTML = profiles.map(p => {
+      const icon = icons[p.type] || '📦'
+      const ops = p.operations.map(o => o.name).join(', ')
+      return `
+        <div class="device-item">
+          <div class="dev-name">${icon} ${p.name}</div>
+          <div class="dev-type">${p.type} · ${p.operations.length} ops</div>
+          <div class="dev-ops">${ops}</div>
+        </div>`
+    }).join('')
+  } catch (e) {
+    el.innerHTML = `<div style="color:#f85149;font-size:11px;padding:12px;">Failed: ${e.message}</div>`
+  }
+}
+
+async function scanDevices() {
+  if (!selectedEdge) return
+  const el = document.getElementById('device-list')
+  el.innerHTML = '<div style="color:#8b949e;font-size:11px;">Scanning PCI bus...</div>'
+  try {
+    await api('/relay', { from: selectedEdge, command: `scan and auto-profile devices on ${selectedEdge} using auto_profile`, target: selectedEdge })
+    loadDevices()
+  } catch (e) {
+    el.innerHTML = `<div style="color:#f85149;font-size:11px;">${e.message}</div>`
+  }
+}
+
+async function sendCommand() {
+  const input = document.getElementById('cmd-input')
+  const panel = document.getElementById('result-panel')
+  const cmd = input.value.trim()
+  if (!cmd) return
+
+  panel.innerHTML = '<div style="color:#8b949e;font-size:12px;">Processing...</div>'
+
+  try {
+    await api('/mobile/register', { node_id: 'dashboard' })
+    const from = selectedEdge || 'dashboard'
+    const data = await api('/relay', { from, command: cmd })
+
+    let html = ''
+
+    // Steps
+    if (data.steps && data.steps.length > 0) {
+      data.steps.forEach((step, i) => {
+        const colors = {
+          execute_x86: '#58a6ff', execute_arm: '#58a6ff',
+          build_and_deploy: '#8957e5', deploy_autonomous: '#8957e5',
+          fetch_url: '#d29922', analyze_image: '#d29922',
+          parallel_execute: '#f78166', reply_text: '#8b949e',
+        }
+        const color = colors[step.tool] || '#3fb950'
+        const hasError = (step.result || '').toLowerCase().includes('error')
+        const bg = hasError ? '#f85149' : '#238636'
+
+        html += `<div class="step">`
+        html += `<div class="step-num" style="background:${bg};">${i + 1}</div>`
+        html += `<div class="step-body">`
+        html += `<span class="step-tool" style="color:${color};">${step.tool}</span>`
+        if (step.input?.target) html += ` <span class="step-target">→ ${step.input.target}</span>`
+        if (step.input?.asm_code) html += `<div class="step-code">${step.input.asm_code.replace(/\n/g, ' | ').slice(0, 80)}</div>`
+        const res = (step.result || '').slice(0, 100)
+        html += `<div class="step-result" style="color:${hasError ? '#f85149' : '#3fb950'};">${res}</div>`
+        html += `</div></div>`
+      })
+    }
+
+    // Final result
+    if (data.result) {
+      const resultHtml = data.result
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\|/g, '│')
+        .replace(/\n/g, '<br>')
+      html += `<div class="final-result">${resultHtml}</div>`
+    }
+
+    panel.innerHTML = html || '<div style="color:#8b949e;">No result</div>'
+
+    // Record task — save to all involved edges
+    const taskData = {
+      command: cmd,
+      tools: (data.steps || []).map(s => s.tool),
+      steps: (data.steps || []).map(s => ({
+        tool: s.tool,
+        target: s.input?.target || '',
+        asm: s.input?.asm_code || '',
+        c_code: s.input?.c_code || '',
+        result: (s.result || '').slice(0, 200),
+      })),
+      result: data.result || '',
+      status: (data.result || '').toLowerCase().includes('error') ? 'error' : 'ok',
+      time: new Date().toISOString(),
+    }
+    // Save once per edge that actually executed code
+    const executedEdges = new Set()
+    for (const s of (data.steps || [])) {
+      if (s.input?.target) executedEdges.add(s.input.target)
+    }
+    if (executedEdges.size === 0 && selectedEdge) executedEdges.add(selectedEdge)
+    for (const eid of executedEdges) {
+      // Prevent duplicate: skip if same command+time already exists
+      const existing = edgeTasks[eid] || []
+      if (existing.length > 0 && existing[0].command === cmd && existing[0].time === taskData.time) continue
+      addTask(eid, taskData)
+    }
+  } catch (e) {
+    panel.innerHTML = `<div style="color:#f85149;">Error: ${e.message}</div>`
+    if (selectedEdge || true) {
+      addTask(selectedEdge || 'dashboard', {
+        command: cmd,
+        tools: [],
+        result: e.message,
+        status: 'error',
+        time: new Date().toISOString(),
+      })
+    }
+  }
+}
+
+async function init() {
+  try { await api('/mobile/register', { node_id: 'dashboard' }) } catch {}
+  refreshEdges()
+  setInterval(refreshEdges, 10000)
+}
+
+init()
+</script>
+</body>
+</html>

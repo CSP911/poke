@@ -4,7 +4,7 @@
 
 const http = require('http')
 const { log } = require('./logger')
-const { nodes, edgeHistory, enrollNode } = require('./nodes')
+const { nodes, edgeHistory, enrollNode, profiles } = require('./nodes')
 const { agentLoop } = require('./agent')
 const { generateAssembly, generateImageCode, planCommand } = require('./llm')
 const { compileAssembly } = require('./compiler')
@@ -198,6 +198,22 @@ async function handleRequest(req, res) {
     return
   }
 
+  // GET /profiles — list all device profiles with operations
+  if (req.method === 'GET' && url.pathname === '/profiles') {
+    const result = []
+    for (const [id, p] of profiles) {
+      result.push({
+        id: p.vendor_device,
+        name: p.name,
+        type: p.type,
+        arch: p.arch,
+        operations: (p.operations || []).map(op => ({ name: op.name, desc: op.desc })),
+      })
+    }
+    res.end(JSON.stringify(result, null, 2))
+    return
+  }
+
   // GET /dashboard — edge monitoring dashboard
   if (req.method === 'GET' && url.pathname === '/dashboard') {
     const dashboard = {}
@@ -223,7 +239,14 @@ async function handleRequest(req, res) {
     return
   }
 
-  // GET / — mobile POKE edge web UI
+  // GET /ui — hub management dashboard
+  if (req.method === 'GET' && url.pathname === '/ui') {
+    res.setHeader('Content-Type', 'text/html')
+    res.end(require('fs').readFileSync(__dirname + '/../web/dashboard/index.html', 'utf8'))
+    return
+  }
+
+  // GET / or /mobile — mobile POKE edge web UI
   if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/mobile')) {
     res.setHeader('Content-Type', 'text/html')
     res.end(require('fs').readFileSync(__dirname + '/../web/mobile.html', 'utf8'))

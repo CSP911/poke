@@ -225,10 +225,17 @@ Each param object has: target (edge ID), asm_code (x86 NASM or ARM64), arch (i38
 // ── Auto-generated tools from profiles ──
 function generateDeviceTools() {
   const tools = []
+  const usedNames = new Set()
   for (const [id, profile] of profiles) {
     if (!profile.operations) continue
     for (const op of profile.operations) {
-      const toolName = `${profile.type}_${op.name}`
+      let toolName = `${profile.type}_${op.name}`
+      // Deduplicate: append vendor_device suffix if name already used
+      if (usedNames.has(toolName)) {
+        const suffix = id.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()
+        toolName = `${toolName}_${suffix}`
+      }
+      usedNames.add(toolName)
       tools.push({
         name: toolName,
         description: `[${profile.name}] ${op.desc}. Returns: ${op.returns}`,
