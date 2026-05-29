@@ -19,3 +19,4 @@ package-lock.json
 /tmp/
 *.ppm
 .DS_Store
+docs/patent-figures/
