@@ -20,3 +20,5 @@ package-lock.json
 *.ppm
 .DS_Store
 docs/patent-figures/
+docs/patent-draft.md
+docs/patent-defense-notes.md
