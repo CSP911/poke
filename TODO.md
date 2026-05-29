@@ -51,6 +51,13 @@
 
 ---
 
+## Next: Mobile Commander
+- [ ] PWA: mobile.html → Progressive Web App (홈 화면 추가, 오프라인 캐시, 앱 느낌)
+- [ ] 스마트폰 커맨더: 음성 + 텍스트 + 카메라로 모든 엣지 제어
+- [ ] 클라우드 허브: 허브를 클라우드에 배포 (폰 → 인터넷 → 허브 → 엣지)
+
+---
+
 ## Backlog
 
 ### Interactive Devices
