@@ -99,6 +99,7 @@ function nasmBytes(task) {
 // ── 메인 ──
 async function main() {
   const models = [
+    'claude-opus-4-8',
     'claude-opus-4-6',
     'claude-haiku-4-5-20251001',
   ]
