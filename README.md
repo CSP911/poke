@@ -103,168 +103,69 @@ MCP gives AI hands in the software world. POKE gives AI hands in the physical wo
 
 ## Quick Start
 
-> **Platform support:**
-> | Platform | Docker (Option 2) | Manual (Option 3) | npm (Option 1) |
-> |----------|:--:|:--:|:--:|
-> | macOS (Intel/Apple Silicon) | ✅ Tested | ✅ Tested | ✅ |
-> | Linux x86_64 (Ubuntu, etc.) | ✅ CI verified | ✅ `apt install gcc-multilib nasm qemu-system-x86` | ✅ |
-> | Windows 10/11 | ✅ via Docker Desktop | ✅ via WSL2 | ✅ via WSL2 |
-> | Linux arm64 (RPi OS) | ⚠️ Slow (x86 emulation) | ❌ Needs x86 cross-compiler | ✅ Hub only |
-
-### Windows Setup
-
-```bash
-# 1. Install WSL2 (if not already)
-wsl --install
-
-# 2. Install Docker Desktop: https://docs.docker.com/desktop/install/windows-install/
-#    Enable "Use WSL2 based engine" in Docker Desktop settings
-
-# 3. Open WSL2 terminal, then:
-git clone https://github.com/CSP911/poke.git
-cd poke
-cp .env.example .env
-# Edit .env — add your Anthropic API key
-
-docker compose up --build
-# → Edge + Hub + auto-register, same as macOS/Linux
-```
-
-### Option 1: npm — Hub only
-
-Starts the **hub (LLM agent server) only**. No bare-metal edge. Use this if you already have edge devices running, or just want to explore the hub API.
-
-```bash
-# Install
-npm install -g @orvian/poke
-
-# Configure LLM API key (required)
-# Get a key at https://console.anthropic.com → API Keys → Create Key
-echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
-
-# Start hub
-poke
-# → POKE Hub running on http://localhost:3333
-```
-
-> **Note:** Hub only — no edge devices are started. You can register external edges via `POST /enroll`, or use Option 2 for the full experience.
-
-### Option 2: Docker — Hub + Edge (recommended)
-
-Starts **everything**: bare-metal x86 kernel (compiled from source inside Docker), QEMU edge, hub, and auto-registration. Nothing to install except Docker.
-
 ```bash
 git clone https://github.com/CSP911/poke.git
 cd poke
 
-# Configure (required)
+# 1. Configure API key (required)
 cp .env.example .env
 # Edit .env — add your Anthropic API key:
 #   ANTHROPIC_API_KEY=sk-ant-your-key-here
-#   HUB_SECRET=optional-secret-for-auth
+# Get a key at https://console.anthropic.com → API Keys → Create Key
 
-# Start everything (builds kernel from source automatically)
+# 2. Start everything
 docker compose up --build
+
+# 3. Open dashboard
+open http://localhost:3333/ui
 ```
+
+That's it. Docker compiles the x86 kernel from source, boots it in QEMU, starts the hub, and registers the edge automatically.
 
 | Service | Port | What it does |
 |---------|------|-------------|
 | **Edge** | 8080 | Bare-metal x86 OS in QEMU (kernel built from source) |
 | **Hub** | 3333 | LLM agent server (connects to Claude API) |
+| **Dashboard** | 3333/ui | Web UI — manage edges, send commands, view results |
 | **Setup** | — | Auto-registers edge with hub, then exits |
 
-> **What happens:** Docker compiles the x86 kernel using `nasm` + `gcc -m32`, boots it in QEMU, starts the hub, and registers the edge — all from a fresh clone. No cross-compiler needed on your machine.
+> **Platform:** macOS, Linux x86_64, Windows (via WSL2 + Docker Desktop).
 
-### Option 3: Manual — Full control
+### Using the Dashboard
 
-For developers who want to modify the kernel or run multiple edges. Requires **macOS or Linux x86_64**.
+1. **Open** `http://localhost:3333/ui`
+2. **Edge cards** appear at top — click one to view its devices and tasks
+3. **⚙ Settings** — click the gear icon to set an alias (e.g. "cleanroom", "etch-chamber")
+4. **Scan Devices** — auto-detects hardware on the edge, creates device profiles
+5. **Command bar** — type natural language, AI generates code and executes on the edge
 
-```bash
-# Prerequisites
-# macOS:  brew install nasm qemu i686-elf-gcc
-# Ubuntu: apt install nasm qemu-system-x86 gcc-multilib
-
-# Build and start x86 edge
-make                    # Compile kernel → poke.img
-make run                # Start QEMU edge on port 8080
-
-# In another terminal: install deps + start hub
-npm install
-echo "ANTHROPIC_API_KEY=sk-ant-your-key-here" > .env
-node src/hub.js         # Hub on port 3333
-
-# Register edge with hub
-curl -X POST http://localhost:3333/enroll \
-  -H 'Content-Type: application/json' \
-  -d '{"node_id":"x86","endpoint":"http://localhost:8080","arch":"i386"}'
+```
+Hub mode (no edge selected):  AI routes to the right edge automatically
+Edge mode (card selected):    Commands target that specific edge
+Click selected card again:    Switches back to Hub mode
 ```
 
-> **What you get:** Hub + one x86 edge. You can start more edges on different ports, add ARM edges, or connect real hardware.
+### Example Commands
 
-### Try it — natural language commands
-
-The `/relay` endpoint accepts any natural language. The LLM agent decides what to do — compute, read hardware, fetch APIs, or combine all of them.
-
-```bash
-# Math → LLM generates assembly → bare-metal CPU executes
-curl -X POST http://localhost:3333/relay \
-  -H 'Content-Type: application/json' \
-  -d '{"from":"x86-edge","command":"calculate 100 * 7"}'
-# → { "result": "eax=700" }
-
-# Hardware scan → LLM writes C program → compiles → injects → interprets
-curl -X POST http://localhost:3333/relay \
-  -H 'Content-Type: application/json' \
-  -d '{"from":"x86-edge","command":"what hardware is connected to this machine?"}'
-# → "8 devices found: Intel NIC, QEMU VGA, VirtIO RNG..."
-
-# Device control → auto-generated tool from profile
-curl -X POST http://localhost:3333/relay \
-  -H 'Content-Type: application/json' \
-  -d '{"from":"x86-edge","command":"read the network card MAC address"}'
-# → "MAC: 52:54:00:12:34:56"
-
-# External API + CPU compute in one command
-curl -X POST http://localhost:3333/relay \
-  -H 'Content-Type: application/json' \
-  -d '{"from":"x86-edge","command":"get Seoul weather and convert temperature to Fahrenheit"}'
-# → agent fetches weather API, then runs (25*9/5)+32 on bare-metal CPU → "25°C = 77°F"
-
-# Sensor reading
-curl -X POST http://localhost:3333/relay \
-  -H 'Content-Type: application/json' \
-  -d '{"from":"x86-edge","command":"read temperature from all sensors"}'
-# → reads PIT-based virtual sensors from each edge
-
-# General questions (no hardware needed)
-curl -X POST http://localhost:3333/relay \
-  -H 'Content-Type: application/json' \
-  -d '{"from":"x86-edge","command":"what is POKE protocol?"}'
-# → LLM answers directly, no code execution
+```
+"calculate 100 * 7"                          → assembly → bare-metal → eax=700
+"what hardware is connected?"                → PCI scan → C binary → device list
+"read the network card MAC address"          → auto-generated tool → 52:54:00:12:34:56
+"get Seoul weather, convert to Fahrenheit"   → fetch API + CPU compute → 25°C = 77°F
+"read temperature from all sensors"          → distributed sensor query
+"1234567 * 7654321"                          → 32-bit overflow proves real CPU execution
 ```
 
-```bash
-# Direct machine code injection (no LLM, raw bytes)
-printf '\xB8\x02\x00\x00\x00\x83\xC0\x03\xC3' | \
-  curl http://localhost:8080/poke --data-binary @-
-# → eax=5  (mov eax,2; add eax,3; ret)
-```
-
-```bash
-# Voice UI in browser (requires HTTPS for mobile)
-open http://localhost:3333
-# Tap the phone icon → speak → hear response
-```
+Each command shows the **execution flow**: which tools were called, what assembly was generated, which edge executed it, and the result.
 
 ### Configuration
 
 | Variable | Required | Description |
 |----------|:--------:|-------------|
 | `ANTHROPIC_API_KEY` | Yes | Claude API key ([get one here](https://console.anthropic.com/)) |
-| `HUB_SECRET` | No | Bearer token for hub authentication. If set, all POST endpoints require `Authorization: Bearer <token>` header |
+| `HUB_SECRET` | No | Bearer token for hub authentication |
 | `LOG_LEVEL` | No | `debug`, `info` (default), `warn`, `error` |
 | `PORT` | No | Hub port (default: 3333) |
-| `HTTPS` | No | Set to `1` to enable HTTPS on port 3334 (needs `key.pem` + `cert.pem`) |
 
 ---
 
