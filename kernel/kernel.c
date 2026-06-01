@@ -852,40 +852,84 @@ static u32 monitor_poll_counter = 0;
 #define MON_MAGIC_1 'O'
 #define MON_MAGIC_2 'N'
 
-/* ── Virtual Registers (simulation sensors/actuators) ── */
-/* Injected code can read/write these via known addresses */
-/* Address 0x200000: temperature (simulated, auto-increments) */
-/* Address 0x200004: motor speed */
-/* Address 0x200008: fan state */
+/* ── Virtual Registers (server room simulation) ── */
+/* Address 0x200000 + index*4: each register is u32 LE */
 static volatile u32 *virt_regs = (volatile u32 *)0x200000;
-#define VREG_TEMP   0   /* index 0: temperature */
-#define VREG_SPEED  1   /* index 1: motor speed */
-#define VREG_FAN    2   /* index 2: fan state */
-#define VREG_COUNT  8   /* total virtual registers */
+
+/* Server room registers */
+#define VREG_TEMP       0   /* room temperature (°C) */
+#define VREG_CPU_LOAD   1   /* server CPU load (0-100%) */
+#define VREG_COOLING    2   /* cooling fan power (0=off, 1=low, 2=high) */
+#define VREG_POWER      3   /* total power draw (watts) */
+#define VREG_SRV_WEB    4   /* web server: 0=off, 1=on */
+#define VREG_SRV_DB     5   /* database server: 0=off, 1=on */
+#define VREG_SRV_CACHE  6   /* cache server: 0=off, 1=on */
+#define VREG_SRV_LOG    7   /* log server: 0=off, 1=on */
+#define VREG_SRV_BACKUP 8   /* backup server: 0=off, 1=on (lowest priority) */
+#define VREG_SRV_DEV    9   /* dev server: 0=off, 1=on (lowest priority) */
+#define VREG_ALERT      10  /* alert level: 0=normal, 1=warning, 2=critical */
+#define VREG_UPTIME     11  /* system uptime ticks */
+#define VREG_COUNT      16
 
 void virt_regs_init(void) {
     for (int i = 0; i < VREG_COUNT; i++) virt_regs[i] = 0;
-    virt_regs[VREG_TEMP] = 20;    /* initial temp: 20°C */
-    virt_regs[VREG_SPEED] = 100;  /* initial speed: 100% */
-    virt_regs[VREG_FAN] = 0;      /* fan off */
+    virt_regs[VREG_TEMP] = 22;       /* room temp: 22°C */
+    virt_regs[VREG_CPU_LOAD] = 40;   /* moderate load */
+    virt_regs[VREG_COOLING] = 1;     /* cooling: low */
+    virt_regs[VREG_POWER] = 800;     /* 800W baseline */
+    virt_regs[VREG_SRV_WEB] = 1;     /* web: on (critical) */
+    virt_regs[VREG_SRV_DB] = 1;      /* db: on (critical) */
+    virt_regs[VREG_SRV_CACHE] = 1;   /* cache: on (important) */
+    virt_regs[VREG_SRV_LOG] = 1;     /* log: on (normal) */
+    virt_regs[VREG_SRV_BACKUP] = 1;  /* backup: on (low priority) */
+    virt_regs[VREG_SRV_DEV] = 1;     /* dev: on (low priority) */
+    virt_regs[VREG_ALERT] = 0;       /* normal */
 }
 
-/* Simulate temperature dynamics each tick */
+/* Simulate server room dynamics */
 void virt_regs_tick(void) {
     static u32 tick_count = 0;
     tick_count++;
-    if (tick_count % 500000 == 0) {  /* roughly every few seconds in QEMU */
+    if (tick_count % 500000 == 0) {
         u32 temp = virt_regs[VREG_TEMP];
-        u32 speed = virt_regs[VREG_SPEED];
-        u32 fan = virt_regs[VREG_FAN];
+        u32 cpu = virt_regs[VREG_CPU_LOAD];
+        u32 cooling = virt_regs[VREG_COOLING];
 
-        /* Temperature rises with motor speed, drops with fan */
-        if (speed > 50 && !fan) {
-            if (temp < 50) temp++;       /* heating up */
-        } else if (fan || speed <= 50) {
-            if (temp > 20) temp--;       /* cooling down */
+        /* Count active servers → affects CPU load and heat */
+        u32 active_servers = 0;
+        for (int i = VREG_SRV_WEB; i <= VREG_SRV_DEV; i++)
+            if (virt_regs[i]) active_servers++;
+
+        /* CPU load increases with active servers */
+        u32 target_cpu = active_servers * 15 + 10;  /* 10% base + 15% per server */
+        if (cpu < target_cpu) cpu += 2;
+        else if (cpu > target_cpu) cpu -= 2;
+        if (cpu > 100) cpu = 100;
+        virt_regs[VREG_CPU_LOAD] = cpu;
+
+        /* Temperature: rises with CPU, drops with cooling */
+        u32 heat_rate = cpu / 25;  /* 0-4 degrees per tick from CPU */
+        u32 cool_rate = cooling;   /* 0-2 degrees per tick from cooling */
+        if (heat_rate > cool_rate) {
+            if (temp < 80) temp += (heat_rate - cool_rate);
+        } else {
+            if (temp > 18) temp -= (cool_rate - heat_rate);
         }
         virt_regs[VREG_TEMP] = temp;
+
+        /* Power = base + per-server + cooling */
+        u32 power = 200;  /* base */
+        power += active_servers * 120;  /* 120W per server */
+        power += cooling * 100;  /* 100W per cooling level */
+        virt_regs[VREG_POWER] = power;
+
+        /* Auto-alert based on temp */
+        if (temp >= 45) virt_regs[VREG_ALERT] = 2;       /* critical */
+        else if (temp >= 35) virt_regs[VREG_ALERT] = 1;  /* warning */
+        else virt_regs[VREG_ALERT] = 0;                   /* normal */
+
+        /* Uptime */
+        virt_regs[VREG_UPTIME]++;
     }
 }
 
@@ -1560,7 +1604,7 @@ void handle_http(void) {
         uptime_ticks++;
         total_bytes_recv += http_buf_len;
 
-        u8 resp[512]; mem_set(resp, 0, 512);
+        static u8 resp[512]; mem_set(resp, 0, 512);
         int rlen = 0;
         const char *h = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{";
         while (*h) resp[rlen++] = *h++;
@@ -1620,20 +1664,24 @@ void handle_http(void) {
         }
         resp[rlen++] = ']';
 
-        /* Virtual registers */
-        h = ",\"vregs\":{\"temp\":";
-        while (*h) resp[rlen++] = *h++;
-        ni = 0; v = virt_regs[VREG_TEMP];
-        if (v == 0) nb[ni++] = '0';
-        else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
-        while (ni > 0) resp[rlen++] = nb[--ni];
-        h = ",\"speed\":"; while (*h) resp[rlen++] = *h++;
-        ni = 0; v = virt_regs[VREG_SPEED];
-        if (v == 0) nb[ni++] = '0';
-        else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
-        while (ni > 0) resp[rlen++] = nb[--ni];
-        h = ",\"fan\":"; while (*h) resp[rlen++] = *h++;
-        resp[rlen++] = '0' + (virt_regs[VREG_FAN] ? 1 : 0);
+        /* Virtual registers — server room (compact: key numbers) */
+        /* t=temp c=cpu co=cooling p=power s=servers(bitmask) a=alert */
+        h = ",\"vr\":{\"t\":"; while (*h) resp[rlen++] = *h++;
+        ni=0; v=virt_regs[VREG_TEMP]; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
+        h = ",\"c\":"; while (*h) resp[rlen++] = *h++;
+        ni=0; v=virt_regs[VREG_CPU_LOAD]; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
+        h = ",\"co\":"; while (*h) resp[rlen++] = *h++;
+        resp[rlen++] = '0' + virt_regs[VREG_COOLING];
+        h = ",\"p\":"; while (*h) resp[rlen++] = *h++;
+        ni=0; v=virt_regs[VREG_POWER]; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
+        /* servers as bitmask: bit0=web,1=db,2=cache,3=log,4=backup,5=dev */
+        h = ",\"srv\":"; while (*h) resp[rlen++] = *h++;
+        v = (virt_regs[VREG_SRV_WEB]?1:0)|(virt_regs[VREG_SRV_DB]?2:0)|
+            (virt_regs[VREG_SRV_CACHE]?4:0)|(virt_regs[VREG_SRV_LOG]?8:0)|
+            (virt_regs[VREG_SRV_BACKUP]?16:0)|(virt_regs[VREG_SRV_DEV]?32:0);
+        ni=0; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
+        h = ",\"a\":"; while (*h) resp[rlen++] = *h++;
+        resp[rlen++] = '0' + virt_regs[VREG_ALERT];
         resp[rlen++] = '}';
 
         resp[rlen++] = '}';

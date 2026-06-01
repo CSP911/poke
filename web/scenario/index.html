@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HEX — Scenario Test</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.header { padding: 12px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 16px; color: #58a6ff; }
+.header h1 span { color: #8b949e; font-weight: 400; font-size: 12px; }
+.header .back { color: #8b949e; text-decoration: none; font-size: 12px; }
+.header .back:hover { color: #58a6ff; }
+
+.container { display: flex; height: calc(100vh - 49px); }
+
+/* Left: Scenario List */
+.sidebar { width: 280px; border-right: 1px solid #30363d; overflow-y: auto; }
+.sidebar h2 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; padding: 12px 16px; border-bottom: 1px solid #21262d; }
+.scenario-item { padding: 12px 16px; border-bottom: 1px solid #21262d; cursor: pointer; transition: background 0.1s; }
+.scenario-item:hover { background: #161b22; }
+.scenario-item.active { background: #1f6feb15; border-left: 2px solid #58a6ff; }
+.scenario-item .s-name { font-size: 13px; font-weight: 600; }
+.scenario-item .s-desc { font-size: 11px; color: #8b949e; margin-top: 4px; }
+.scenario-item .s-tag { display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 8px; margin-top: 4px; }
+.s-tag.critical { background: #f8514920; color: #f85149; }
+.s-tag.warning { background: #d2992220; color: #d29922; }
+.s-tag.normal { background: #23863620; color: #3fb950; }
+
+/* Center: Live Monitor */
+.main-panel { flex: 1; display: flex; flex-direction: column; }
+
+.controls { padding: 16px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; }
+.btn { padding: 8px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+.btn-run { background: #238636; color: #fff; }
+.btn-run:hover { background: #2ea043; }
+.btn-run:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+.btn-stop { background: #f8514920; color: #f85149; border: 1px solid #f85149; }
+.btn-reset { background: #21262d; color: #8b949e; }
+.status-badge { font-size: 11px; padding: 4px 10px; border-radius: 12px; margin-left: auto; }
+.status-badge.running { background: #23863620; color: #3fb950; }
+.status-badge.idle { background: #21262d; color: #8b949e; }
+
+/* Server Room Visual */
+.server-room { padding: 20px 24px; display: grid; grid-template-columns: repeat(3, 1fr) 200px; gap: 12px; }
+.gauge { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-align: center; }
+.gauge .g-label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+.gauge .g-value { font-size: 32px; font-weight: 700; margin: 6px 0; }
+.gauge .g-unit { font-size: 11px; color: #8b949e; }
+.gauge.danger .g-value { color: #f85149; }
+.gauge.warning .g-value { color: #d29922; }
+.gauge.ok .g-value { color: #3fb950; }
+
+.server-rack { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; grid-row: 1 / 3; }
+.server-rack h3 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.srv { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; }
+.srv .srv-dot { width: 8px; height: 8px; border-radius: 50%; }
+.srv .srv-dot.on { background: #3fb950; }
+.srv .srv-dot.off { background: #484f58; }
+.srv .srv-name { flex: 1; }
+.srv .srv-pri { font-size: 9px; color: #8b949e; }
+
+/* Event Log */
+.event-log { flex: 1; overflow-y: auto; padding: 16px 24px; border-top: 1px solid #30363d; }
+.event-log h3 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.event-log::-webkit-scrollbar { width: 6px; }
+.event-log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+.evt { padding: 10px 12px; background: #161b22; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 8px; font-size: 12px; }
+.evt .evt-time { font-size: 10px; color: #484f58; }
+.evt .evt-type { font-size: 10px; font-weight: 600; margin-left: 8px; }
+.evt .evt-type.trigger { color: #f85149; }
+.evt .evt-type.action { color: #58a6ff; }
+.evt .evt-type.result { color: #3fb950; }
+.evt .evt-body { margin-top: 4px; color: #8b949e; line-height: 1.5; }
+.evt .evt-body code { color: #e6edf3; font-size: 11px; background: #0d1117; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>HEX <span>Hub-Edge eXecutor — Scenario Test</span></h1>
+  <a class="back" href="/ui">&larr; Dashboard</a>
+</div>
+
+<div class="container">
+  <div class="sidebar">
+    <h2>Scenarios</h2>
+    <div class="scenario-item active" data-id="cascade">
+      <div class="s-name">Cascade Failure + Energy</div>
+      <div class="s-desc">Server room overheats → LLM shuts down low-priority servers, increases cooling</div>
+      <span class="s-tag critical">Critical</span>
+    </div>
+    <div class="scenario-item" data-id="energy">
+      <div class="s-name">Peak Energy Optimization</div>
+      <div class="s-desc">Power draw exceeds threshold → LLM reduces load by priority</div>
+      <span class="s-tag warning">Warning</span>
+    </div>
+    <div class="scenario-item" data-id="recovery">
+      <div class="s-name">Auto Recovery</div>
+      <div class="s-desc">After cooling, LLM restores servers in priority order</div>
+      <span class="s-tag normal">Normal</span>
+    </div>
+  </div>
+
+  <div class="main-panel">
+    <div class="controls">
+      <button class="btn btn-run" id="btnRun" onclick="runScenario()">Run Scenario</button>
+      <button class="btn btn-stop" onclick="stopScenario()" style="display:none" id="btnStop">Stop</button>
+      <button class="btn btn-reset" onclick="resetScenario()">Reset</button>
+      <span class="status-badge idle" id="statusBadge">Idle</span>
+    </div>
+
+    <div class="server-room">
+      <div class="gauge" id="gTemp">
+        <div class="g-label">Temperature</div>
+        <div class="g-value" id="valTemp">--</div>
+        <div class="g-unit">&deg;C</div>
+      </div>
+      <div class="gauge" id="gCpu">
+        <div class="g-label">CPU Load</div>
+        <div class="g-value" id="valCpu">--</div>
+        <div class="g-unit">%</div>
+      </div>
+      <div class="gauge" id="gPower">
+        <div class="g-label">Power Draw</div>
+        <div class="g-value" id="valPower">--</div>
+        <div class="g-unit">Watts</div>
+      </div>
+
+      <div class="server-rack" id="srvRack">
+        <h3>Server Rack</h3>
+        <div class="srv"><span class="srv-dot on" id="dotWeb"></span><span class="srv-name">Web Server</span><span class="srv-pri">CRITICAL</span></div>
+        <div class="srv"><span class="srv-dot on" id="dotDb"></span><span class="srv-name">Database</span><span class="srv-pri">CRITICAL</span></div>
+        <div class="srv"><span class="srv-dot on" id="dotCache"></span><span class="srv-name">Cache</span><span class="srv-pri">IMPORTANT</span></div>
+        <div class="srv"><span class="srv-dot on" id="dotLog"></span><span class="srv-name">Log Server</span><span class="srv-pri">NORMAL</span></div>
+        <div class="srv"><span class="srv-dot on" id="dotBackup"></span><span class="srv-name">Backup</span><span class="srv-pri">LOW</span></div>
+        <div class="srv"><span class="srv-dot on" id="dotDev"></span><span class="srv-name">Dev Server</span><span class="srv-pri">LOW</span></div>
+      </div>
+
+      <div class="gauge" id="gCooling">
+        <div class="g-label">Cooling</div>
+        <div class="g-value" id="valCooling">--</div>
+        <div class="g-unit">OFF / LOW / HIGH</div>
+      </div>
+      <div class="gauge" id="gAlert">
+        <div class="g-label">Alert Level</div>
+        <div class="g-value" id="valAlert">--</div>
+        <div class="g-unit">&nbsp;</div>
+      </div>
+    </div>
+
+    <div class="event-log" id="eventLog">
+      <h3>Event Log</h3>
+      <div class="evt">
+        <span class="evt-time">--</span>
+        <span class="evt-type">Ready</span>
+        <div class="evt-body">Select a scenario and click <code>Run Scenario</code> to begin.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const HUB = location.origin
+let pollTimer = null
+let running = false
+let eventCount = 0
+
+const coolNames = ['OFF', 'LOW', 'HIGH']
+const alertNames = ['NORMAL', 'WARNING', 'CRITICAL']
+const alertColors = ['ok', 'warning', 'danger']
+
+// Poll edge health and update gauges
+async function pollHealth() {
+  try {
+    const health = await fetch(HUB + '/scenario/health').then(r => r.json())
+    const vr = health.vr || {}
+    const srv = vr.srv || 0
+
+    // Update gauges
+    setGauge('gTemp', 'valTemp', vr.t, vr.t >= 45 ? 'danger' : vr.t >= 35 ? 'warning' : 'ok')
+    setGauge('gCpu', 'valCpu', vr.c, vr.c >= 90 ? 'danger' : vr.c >= 70 ? 'warning' : 'ok')
+    setGauge('gPower', 'valPower', vr.p, vr.p >= 1000 ? 'danger' : vr.p >= 800 ? 'warning' : 'ok')
+    document.getElementById('valCooling').textContent = coolNames[vr.co] || 'OFF'
+    document.getElementById('gCooling').className = 'gauge ' + (vr.co >= 2 ? 'ok' : vr.co >= 1 ? 'warning' : 'danger')
+
+    const alert = vr.a || 0
+    document.getElementById('valAlert').textContent = alertNames[alert]
+    document.getElementById('gAlert').className = 'gauge ' + alertColors[alert]
+
+    // Update server dots
+    const srvMap = [
+      ['dotWeb', 1], ['dotDb', 2], ['dotCache', 4],
+      ['dotLog', 8], ['dotBackup', 16], ['dotDev', 32]
+    ]
+    for (const [id, bit] of srvMap) {
+      const dot = document.getElementById(id)
+      dot.className = 'srv-dot ' + ((srv & bit) ? 'on' : 'off')
+    }
+
+    // Check monitors for triggers
+    if (health.monitors) {
+      for (const mon of health.monitors) {
+        if (mon.fired && mon.triggers > eventCount) {
+          eventCount = mon.triggers
+          addEvent('trigger', `Monitor ${mon.id} TRIGGERED — value=${mon.val}`)
+        }
+      }
+    }
+  } catch (e) {
+    // edge offline
+  }
+}
+
+function setGauge(gaugeId, valId, value, cls) {
+  document.getElementById(valId).textContent = value ?? '--'
+  document.getElementById(gaugeId).className = 'gauge ' + cls
+}
+
+function addEvent(type, body) {
+  const log = document.getElementById('eventLog')
+  const time = new Date().toLocaleTimeString()
+  const evt = document.createElement('div')
+  evt.className = 'evt'
+  evt.innerHTML = `<span class="evt-time">${time}</span><span class="evt-type ${type}">${type.toUpperCase()}</span><div class="evt-body">${body}</div>`
+  log.insertBefore(evt, log.children[1]) // after h3
+}
+
+async function runScenario() {
+  if (running) return
+  running = true
+  eventCount = 0
+  document.getElementById('btnRun').disabled = true
+  document.getElementById('btnStop').style.display = ''
+  document.getElementById('statusBadge').textContent = 'Running'
+  document.getElementById('statusBadge').className = 'status-badge running'
+
+  addEvent('action', 'Scenario started — deploying temperature monitor...')
+
+  try {
+    // Deploy monitor via hub API
+    const res = await fetch(HUB + '/scenario/deploy', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario: 'cascade' })
+    })
+    const data = await res.json()
+    addEvent('action', `Monitor deployed: ${data.result || 'ok'}`)
+
+    // Start polling
+    pollTimer = setInterval(pollHealth, 2000)
+    pollHealth()
+
+    addEvent('action', 'Monitoring active — waiting for temperature threshold...')
+  } catch (e) {
+    addEvent('trigger', 'Error: ' + e.message)
+    stopScenario()
+  }
+}
+
+function stopScenario() {
+  running = false
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  document.getElementById('btnRun').disabled = false
+  document.getElementById('btnStop').style.display = 'none'
+  document.getElementById('statusBadge').textContent = 'Idle'
+  document.getElementById('statusBadge').className = 'status-badge idle'
+  addEvent('result', 'Scenario stopped')
+}
+
+async function resetScenario() {
+  try {
+    await fetch(HUB + '/scenario/reset', { method: 'POST' })
+    addEvent('action', 'Server room reset to initial state')
+    pollHealth()
+  } catch (e) {
+    addEvent('trigger', 'Reset failed: ' + e.message)
+  }
+}
+
+// Initial poll
+fetch(HUB + '/nodes').then(r => r.json()).then(data => {
+  if ((data.nodes || []).length === 0) {
+    addEvent('trigger', 'No edges connected. Start an edge first.')
+  } else {
+    pollHealth()
+    addEvent('result', `Edge connected: ${data.nodes.map(n => n.node_id).join(', ')}`)
+  }
+}).catch(() => addEvent('trigger', 'Hub unreachable'))
+
+// Sidebar click
+document.querySelectorAll('.scenario-item').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.scenario-item').forEach(e => e.classList.remove('active'))
+    el.classList.add('active')
+  })
+})
+</script>
+</body>
+</html>

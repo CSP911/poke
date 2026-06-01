@@ -285,6 +285,82 @@ async function handleRequest(req, res) {
     return
   }
 
+  // GET /scenario — scenario test UI
+  if (req.method === 'GET' && url.pathname === '/scenario') {
+    res.setHeader('Content-Type', 'text/html')
+    res.end(require('fs').readFileSync(__dirname + '/../web/scenario/index.html', 'utf8'))
+    return
+  }
+
+  // POST /scenario/deploy — deploy a scenario monitor
+  if (req.method === 'POST' && url.pathname === '/scenario/deploy') {
+    const data = safeJSON(body) || {}
+    const edge = [...nodes.values()].find(n => n.arch === 'i386' && n.status === 'alive')
+    if (!edge) { jsonError(res, 404, 'no x86 edge available'); return }
+
+    try {
+      const { compileAssembly: compile } = require('./compiler')
+      const { deployMonitor: deploy } = require('./transport')
+
+      // Temperature monitor: read vreg[0] (temp)
+      const bin = await compile('BITS 32\nmov eax, [0x200000]\nret')
+      const hubPort = parseInt(process.env.PORT || '9000')
+      const result = await deploy(edge.endpoint, bin, 3000, 0, 35, '10.0.2.2', hubPort)
+      res.end(JSON.stringify({ ok: true, result, edge: edge.node_id }))
+    } catch (e) {
+      jsonError(res, 500, e.message)
+    }
+    return
+  }
+
+  // GET /scenario/health — proxy edge health for UI (avoids CORS)
+  if (req.method === 'GET' && url.pathname === '/scenario/health') {
+    const edge = [...nodes.values()].find(n => n.arch === 'i386' && n.status === 'alive')
+    if (!edge) { jsonError(res, 404, 'no edge'); return }
+    try {
+      const http2 = require('http')
+      const edgeRes = await new Promise((resolve, reject) => {
+        http2.get(edge.endpoint + '/health', { timeout: 3000 }, (r) => {
+          let d = ''; r.on('data', c => d += c); r.on('end', () => resolve(d))
+        }).on('error', reject)
+      })
+      res.end(edgeRes)
+    } catch (e) { jsonError(res, 502, 'edge unreachable') }
+    return
+  }
+
+  // POST /scenario/reset — reset virtual registers to initial state
+  if (req.method === 'POST' && url.pathname === '/scenario/reset') {
+    const edge = [...nodes.values()].find(n => n.arch === 'i386' && n.status === 'alive')
+    if (!edge) { jsonError(res, 404, 'no x86 edge available'); return }
+
+    try {
+      const { compileAssembly: compile } = require('./compiler')
+      const { pokeNode: poke } = require('./transport')
+
+      // Reset all vregs: temp=22, cpu=40, cooling=1, power=800, all servers ON
+      const asm = `BITS 32
+mov dword [0x200000], 22
+mov dword [0x200004], 40
+mov dword [0x200008], 1
+mov dword [0x20000C], 800
+mov dword [0x200010], 1
+mov dword [0x200014], 1
+mov dword [0x200018], 1
+mov dword [0x20001C], 1
+mov dword [0x200020], 1
+mov dword [0x200024], 1
+mov dword [0x200028], 0
+ret`
+      const bin = await compile(asm)
+      const result = await poke(edge.endpoint, bin)
+      res.end(JSON.stringify({ ok: true, result }))
+    } catch (e) {
+      jsonError(res, 500, e.message)
+    }
+    return
+  }
+
   // GET /ui — hub management dashboard
   if (req.method === 'GET' && url.pathname === '/ui') {
     res.setHeader('Content-Type', 'text/html')
@@ -471,13 +547,17 @@ function createServer() {
   setMonitorTriggerCallback((edgeId, mon) => {
     const node = nodes.get(edgeId)
     const vregs = node?.health?.vregs || {}
+    const vregStr = Object.entries(vregs).map(([k,v]) => `${k}=${v}`).join(', ')
     const command = `AUTONOMOUS EVENT from edge "${edgeId}": ` +
       `Monitor ${mon.id} triggered with value=${mon.val}. ` +
-      `Current virtual registers: temp=${vregs.temp || '?'}, speed=${vregs.speed || '?'}, fan=${vregs.fan || '?'}. ` +
-      `Analyze the situation and take corrective action. ` +
-      `You can execute assembly on this edge to modify virtual registers at address 0x200000 ` +
-      `(offset 0=temp, 4=speed, 8=fan). Use "mov dword [0x200004], VALUE" to set speed, ` +
-      `"mov dword [0x200008], 1" to turn fan on.`
+      `Current server room state: ${vregStr}. ` +
+      `Virtual registers at address 0x200000 (u32 each, offset in bytes): ` +
+      `+0=temp, +4=cpu_load, +8=cooling(0=off/1=low/2=high), +12=power, ` +
+      `+16=web_srv, +20=db_srv, +24=cache_srv, +28=log_srv, +32=backup_srv, +36=dev_srv, +40=alert. ` +
+      `Server priority: web,db=critical > cache=important > log=normal > backup,dev=low. ` +
+      `Analyze cascade risk and take corrective action. ` +
+      `Shut down low-priority servers first, increase cooling, protect critical services. ` +
+      `Use execute_x86: "BITS 32 / mov dword [0x200000+offset], value / ret".`
 
     log.info(`[event] auto-firing agentLoop for ${edgeId} monitor ${mon.id}`)
     agentLoop(command, edgeId, edgeId).then(result => {
