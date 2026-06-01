@@ -852,7 +852,8 @@ static u32 monitor_poll_counter = 0;
 #define MON_MAGIC_1 'O'
 #define MON_MAGIC_2 'N'
 
-/* ── ATA PIO Disk Driver (store.img on IDE primary slave) ── */
+/* ── ATA PIO Disk Driver — disabled until bootloader supports >24KB kernel ── */
+#if 0  /* ENABLE_ATA */
 /* store.img is -drive if=ide,index=1 → primary slave (0x1F0, drive=1) */
 #define ATA_DATA    0x1F0
 #define ATA_ERROR   0x1F1
@@ -1087,6 +1088,8 @@ int ctx_store_read_recent(ctx_entry_t *out, int count) {
     }
     return read;
 }
+
+#endif /* ENABLE_ATA */
 
 /* ── Virtual Registers (server room simulation) ── */
 /* Address 0x200000 + index*4: each register is u32 LE */
@@ -1920,14 +1923,7 @@ void handle_http(void) {
         resp[rlen++] = '0' + virt_regs[VREG_ALERT];
         resp[rlen++] = '}';
 
-        /* Context store info */
-        h = ",\"ctx\":{\"ready\":"; while (*h) resp[rlen++] = *h++;
-        resp[rlen++] = ata_store_ready ? '1' : '0';
-        h = ",\"entries\":"; while (*h) resp[rlen++] = *h++;
-        ni=0; v=ctx_header.entry_count; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
-        h = ",\"total\":"; while (*h) resp[rlen++] = *h++;
-        ni=0; v=ctx_header.total_written; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
-        resp[rlen++] = '}';
+        /* Context store info — available when ATA driver enabled */
 
         resp[rlen++] = '}';
         resp[rlen++] = '\n';
@@ -1964,6 +1960,7 @@ void handle_http(void) {
         __asm__ volatile("cli; hlt");
     }
 
+#if 0  /* ENABLE_ATA — context store endpoints */
     /* Check for CTX magic — context store write */
     if (code_len >= 7 && body_ptr[0] == 'C' && body_ptr[1] == 'T' && body_ptr[2] == 'X') {
         /* CTX packet: "CTX" + type(1) + timestamp(4) + data */
@@ -2033,6 +2030,8 @@ void handle_http(void) {
             return;
         }
     }
+
+#endif /* ENABLE_ATA — context store endpoints */
 
     /* Check for MON magic — monitor registration */
 
