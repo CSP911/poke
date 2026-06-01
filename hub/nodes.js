@@ -6,6 +6,7 @@ const http = require('http')
 const fs = require('fs')
 const path = require('path')
 const { log } = require('./logger')
+const trace = require('./trace')
 
 // ── Node registry (synchronized writes) ──
 const nodes = new Map()
@@ -102,12 +103,16 @@ function startHealthCheck() {
             history.push({ timestamp: new Date().toISOString(), ...health })
             if (history.length > 60) history.shift()
 
+            // Trace health data
+            trace.emit('health', { edge: id, vr: health.vr, monitors: health.monitors, ctx: health.ctx })
+
             // Auto-detect monitor triggers → fire event
             if (health.monitors && Array.isArray(health.monitors)) {
               for (const mon of health.monitors) {
                 if (mon.fired && !node._lastFired?.[mon.id]) {
                   // New trigger detected!
                   log.info(`[health] MONITOR TRIGGERED on ${id}: monitor=${mon.id} val=${mon.val}`)
+                  trace.emit('trigger', { edge: id, monitor: mon.id, value: mon.val, triggers: mon.triggers })
                   if (onMonitorTrigger) {
                     onMonitorTrigger(id, mon)
                   }

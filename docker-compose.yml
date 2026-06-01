@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile.edge
     ports:
       - "8080:8080"
+    volumes:
+      - edge-store:/poke/data
     restart: unless-stopped
 
   hub:
@@ -41,3 +43,6 @@ services:
           || echo " -> Registration failed (hub may need HUB_SECRET or is not ready)"
     environment:
       - HUB_SECRET=${HUB_SECRET:-}
+
+volumes:
+  edge-store:

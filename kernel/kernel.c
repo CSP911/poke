@@ -852,6 +852,242 @@ static u32 monitor_poll_counter = 0;
 #define MON_MAGIC_1 'O'
 #define MON_MAGIC_2 'N'
 
+/* ── ATA PIO Disk Driver (store.img on IDE primary slave) ── */
+/* store.img is -drive if=ide,index=1 → primary slave (0x1F0, drive=1) */
+#define ATA_DATA    0x1F0
+#define ATA_ERROR   0x1F1
+#define ATA_COUNT   0x1F2
+#define ATA_SECTOR  0x1F3
+#define ATA_CYLOW   0x1F4
+#define ATA_CYHIGH  0x1F5
+#define ATA_DRIVE   0x1F6
+#define ATA_STATUS  0x1F7
+#define ATA_CMD     0x1F7
+
+#define ATA_STATUS_BSY  0x80
+#define ATA_STATUS_DRQ  0x08
+#define ATA_STATUS_ERR  0x01
+#define ATA_CMD_READ    0x20
+#define ATA_CMD_WRITE   0x30
+
+#define STORE_SECTOR_SIZE 512
+#define STORE_DISK_SECTORS 8192  /* 4MB / 512B = 8192 sectors */
+
+static int ata_store_ready = 0;
+
+static void ata_wait_bsy(void) {
+    for (int i = 0; i < 100000; i++) {
+        if (!(inb(ATA_STATUS) & ATA_STATUS_BSY)) return;
+    }
+}
+
+static void ata_wait_drq(void) {
+    for (int i = 0; i < 100000; i++) {
+        if (inb(ATA_STATUS) & ATA_STATUS_DRQ) return;
+    }
+}
+
+/* Select primary slave drive */
+static void ata_select_slave(void) {
+    outb(ATA_DRIVE, 0xF0);  /* 0xF0 = slave, LBA mode */
+    /* 400ns delay: read status 4 times */
+    inb(ATA_STATUS); inb(ATA_STATUS); inb(ATA_STATUS); inb(ATA_STATUS);
+}
+
+/* Read one 512-byte sector from store disk */
+int ata_read_sector(u32 lba, u8 *buf) {
+    if (!ata_store_ready) return -1;
+    if (lba >= STORE_DISK_SECTORS) return -1;
+
+    ata_wait_bsy();
+    outb(ATA_DRIVE, 0xF0 | ((lba >> 24) & 0x0F));  /* slave + LBA high bits */
+    outb(ATA_COUNT, 1);
+    outb(ATA_SECTOR, lba & 0xFF);
+    outb(ATA_CYLOW, (lba >> 8) & 0xFF);
+    outb(ATA_CYHIGH, (lba >> 16) & 0xFF);
+    outb(ATA_CMD, ATA_CMD_READ);
+
+    ata_wait_bsy();
+    ata_wait_drq();
+
+    if (inb(ATA_STATUS) & ATA_STATUS_ERR) return -1;
+
+    /* Read 256 words (512 bytes) */
+    u16 *p = (u16 *)buf;
+    for (int i = 0; i < 256; i++) {
+        p[i] = inw(ATA_DATA);
+    }
+    return 0;
+}
+
+/* Write one 512-byte sector to store disk */
+int ata_write_sector(u32 lba, const u8 *buf) {
+    if (!ata_store_ready) return -1;
+    if (lba >= STORE_DISK_SECTORS) return -1;
+
+    ata_wait_bsy();
+    outb(ATA_DRIVE, 0xF0 | ((lba >> 24) & 0x0F));
+    outb(ATA_COUNT, 1);
+    outb(ATA_SECTOR, lba & 0xFF);
+    outb(ATA_CYLOW, (lba >> 8) & 0xFF);
+    outb(ATA_CYHIGH, (lba >> 16) & 0xFF);
+    outb(ATA_CMD, ATA_CMD_WRITE);
+
+    ata_wait_bsy();
+    ata_wait_drq();
+
+    /* Write 256 words (512 bytes) */
+    const u16 *p = (const u16 *)buf;
+    for (int i = 0; i < 256; i++) {
+        outw(ATA_DATA, p[i]);
+    }
+
+    /* Flush */
+    ata_wait_bsy();
+    return (inb(ATA_STATUS) & ATA_STATUS_ERR) ? -1 : 0;
+}
+
+/* ── Context Store (persistent on disk) ── */
+/* Sector 0: header, Sectors 1+: entries */
+#define CTX_MAGIC 0x58455443  /* "CTEX" */
+#define CTX_MAX_ENTRIES 500
+#define CTX_ENTRY_SIZE 256    /* fixed-size entries */
+/* 1 header sector + ceil(500*256/512) = 1 + 250 = 251 sectors */
+
+typedef struct {
+    u32 magic;
+    u32 version;
+    u32 entry_count;
+    u32 write_index;       /* next write position (wraps) */
+    u32 total_written;
+    u32 reserved[3];
+} __attribute__((packed)) ctx_header_t;
+
+typedef struct {
+    u32 timestamp;
+    u8  type;              /* 1=command, 2=result, 3=fact, 4=event */
+    u8  len;               /* data length (max 249) */
+    u8  reserved[2];
+    char data[248];        /* UTF-8 text, null-terminated */
+} __attribute__((packed)) ctx_entry_t;
+
+static ctx_header_t ctx_header;
+
+void ctx_store_init(void) {
+    serial_print("[CTX] Probing IDE slave...\n");
+
+    /* Soft-probe: select slave and check for presence */
+    outb(ATA_DRIVE, 0xB0);  /* select slave */
+    /* 400ns delay */
+    inb(0x3F6); inb(0x3F6); inb(0x3F6); inb(0x3F6);
+
+    /* Write a pattern to sector count/number and read back */
+    outb(ATA_COUNT, 0x55);
+    outb(ATA_SECTOR, 0xAA);
+    u8 cnt = inb(ATA_COUNT);
+    u8 sec = inb(ATA_SECTOR);
+
+    if (cnt != 0x55 || sec != 0xAA) {
+        serial_print("[CTX] No store disk (probe failed)\n");
+        vga_print("  [CTX] No store disk\n");
+        ata_store_ready = 0;
+        return;
+    }
+    ata_store_ready = 1;
+    serial_print("[CTX] IDE slave detected\n");
+
+    /* Read header sector */
+    static u8 sector[512];
+    if (ata_read_sector(0, sector) < 0) {
+        serial_print("[CTX] Disk read error\n");
+        vga_print("  [CTX] Disk read error\n");
+        ata_store_ready = 0;
+        return;
+    }
+
+    mem_copy(&ctx_header, sector, sizeof(ctx_header_t));
+
+    if (ctx_header.magic != CTX_MAGIC) {
+        /* First use — initialize header */
+        serial_print("[CTX] Initializing store disk\n");
+        mem_set(&ctx_header, 0, sizeof(ctx_header_t));
+        ctx_header.magic = CTX_MAGIC;
+        ctx_header.version = 1;
+
+        mem_set(sector, 0, 512);
+        mem_copy(sector, &ctx_header, sizeof(ctx_header_t));
+        ata_write_sector(0, sector);
+    }
+
+    serial_print("[CTX] Store ready: ");
+    serial_hex(ctx_header.entry_count);
+    serial_print(" entries\n");
+
+    vga_print("  [CTX] Context store: ");
+    vga_print_dec(ctx_header.entry_count);
+    vga_print(" entries on disk\n");
+}
+
+/* Append an entry to the context store */
+int ctx_store_append(u8 type, u32 timestamp, const char *data, int data_len) {
+    if (!ata_store_ready) return -1;
+    if (data_len > 248) data_len = 248;
+
+    /* Build entry */
+    ctx_entry_t entry;
+    mem_set(&entry, 0, sizeof(ctx_entry_t));
+    entry.timestamp = timestamp;
+    entry.type = type;
+    entry.len = data_len;
+    mem_copy(entry.data, (u8 *)data, data_len);
+
+    /* Calculate sector and offset: 2 entries per sector (256*2=512) */
+    u32 idx = ctx_header.write_index;
+    u32 sector_num = 1 + (idx / 2);  /* sector 0 is header */
+    u32 offset = (idx % 2) * 256;
+
+    /* Read sector, modify entry, write back */
+    u8 sector[512];
+    ata_read_sector(sector_num, sector);
+    mem_copy(sector + offset, &entry, sizeof(ctx_entry_t));
+    ata_write_sector(sector_num, sector);
+
+    /* Update header */
+    ctx_header.write_index = (idx + 1) % CTX_MAX_ENTRIES;
+    if (ctx_header.entry_count < CTX_MAX_ENTRIES) ctx_header.entry_count++;
+    ctx_header.total_written++;
+
+    /* Write header sector */
+    u8 hdr_sector[512];
+    mem_set(hdr_sector, 0, 512);
+    mem_copy(hdr_sector, &ctx_header, sizeof(ctx_header_t));
+    ata_write_sector(0, hdr_sector);
+
+    return ctx_header.total_written - 1;
+}
+
+/* Read recent N entries (newest first) */
+int ctx_store_read_recent(ctx_entry_t *out, int count) {
+    if (!ata_store_ready || ctx_header.entry_count == 0) return 0;
+    if (count > (int)ctx_header.entry_count) count = ctx_header.entry_count;
+
+    int read = 0;
+    int idx = (ctx_header.write_index - 1 + CTX_MAX_ENTRIES) % CTX_MAX_ENTRIES;
+
+    for (int i = 0; i < count; i++) {
+        u32 sector_num = 1 + (idx / 2);
+        u32 offset = (idx % 2) * 256;
+
+        u8 sector[512];
+        ata_read_sector(sector_num, sector);
+        mem_copy(&out[read], sector + offset, sizeof(ctx_entry_t));
+        read++;
+
+        idx = (idx - 1 + CTX_MAX_ENTRIES) % CTX_MAX_ENTRIES;
+    }
+    return read;
+}
+
 /* ── Virtual Registers (server room simulation) ── */
 /* Address 0x200000 + index*4: each register is u32 LE */
 static volatile u32 *virt_regs = (volatile u32 *)0x200000;
@@ -1684,6 +1920,15 @@ void handle_http(void) {
         resp[rlen++] = '0' + virt_regs[VREG_ALERT];
         resp[rlen++] = '}';
 
+        /* Context store info */
+        h = ",\"ctx\":{\"ready\":"; while (*h) resp[rlen++] = *h++;
+        resp[rlen++] = ata_store_ready ? '1' : '0';
+        h = ",\"entries\":"; while (*h) resp[rlen++] = *h++;
+        ni=0; v=ctx_header.entry_count; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
+        h = ",\"total\":"; while (*h) resp[rlen++] = *h++;
+        ni=0; v=ctx_header.total_written; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
+        resp[rlen++] = '}';
+
         resp[rlen++] = '}';
         resp[rlen++] = '\n';
 
@@ -1717,6 +1962,76 @@ void handle_http(void) {
         outb(0x501, 0x31);
         /* Fallback: triple fault to crash QEMU */
         __asm__ volatile("cli; hlt");
+    }
+
+    /* Check for CTX magic — context store write */
+    if (code_len >= 7 && body_ptr[0] == 'C' && body_ptr[1] == 'T' && body_ptr[2] == 'X') {
+        /* CTX packet: "CTX" + type(1) + timestamp(4) + data */
+        u8 ctx_type = body_ptr[3];
+        u32 ctx_ts = *(u32*)(body_ptr + 3);  /* bytes 3-6: timestamp LE ... actually: */
+        /* Reparse: CTX(3) type(1) ts(4) data(N) */
+        ctx_type = body_ptr[3];
+        ctx_ts = body_ptr[4] | (body_ptr[5]<<8) | (body_ptr[6]<<16) | (body_ptr[7]<<24);
+        int ctx_data_len = code_len - 8;
+        if (ctx_data_len > 248) ctx_data_len = 248;
+
+        int seq = ctx_store_append(ctx_type, ctx_ts, (char*)(body_ptr + 8), ctx_data_len);
+
+        u8 resp[128]; int rl = 0;
+        const char *rp = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nstored=";
+        while (*rp) resp[rl++] = *rp++;
+        char nb2[12]; int ni2 = 0;
+        u32 sv = (seq >= 0) ? seq : 0;
+        if (sv == 0) nb2[ni2++] = '0';
+        else { while (sv > 0) { nb2[ni2++] = '0' + sv%10; sv /= 10; } }
+        while (ni2 > 0) resp[rl++] = nb2[--ni2];
+        rp = ",entries="; while (*rp) resp[rl++] = *rp++;
+        ni2 = 0; sv = ctx_header.entry_count;
+        if (sv == 0) nb2[ni2++] = '0';
+        else { while (sv > 0) { nb2[ni2++] = '0' + sv%10; sv /= 10; } }
+        while (ni2 > 0) resp[rl++] = nb2[--ni2];
+        resp[rl++] = '\n';
+        tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rl);
+        return;
+    }
+
+    /* Check for GET /store — read context entries */
+    {
+        int is_store_get = 0;
+        for (int i = 0; i < http_buf_len - 5; i++) {
+            if (http_buf[i]=='/' && http_buf[i+1]=='s' && http_buf[i+2]=='t' &&
+                http_buf[i+3]=='o' && http_buf[i+4]=='r' && http_buf[i+5]=='e') {
+                is_store_get = 1; break;
+            }
+        }
+        if (is_store_get && !is_post) {
+            /* Return recent entries as text */
+            static u8 resp[1400];
+            int rl = 0;
+            const char *rp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n";
+            while (*rp) resp[rl++] = *rp++;
+
+            ctx_entry_t entries[5];
+            int count = ctx_store_read_recent(entries, 5);
+            for (int i = 0; i < count && rl < 1300; i++) {
+                /* [seq] type=N ts=N data */
+                resp[rl++] = '[';
+                char nb2[12]; int ni2 = 0;
+                u32 sv = entries[i].timestamp;
+                if (sv == 0) nb2[ni2++] = '0';
+                else { while (sv > 0) { nb2[ni2++] = '0' + sv%10; sv /= 10; } }
+                while (ni2 > 0) resp[rl++] = nb2[--ni2];
+                resp[rl++] = ']'; resp[rl++] = ' ';
+                for (int j = 0; j < entries[i].len && j < 248 && rl < 1300; j++)
+                    resp[rl++] = entries[i].data[j];
+                resp[rl++] = '\n';
+            }
+            if (count == 0) {
+                rp = "(empty)\n"; while (*rp) resp[rl++] = *rp++;
+            }
+            tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rl);
+            return;
+        }
     }
 
     /* Check for MON magic — monitor registration */
@@ -2113,7 +2428,8 @@ void kernel_main(void) {
         vga_print("  [NET] ARP announce sent\n");
     }
 
-    /* Init virtual registers + monitor system */
+    /* Init context store (disk) — disabled until ATA driver stabilized */
+    /* ctx_store_init(); */
     virt_regs_init();
     monitor_init();
     vga_print("  [MON] Monitor system ready\n");

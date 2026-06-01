@@ -10,6 +10,7 @@ const { generateAssembly, generateImageCode, planCommand } = require('./llm')
 const { compileAssembly } = require('./compiler')
 const { pokeNode, pokeNodeRaw } = require('./transport')
 const memory = require('./memory')
+const trace = require('./trace')
 
 // ── Security: Auth + Helpers ──
 const HUB_SECRET = process.env.HUB_SECRET || null
@@ -285,6 +286,30 @@ async function handleRequest(req, res) {
     return
   }
 
+  // GET /scenario/trace — SSE stream of hub events
+  if (req.method === 'GET' && url.pathname === '/scenario/trace') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    })
+    // Send recent events as initial batch
+    for (const evt of trace.recent(30)) {
+      res.write(`id: ${evt.id}\nevent: trace\ndata: ${JSON.stringify(evt)}\n\n`)
+    }
+    trace.subscribe(res)
+    return
+  }
+
+  // GET /scenario/trace/recent — poll recent events (fallback)
+  if (req.method === 'GET' && url.pathname === '/scenario/trace/recent') {
+    const since = parseInt(url.searchParams.get('since') || '0')
+    const events = trace.recent(50).filter(e => e.id > since)
+    res.end(JSON.stringify(events))
+    return
+  }
+
   // GET /scenario — scenario test UI
   if (req.method === 'GET' && url.pathname === '/scenario') {
     res.setHeader('Content-Type', 'text/html')
@@ -361,10 +386,10 @@ ret`
     return
   }
 
-  // GET /factory — factory simulation UI
+  // GET /factory — redirect to unified scenario page
   if (req.method === 'GET' && url.pathname === '/factory') {
-    res.setHeader('Content-Type', 'text/html')
-    res.end(require('fs').readFileSync(__dirname + '/../web/scenario/factory.html', 'utf8'))
+    res.writeHead(302, { Location: '/scenario' })
+    res.end()
     return
   }
 
@@ -398,9 +423,9 @@ ret`
       const node = nodes.get(lineId)
       if (!node || node.status !== 'alive') { results.push({ line: lineId, error: 'offline' }); continue }
       try {
-        // Monitor: read defect rate (vreg index 10 = alert, reused as defect %)
-        const bin = await compile('BITS 32\nmov eax, [0x200028]\nret')
-        const r = await deploy(node.endpoint, bin, 3000, 0, 3, '10.0.2.2', hubPort)
+        // Monitor: read temperature (vreg[0] at 0x200000), trigger if > 35°C
+        const bin = await compile('BITS 32\nmov eax, [0x200000]\nret')
+        const r = await deploy(node.endpoint, bin, 3000, 0, 35, '10.0.2.2', hubPort)
         results.push({ line: lineId, result: r })
       } catch (e) {
         results.push({ line: lineId, error: e.message })

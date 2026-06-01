@@ -7,6 +7,7 @@ const { nodes, profiles, loadProfiles } = require('./nodes')
 const { compileAssembly, compileAssemblyARM, runImageCode } = require('./compiler')
 const { pokeNode, pokeNodeARM, pokeNodeRaw, pokeRelay, streamToEdge } = require('./transport')
 const memory = require('./memory')
+const trace = require('./trace')
 
 // ── Active monitors (Task 2: Autonomous Agent) ──
 const activeMonitors = new Map()
@@ -1148,6 +1149,8 @@ Auto-profiling rules:
   let finalResult = null
   const MAX_TURNS = 7
 
+  trace.emit('llm_start', { command: command.slice(0, 200), from: fromId })
+
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -1164,10 +1167,12 @@ Auto-profiling rules:
 
     if (textBlocks.length > 0) {
       finalResult = textBlocks.map(b => b.text).join('\n')
+      trace.emit('llm_text', { turn, text: finalResult.slice(0, 300) })
     }
 
     if (toolUses.length === 0) {
       log.info(`[agent] done in ${turn + 1} turns`)
+      trace.emit('llm_done', { turns: turn + 1, result: finalResult?.slice(0, 200) })
       break
     }
 
@@ -1175,9 +1180,13 @@ Auto-profiling rules:
     const toolResults = []
 
     for (const tu of toolUses) {
+      trace.emit('llm_tool', { turn, tool: tu.name, input: tu.input })
+
       const result = await executeAgentTool(tu.name, tu.input)
       const resultStr = typeof result === 'string' ? result : JSON.stringify(result)
       log.debug(`[agent] ${tu.name} -> ${resultStr.slice(0, 80)}`)
+
+      trace.emit('tool_result', { tool: tu.name, target: tu.input?.target, result: resultStr.slice(0, 200) })
 
       steps.push({ tool: tu.name, input: tu.input, result: resultStr })
       toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: resultStr })

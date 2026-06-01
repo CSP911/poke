@@ -11,157 +11,206 @@ body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMac
 .header { padding: 12px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; }
 .header h1 { font-size: 16px; color: #58a6ff; }
 .header h1 span { color: #8b949e; font-weight: 400; font-size: 12px; }
-.header .back { color: #8b949e; text-decoration: none; font-size: 12px; }
-.header .back:hover { color: #58a6ff; }
+.header a { color: #8b949e; text-decoration: none; font-size: 12px; }
+.header a:hover { color: #58a6ff; }
 
 .container { display: flex; height: calc(100vh - 49px); }
 
-/* Left: Scenario List */
-.sidebar { width: 280px; border-right: 1px solid #30363d; overflow-y: auto; }
+/* Sidebar */
+.sidebar { width: 260px; border-right: 1px solid #30363d; overflow-y: auto; flex-shrink: 0; }
 .sidebar h2 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; padding: 12px 16px; border-bottom: 1px solid #21262d; }
 .scenario-item { padding: 12px 16px; border-bottom: 1px solid #21262d; cursor: pointer; transition: background 0.1s; }
 .scenario-item:hover { background: #161b22; }
 .scenario-item.active { background: #1f6feb15; border-left: 2px solid #58a6ff; }
 .scenario-item .s-name { font-size: 13px; font-weight: 600; }
 .scenario-item .s-desc { font-size: 11px; color: #8b949e; margin-top: 4px; }
-.scenario-item .s-tag { display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 8px; margin-top: 4px; }
+.s-tag { display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 8px; margin-top: 4px; }
 .s-tag.critical { background: #f8514920; color: #f85149; }
 .s-tag.warning { background: #d2992220; color: #d29922; }
 .s-tag.normal { background: #23863620; color: #3fb950; }
+.s-tag.factory { background: #1f6feb20; color: #58a6ff; }
 
-/* Center: Live Monitor */
-.main-panel { flex: 1; display: flex; flex-direction: column; }
-
-.controls { padding: 16px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; }
-.btn { padding: 8px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+/* Main */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.controls { padding: 12px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.btn { padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; }
 .btn-run { background: #238636; color: #fff; }
 .btn-run:hover { background: #2ea043; }
 .btn-run:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
 .btn-stop { background: #f8514920; color: #f85149; border: 1px solid #f85149; }
+.btn-kill { background: #da363320; color: #f85149; border: 1px solid #f85149; }
 .btn-reset { background: #21262d; color: #8b949e; }
+.btn-restart { background: #1f6feb20; color: #58a6ff; border: 1px solid #58a6ff; }
 .status-badge { font-size: 11px; padding: 4px 10px; border-radius: 12px; margin-left: auto; }
 .status-badge.running { background: #23863620; color: #3fb950; }
 .status-badge.idle { background: #21262d; color: #8b949e; }
 
-/* Server Room Visual */
-.server-room { padding: 20px 24px; display: grid; grid-template-columns: repeat(3, 1fr) 200px; gap: 12px; }
-.gauge { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-align: center; }
+/* Gauges */
+.gauges { padding: 16px 24px; display: flex; gap: 12px; flex-wrap: wrap; }
+.gauge { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 18px; text-align: center; min-width: 120px; flex: 1; }
 .gauge .g-label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
-.gauge .g-value { font-size: 32px; font-weight: 700; margin: 6px 0; }
-.gauge .g-unit { font-size: 11px; color: #8b949e; }
+.gauge .g-value { font-size: 28px; font-weight: 700; margin: 4px 0; }
+.gauge .g-unit { font-size: 10px; color: #8b949e; }
 .gauge.danger .g-value { color: #f85149; }
 .gauge.warning .g-value { color: #d29922; }
 .gauge.ok .g-value { color: #3fb950; }
+.gauge.neutral .g-value { color: #e6edf3; }
 
-.server-rack { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; grid-row: 1 / 3; }
-.server-rack h3 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
-.srv { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; }
-.srv .srv-dot { width: 8px; height: 8px; border-radius: 50%; }
-.srv .srv-dot.on { background: #3fb950; }
-.srv .srv-dot.off { background: #484f58; }
-.srv .srv-name { flex: 1; }
-.srv .srv-pri { font-size: 9px; color: #8b949e; }
+/* Server rack */
+.rack { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; min-width: 160px; }
+.rack h3 { font-size: 10px; color: #8b949e; text-transform: uppercase; margin-bottom: 8px; }
+.srv { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 12px; }
+.srv-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.srv-dot.on { background: #3fb950; }
+.srv-dot.off { background: #484f58; }
+.srv-name { flex: 1; }
+.srv-pri { font-size: 9px; color: #8b949e; }
 
-/* Event Log */
-.event-log { flex: 1; overflow-y: auto; padding: 16px 24px; border-top: 1px solid #30363d; }
-.event-log h3 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
-.event-log::-webkit-scrollbar { width: 6px; }
-.event-log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+/* Factory lines */
+.factory-lines { padding: 16px 24px; display: flex; gap: 14px; }
+.line-card { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; transition: opacity 0.3s; }
+.line-card.offline { opacity: 0.35; }
+.line-hdr { padding: 10px 14px; border-bottom: 1px solid #21262d; display: flex; align-items: center; justify-content: space-between; }
+.line-hdr .ln { font-size: 14px; font-weight: 700; }
+.line-hdr .ls { font-size: 10px; padding: 2px 8px; border-radius: 8px; }
+.ls.on { background: #23863620; color: #3fb950; }
+.ls.off { background: #f8514920; color: #f85149; }
+.line-g { padding: 10px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.mg { background: #0d1117; border-radius: 6px; padding: 8px; text-align: center; }
+.mg .mv { font-size: 22px; font-weight: 700; }
+.mg .ml { font-size: 9px; color: #8b949e; text-transform: uppercase; margin-top: 2px; }
+.mg.danger .mv { color: #f85149; }
+.mg.warning .mv { color: #d29922; }
+.mg.ok .mv { color: #3fb950; }
+.mg.neutral .mv { color: #e6edf3; }
+.line-bar { padding: 6px 14px 10px; }
+.bar-track { height: 5px; background: #21262d; border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
 
-.evt { padding: 10px 12px; background: #161b22; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 8px; font-size: 12px; }
-.evt .evt-time { font-size: 10px; color: #484f58; }
-.evt .evt-type { font-size: 10px; font-weight: 600; margin-left: 8px; }
-.evt .evt-type.trigger { color: #f85149; }
-.evt .evt-type.action { color: #58a6ff; }
-.evt .evt-type.result { color: #3fb950; }
-.evt .evt-body { margin-top: 4px; color: #8b949e; line-height: 1.5; }
-.evt .evt-body code { color: #e6edf3; font-size: 11px; background: #0d1117; padding: 1px 4px; border-radius: 3px; }
+/* Summary row */
+.summary { padding: 0 24px 12px; display: flex; gap: 12px; }
+.sc { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; text-align: center; }
+.sc .sv { font-size: 24px; font-weight: 700; }
+.sc .sl { font-size: 9px; color: #8b949e; text-transform: uppercase; margin-top: 2px; }
+
+/* Event log */
+.log { flex: 1; overflow-y: auto; padding: 12px 24px; }
+.log::-webkit-scrollbar { width: 6px; }
+.log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.log h3 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.evt { padding: 8px 10px; background: #161b22; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 6px; font-size: 11px; }
+.evt .et { color: #484f58; }
+.evt .trigger { color: #f85149; font-weight: 600; }
+.evt .action { color: #58a6ff; font-weight: 600; }
+.evt .result { color: #3fb950; font-weight: 600; }
+.evt .eb { margin-top: 3px; color: #8b949e; }
+
+.hidden { display: none !important; }
 </style>
 </head>
 <body>
 
 <div class="header">
   <h1>HEX <span>Hub-Edge eXecutor — Scenario Test</span></h1>
-  <div style="display:flex;gap:16px">
-    <a class="back" href="/factory">Factory Sim &rarr;</a>
-    <a class="back" href="/ui">&larr; Dashboard</a>
-  </div>
+  <a href="/ui">&larr; Dashboard</a>
 </div>
 
 <div class="container">
+  <!-- Sidebar -->
   <div class="sidebar">
     <h2>Scenarios</h2>
-    <div class="scenario-item active" data-id="cascade">
-      <div class="s-name">Cascade Failure + Energy</div>
-      <div class="s-desc">Server room overheats → LLM shuts down low-priority servers, increases cooling</div>
-      <span class="s-tag critical">Critical</span>
+    <div class="scenario-item active" data-id="server" onclick="selectScenario('server')">
+      <div class="s-name">Server Room</div>
+      <div class="s-desc">Temperature overload → LLM shuts down low-priority servers, increases cooling</div>
+      <span class="s-tag critical">1 Edge</span>
     </div>
-    <div class="scenario-item" data-id="energy">
-      <div class="s-name">Peak Energy Optimization</div>
-      <div class="s-desc">Power draw exceeds threshold → LLM reduces load by priority</div>
-      <span class="s-tag warning">Warning</span>
-    </div>
-    <div class="scenario-item" data-id="recovery">
-      <div class="s-name">Auto Recovery</div>
-      <div class="s-desc">After cooling, LLM restores servers in priority order</div>
-      <span class="s-tag normal">Normal</span>
+    <div class="scenario-item" data-id="factory" onclick="selectScenario('factory')">
+      <div class="s-name">Factory Lines</div>
+      <div class="s-desc">3 production lines — LLM kills actual QEMU on overload, balances remaining lines</div>
+      <span class="s-tag factory">3 Edges</span>
     </div>
   </div>
 
-  <div class="main-panel">
-    <div class="controls">
-      <button class="btn btn-run" id="btnRun" onclick="runScenario()">Run Scenario</button>
-      <button class="btn btn-stop" onclick="stopScenario()" style="display:none" id="btnStop">Stop</button>
-      <button class="btn btn-reset" onclick="resetScenario()">Reset</button>
-      <span class="status-badge idle" id="statusBadge">Idle</span>
+  <!-- Main panel -->
+  <div class="main">
+    <div class="controls" id="ctrlServer">
+      <button class="btn btn-run" onclick="runServer()">Run</button>
+      <button class="btn btn-reset" onclick="resetServer()">Reset</button>
+      <span class="status-badge idle" id="badgeServer">Idle</span>
+    </div>
+    <div class="controls hidden" id="ctrlFactory">
+      <button class="btn btn-run" onclick="runFactory()">Run Factory</button>
+      <button class="btn btn-kill" onclick="killLine('C')">Kill Line C</button>
+      <button class="btn btn-restart" onclick="restartLine('C')">Restart C</button>
+      <button class="btn btn-reset" onclick="resetFactory()">Reset All</button>
+      <span class="status-badge idle" id="badgeFactory">Idle</span>
     </div>
 
-    <div class="server-room">
-      <div class="gauge" id="gTemp">
-        <div class="g-label">Temperature</div>
-        <div class="g-value" id="valTemp">--</div>
-        <div class="g-unit">&deg;C</div>
-      </div>
-      <div class="gauge" id="gCpu">
-        <div class="g-label">CPU Load</div>
-        <div class="g-value" id="valCpu">--</div>
-        <div class="g-unit">%</div>
-      </div>
-      <div class="gauge" id="gPower">
-        <div class="g-label">Power Draw</div>
-        <div class="g-value" id="valPower">--</div>
-        <div class="g-unit">Watts</div>
-      </div>
-
-      <div class="server-rack" id="srvRack">
-        <h3>Server Rack</h3>
-        <div class="srv"><span class="srv-dot on" id="dotWeb"></span><span class="srv-name">Web Server</span><span class="srv-pri">CRITICAL</span></div>
-        <div class="srv"><span class="srv-dot on" id="dotDb"></span><span class="srv-name">Database</span><span class="srv-pri">CRITICAL</span></div>
-        <div class="srv"><span class="srv-dot on" id="dotCache"></span><span class="srv-name">Cache</span><span class="srv-pri">IMPORTANT</span></div>
-        <div class="srv"><span class="srv-dot on" id="dotLog"></span><span class="srv-name">Log Server</span><span class="srv-pri">NORMAL</span></div>
-        <div class="srv"><span class="srv-dot on" id="dotBackup"></span><span class="srv-name">Backup</span><span class="srv-pri">LOW</span></div>
-        <div class="srv"><span class="srv-dot on" id="dotDev"></span><span class="srv-name">Dev Server</span><span class="srv-pri">LOW</span></div>
-      </div>
-
-      <div class="gauge" id="gCooling">
-        <div class="g-label">Cooling</div>
-        <div class="g-value" id="valCooling">--</div>
-        <div class="g-unit">OFF / LOW / HIGH</div>
-      </div>
-      <div class="gauge" id="gAlert">
-        <div class="g-label">Alert Level</div>
-        <div class="g-value" id="valAlert">--</div>
-        <div class="g-unit">&nbsp;</div>
+    <!-- Server Room View -->
+    <div id="viewServer">
+      <div class="gauges">
+        <div class="gauge" id="sTemp"><div class="g-label">Temperature</div><div class="g-value" id="sValTemp">--</div><div class="g-unit">&deg;C</div></div>
+        <div class="gauge" id="sCpu"><div class="g-label">CPU Load</div><div class="g-value" id="sValCpu">--</div><div class="g-unit">%</div></div>
+        <div class="gauge" id="sPower"><div class="g-label">Power</div><div class="g-value" id="sValPower">--</div><div class="g-unit">W</div></div>
+        <div class="gauge" id="sCool"><div class="g-label">Cooling</div><div class="g-value" id="sValCool">--</div><div class="g-unit"></div></div>
+        <div class="gauge" id="sAlert"><div class="g-label">Alert</div><div class="g-value" id="sValAlert">--</div><div class="g-unit"></div></div>
+        <div class="rack" id="sRack">
+          <h3>Servers</h3>
+          <div class="srv"><span class="srv-dot on" id="dWeb"></span><span class="srv-name">Web</span><span class="srv-pri">CRIT</span></div>
+          <div class="srv"><span class="srv-dot on" id="dDb"></span><span class="srv-name">DB</span><span class="srv-pri">CRIT</span></div>
+          <div class="srv"><span class="srv-dot on" id="dCache"></span><span class="srv-name">Cache</span><span class="srv-pri">IMP</span></div>
+          <div class="srv"><span class="srv-dot on" id="dLog"></span><span class="srv-name">Log</span><span class="srv-pri">NRM</span></div>
+          <div class="srv"><span class="srv-dot on" id="dBackup"></span><span class="srv-name">Backup</span><span class="srv-pri">LOW</span></div>
+          <div class="srv"><span class="srv-dot on" id="dDev"></span><span class="srv-name">Dev</span><span class="srv-pri">LOW</span></div>
+        </div>
       </div>
     </div>
 
-    <div class="event-log" id="eventLog">
-      <h3>Event Log</h3>
-      <div class="evt">
-        <span class="evt-time">--</span>
-        <span class="evt-type">Ready</span>
-        <div class="evt-body">Select a scenario and click <code>Run Scenario</code> to begin.</div>
+    <!-- Factory View -->
+    <div id="viewFactory" class="hidden">
+      <div class="factory-lines">
+        <div class="line-card" id="cardA">
+          <div class="line-hdr"><span class="ln">Line A</span><span class="ls on" id="lsA">UP</span></div>
+          <div class="line-g">
+            <div class="mg ok" id="mgTempA"><div class="mv" id="fTempA">--</div><div class="ml">Temp &deg;C</div></div>
+            <div class="mg ok" id="mgCpuA"><div class="mv" id="fCpuA">--</div><div class="ml">Speed %</div></div>
+            <div class="mg neutral" id="mgPowA"><div class="mv" id="fPowA">--</div><div class="ml">Power W</div></div>
+            <div class="mg ok" id="mgCoolA"><div class="mv" id="fCoolA">--</div><div class="ml">Cooling</div></div>
+          </div>
+          <div class="line-bar"><div class="bar-track"><div class="bar-fill" id="barA" style="width:100%;background:#3fb950"></div></div></div>
+        </div>
+        <div class="line-card" id="cardB">
+          <div class="line-hdr"><span class="ln">Line B</span><span class="ls on" id="lsB">UP</span></div>
+          <div class="line-g">
+            <div class="mg ok" id="mgTempB"><div class="mv" id="fTempB">--</div><div class="ml">Temp &deg;C</div></div>
+            <div class="mg ok" id="mgCpuB"><div class="mv" id="fCpuB">--</div><div class="ml">Speed %</div></div>
+            <div class="mg neutral" id="mgPowB"><div class="mv" id="fPowB">--</div><div class="ml">Power W</div></div>
+            <div class="mg ok" id="mgCoolB"><div class="mv" id="fCoolB">--</div><div class="ml">Cooling</div></div>
+          </div>
+          <div class="line-bar"><div class="bar-track"><div class="bar-fill" id="barB" style="width:100%;background:#3fb950"></div></div></div>
+        </div>
+        <div class="line-card" id="cardC">
+          <div class="line-hdr"><span class="ln">Line C</span><span class="ls on" id="lsC">UP</span></div>
+          <div class="line-g">
+            <div class="mg ok" id="mgTempC"><div class="mv" id="fTempC">--</div><div class="ml">Temp &deg;C</div></div>
+            <div class="mg ok" id="mgCpuC"><div class="mv" id="fCpuC">--</div><div class="ml">Speed %</div></div>
+            <div class="mg neutral" id="mgPowC"><div class="mv" id="fPowC">--</div><div class="ml">Power W</div></div>
+            <div class="mg ok" id="mgCoolC"><div class="mv" id="fCoolC">--</div><div class="ml">Cooling</div></div>
+          </div>
+          <div class="line-bar"><div class="bar-track"><div class="bar-fill" id="barC" style="width:80%;background:#d29922"></div></div></div>
+        </div>
       </div>
+      <div class="summary">
+        <div class="sc"><div class="sv" id="fTotal">--</div><div class="sl">Total Output</div></div>
+        <div class="sc"><div class="sv" id="fPowerAll">--</div><div class="sl">Total Power W</div></div>
+        <div class="sc"><div class="sv" id="fActive">--</div><div class="sl">Lines Active</div></div>
+      </div>
+    </div>
+
+    <!-- Shared Event Log + Live Trace -->
+    <div class="log" id="eventLog">
+      <h3>HEX Live Trace <span style="font-size:9px;color:#3fb950;font-weight:400" id="traceStatus"></span></h3>
+      <div class="evt"><span class="et">--</span> <span class="result">READY</span><div class="eb">Select a scenario and click Run. Live trace shows all hub internals.</div></div>
     </div>
   </div>
 </div>
@@ -169,137 +218,224 @@ body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMac
 <script>
 const HUB = location.origin
 let pollTimer = null
-let running = false
-let eventCount = 0
-
-const coolNames = ['OFF', 'LOW', 'HIGH']
-const alertNames = ['NORMAL', 'WARNING', 'CRITICAL']
-const alertColors = ['ok', 'warning', 'danger']
-
-// Poll edge health and update gauges
-async function pollHealth() {
-  try {
-    const health = await fetch(HUB + '/scenario/health').then(r => r.json())
-    const vr = health.vr || {}
-    const srv = vr.srv || 0
-
-    // Update gauges
-    setGauge('gTemp', 'valTemp', vr.t, vr.t >= 45 ? 'danger' : vr.t >= 35 ? 'warning' : 'ok')
-    setGauge('gCpu', 'valCpu', vr.c, vr.c >= 90 ? 'danger' : vr.c >= 70 ? 'warning' : 'ok')
-    setGauge('gPower', 'valPower', vr.p, vr.p >= 1000 ? 'danger' : vr.p >= 800 ? 'warning' : 'ok')
-    document.getElementById('valCooling').textContent = coolNames[vr.co] || 'OFF'
-    document.getElementById('gCooling').className = 'gauge ' + (vr.co >= 2 ? 'ok' : vr.co >= 1 ? 'warning' : 'danger')
-
-    const alert = vr.a || 0
-    document.getElementById('valAlert').textContent = alertNames[alert]
-    document.getElementById('gAlert').className = 'gauge ' + alertColors[alert]
-
-    // Update server dots
-    const srvMap = [
-      ['dotWeb', 1], ['dotDb', 2], ['dotCache', 4],
-      ['dotLog', 8], ['dotBackup', 16], ['dotDev', 32]
-    ]
-    for (const [id, bit] of srvMap) {
-      const dot = document.getElementById(id)
-      dot.className = 'srv-dot ' + ((srv & bit) ? 'on' : 'off')
-    }
-
-    // Check monitors for triggers
-    if (health.monitors) {
-      for (const mon of health.monitors) {
-        if (mon.fired && mon.triggers > eventCount) {
-          eventCount = mon.triggers
-          addEvent('trigger', `Monitor ${mon.id} TRIGGERED — value=${mon.val}`)
-        }
-      }
-    }
-  } catch (e) {
-    // edge offline
-  }
-}
-
-function setGauge(gaugeId, valId, value, cls) {
-  document.getElementById(valId).textContent = value ?? '--'
-  document.getElementById(gaugeId).className = 'gauge ' + cls
-}
+let currentScenario = 'server'
+const coolNames = ['OFF','LOW','HIGH']
+const alertNames = ['NORMAL','WARNING','CRITICAL']
 
 function addEvent(type, body) {
   const log = document.getElementById('eventLog')
-  const time = new Date().toLocaleTimeString()
-  const evt = document.createElement('div')
-  evt.className = 'evt'
-  evt.innerHTML = `<span class="evt-time">${time}</span><span class="evt-type ${type}">${type.toUpperCase()}</span><div class="evt-body">${body}</div>`
-  log.insertBefore(evt, log.children[1]) // after h3
+  const el = document.createElement('div')
+  el.className = 'evt'
+  el.innerHTML = `<span class="et">${new Date().toLocaleTimeString()}</span> <span class="${type}">${type.toUpperCase()}</span><div class="eb">${body}</div>`
+  log.insertBefore(el, log.children[1])
 }
 
-async function runScenario() {
-  if (running) return
-  running = true
-  eventCount = 0
-  document.getElementById('btnRun').disabled = true
-  document.getElementById('btnStop').style.display = ''
-  document.getElementById('statusBadge').textContent = 'Running'
-  document.getElementById('statusBadge').className = 'status-badge running'
-
-  addEvent('action', 'Scenario started — deploying temperature monitor...')
-
-  try {
-    // Deploy monitor via hub API
-    const res = await fetch(HUB + '/scenario/deploy', { method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scenario: 'cascade' })
-    })
-    const data = await res.json()
-    addEvent('action', `Monitor deployed: ${data.result || 'ok'}`)
-
-    // Start polling
-    pollTimer = setInterval(pollHealth, 2000)
-    pollHealth()
-
-    addEvent('action', 'Monitoring active — waiting for temperature threshold...')
-  } catch (e) {
-    addEvent('trigger', 'Error: ' + e.message)
-    stopScenario()
-  }
-}
-
-function stopScenario() {
-  running = false
+function selectScenario(id) {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-  document.getElementById('btnRun').disabled = false
-  document.getElementById('btnStop').style.display = 'none'
-  document.getElementById('statusBadge').textContent = 'Idle'
-  document.getElementById('statusBadge').className = 'status-badge idle'
-  addEvent('result', 'Scenario stopped')
+  currentScenario = id
+  document.querySelectorAll('.scenario-item').forEach(e => e.classList.remove('active'))
+  document.querySelector(`[data-id="${id}"]`).classList.add('active')
+  document.getElementById('ctrlServer').classList.toggle('hidden', id !== 'server')
+  document.getElementById('ctrlFactory').classList.toggle('hidden', id !== 'factory')
+  document.getElementById('viewServer').classList.toggle('hidden', id !== 'server')
+  document.getElementById('viewFactory').classList.toggle('hidden', id !== 'factory')
+  if (id === 'server') pollServer()
+  if (id === 'factory') pollFactory()
 }
 
-async function resetScenario() {
+function gc(val, warn, danger) { return val >= danger ? 'danger' : val >= warn ? 'warning' : 'ok' }
+
+// ── Server Room ──
+async function pollServer() {
   try {
-    await fetch(HUB + '/scenario/reset', { method: 'POST' })
-    addEvent('action', 'Server room reset to initial state')
-    pollHealth()
-  } catch (e) {
-    addEvent('trigger', 'Reset failed: ' + e.message)
+    const h = await fetch(HUB + '/scenario/health').then(r => r.json())
+    const vr = h.vr || {}
+    const srv = vr.srv || 0
+
+    document.getElementById('sValTemp').textContent = vr.t ?? '--'
+    document.getElementById('sTemp').className = 'gauge ' + gc(vr.t||0, 35, 45)
+    document.getElementById('sValCpu').textContent = vr.c ?? '--'
+    document.getElementById('sCpu').className = 'gauge ' + gc(vr.c||0, 70, 90)
+    document.getElementById('sValPower').textContent = vr.p ?? '--'
+    document.getElementById('sPower').className = 'gauge ' + gc(vr.p||0, 800, 1000)
+    document.getElementById('sValCool').textContent = coolNames[vr.co] || '--'
+    document.getElementById('sCool').className = 'gauge ' + (vr.co >= 2 ? 'ok' : vr.co >= 1 ? 'warning' : 'danger')
+    document.getElementById('sValAlert').textContent = alertNames[vr.a] || '--'
+    document.getElementById('sAlert').className = 'gauge ' + ['ok','warning','danger'][vr.a||0]
+
+    const bits = [['dWeb',1],['dDb',2],['dCache',4],['dLog',8],['dBackup',16],['dDev',32]]
+    bits.forEach(([id,b]) => document.getElementById(id).className = 'srv-dot ' + ((srv&b)?'on':'off'))
+  } catch(e) {}
+}
+
+async function runServer() {
+  addEvent('action', 'Deploying temperature monitor...')
+  try {
+    const r = await fetch(HUB+'/scenario/deploy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenario:'cascade'})})
+    const d = await r.json()
+    addEvent('action', 'Monitor deployed: ' + (d.result||'ok'))
+    pollTimer = setInterval(pollServer, 2000); pollServer()
+    document.getElementById('badgeServer').textContent = 'Running'
+    document.getElementById('badgeServer').className = 'status-badge running'
+  } catch(e) { addEvent('trigger', 'Error: '+e.message) }
+}
+
+async function resetServer() {
+  try { await fetch(HUB+'/scenario/reset',{method:'POST'}); addEvent('action','Server room reset'); pollServer() } catch(e) {}
+}
+
+// ── Factory ──
+async function pollFactory() {
+  let totalPow = 0, totalOut = 0, active = 0
+  for (const L of ['A','B','C']) {
+    try {
+      const h = await fetch(HUB+'/scenario/factory/health?line='+L).then(r=>r.json())
+      const vr = h.vr||{}
+      document.getElementById('fTemp'+L).textContent = vr.t??'--'
+      document.getElementById('mgTemp'+L).className = 'mg '+gc(vr.t||0,35,45)
+      document.getElementById('fCpu'+L).textContent = vr.c??'--'
+      document.getElementById('mgCpu'+L).className = 'mg '+(vr.c>=80?'ok':vr.c>=50?'warning':'danger')
+      document.getElementById('fPow'+L).textContent = vr.p??'--'
+      document.getElementById('fCool'+L).textContent = coolNames[vr.co]||'--'
+      document.getElementById('mgCool'+L).className = 'mg '+(vr.co>=2?'ok':vr.co>=1?'warning':'danger')
+      document.getElementById('bar'+L).style.width = (vr.c||0)+'%'
+      document.getElementById('bar'+L).style.background = vr.c>=80?'#3fb950':vr.c>=50?'#d29922':'#f85149'
+      document.getElementById('ls'+L).textContent = 'UP'
+      document.getElementById('ls'+L).className = 'ls on'
+      document.getElementById('card'+L).className = 'line-card'
+      totalPow += vr.p||0; totalOut += vr.c||0; active++
+    } catch(e) {
+      document.getElementById('ls'+L).textContent = 'DEAD'
+      document.getElementById('ls'+L).className = 'ls off'
+      document.getElementById('card'+L).className = 'line-card offline'
+    }
+  }
+  document.getElementById('fTotal').textContent = totalOut
+  document.getElementById('fTotal').style.color = totalOut>=250?'#3fb950':totalOut>=150?'#d29922':'#f85149'
+  document.getElementById('fPowerAll').textContent = totalPow
+  document.getElementById('fActive').textContent = active+'/3'
+}
+
+async function runFactory() {
+  addEvent('action', 'Deploying monitors on all lines...')
+  try {
+    const r = await fetch(HUB+'/scenario/factory/start',{method:'POST'})
+    const d = await r.json()
+    addEvent('action', 'Monitors deployed')
+    pollTimer = setInterval(pollFactory, 2000); pollFactory()
+    document.getElementById('badgeFactory').textContent = 'Running'
+    document.getElementById('badgeFactory').className = 'status-badge running'
+  } catch(e) { addEvent('trigger', 'Error: '+e.message) }
+}
+
+async function killLine(L) {
+  addEvent('trigger', 'Killing Line '+L+' — QEMU will halt!')
+  try {
+    await fetch(HUB+'/scenario/factory/shutdown?line='+L,{method:'POST'})
+    addEvent('action', 'Line '+L+' shutdown sent')
+    setTimeout(pollFactory, 3000)
+  } catch(e) { addEvent('trigger','Error: '+e.message) }
+}
+
+async function restartLine(L) {
+  addEvent('action', 'Restarting Line '+L+'...')
+  try {
+    await fetch(HUB+'/scenario/factory/restart?line='+L,{method:'POST'})
+    addEvent('result', 'Line '+L+' restarting (~10s)')
+    setTimeout(pollFactory, 12000)
+  } catch(e) { addEvent('trigger','Error: '+e.message) }
+}
+
+async function resetFactory() {
+  try { await fetch(HUB+'/scenario/factory/reset',{method:'POST'}); addEvent('action','All lines reset'); pollFactory() } catch(e) {}
+}
+
+// ── Live Trace via SSE ──
+let traceSource = null
+
+function startTrace() {
+  if (traceSource) traceSource.close()
+  traceSource = new EventSource(HUB + '/scenario/trace')
+  document.getElementById('traceStatus').textContent = '● LIVE'
+
+  traceSource.addEventListener('trace', (e) => {
+    try {
+      const evt = JSON.parse(e.data)
+      renderTraceEvent(evt)
+    } catch(err) {}
+  })
+
+  traceSource.onerror = () => {
+    document.getElementById('traceStatus').textContent = '○ disconnected'
   }
 }
 
-// Initial poll
-fetch(HUB + '/nodes').then(r => r.json()).then(data => {
-  if ((data.nodes || []).length === 0) {
-    addEvent('trigger', 'No edges connected. Start an edge first.')
-  } else {
-    pollHealth()
-    addEvent('result', `Edge connected: ${data.nodes.map(n => n.node_id).join(', ')}`)
-  }
-}).catch(() => addEvent('trigger', 'Hub unreachable'))
+function renderTraceEvent(evt) {
+  const d = evt.data || {}
+  let type = '', body = ''
 
-// Sidebar click
-document.querySelectorAll('.scenario-item').forEach(el => {
-  el.addEventListener('click', () => {
-    document.querySelectorAll('.scenario-item').forEach(e => e.classList.remove('active'))
-    el.classList.add('active')
-  })
-})
+  switch (evt.type) {
+    case 'health':
+      // Skip frequent health pings unless interesting
+      if (d.monitors?.some(m => m.fired)) {
+        type = 'action'
+        body = `📡 <b>${d.edge}</b> health: temp=${d.vr?.t} cpu=${d.vr?.c} power=${d.vr?.p} cooling=${d.vr?.co} alert=${d.vr?.a}`
+        if (d.monitors?.length) body += ` | monitors: ${d.monitors.map(m=>'#'+m.id+'='+m.val+(m.fired?' FIRED':'')).join(', ')}`
+      } else return  // skip quiet health pings
+      break
+
+    case 'trigger':
+      type = 'trigger'
+      body = `🚨 <b>TRIGGER</b> on <b>${d.edge}</b>: monitor #${d.monitor} value=<b>${d.value}</b> (total triggers: ${d.triggers})`
+      break
+
+    case 'llm_start':
+      type = 'action'
+      body = `🧠 <b>LLM START</b> — "${d.command}"`
+      break
+
+    case 'llm_tool':
+      type = 'action'
+      const input = d.input || {}
+      let detail = ''
+      if (input.asm_code) detail = ` <code>${input.asm_code.replace(/\n/g, ' | ').slice(0,80)}</code>`
+      else if (input.target) detail = ` target=${input.target}`
+      if (input.reason) detail += ` reason="${input.reason.slice(0,60)}"`
+      body = `⚡ <b>${d.tool}</b>${detail}`
+      break
+
+    case 'tool_result':
+      type = 'result'
+      body = `✅ ${d.tool}${d.target?' → '+d.target:''}: <code>${(d.result||'').slice(0,120)}</code>`
+      break
+
+    case 'llm_text':
+      type = 'result'
+      body = `💬 LLM: ${d.text.slice(0,200)}`
+      break
+
+    case 'llm_done':
+      type = 'result'
+      body = `🏁 <b>DONE</b> in ${d.turns} turn(s)`
+      break
+
+    default:
+      type = 'action'
+      body = `${evt.type}: ${JSON.stringify(d).slice(0,150)}`
+  }
+
+  addEvent(type, body)
+}
+
+startTrace()
+
+// Init
+fetch(HUB+'/nodes').then(r=>r.json()).then(d=>{
+  const n = d.nodes||[]
+  if (n.length === 0) addEvent('trigger','No edges connected')
+  else addEvent('result','Connected: '+n.map(x=>x.node_id).join(', '))
+  pollServer()
+}).catch(()=>addEvent('trigger','Hub unreachable'))
 </script>
 </body>
 </html>

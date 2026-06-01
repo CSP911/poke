@@ -37,6 +37,7 @@ COPY --from=builder /build/poke.img ./
 
 EXPOSE 8080
 
+# Create a 4MB raw disk for edge log store on each boot
 CMD ["qemu-system-i386", \
      "-drive", "format=raw,file=/poke/poke.img", \
      "-m", "64M", \
