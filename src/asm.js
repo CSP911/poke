@@ -1,14 +1,14 @@
 /**
- * POKE Mini Assembler — x86-32 어셈블러 (JS 내장, 외부 의존성 0)
+ * POKE Mini Assembler — x86-32 assembler (built-in JS, zero external dependencies)
  *
- * LLM이 생성한 어셈블리 텍스트를 바이트로 변환합니다.
- * nasm 불필요. hub.js에서 require해서 사용.
+ * Converts LLM-generated assembly text into machine code bytes.
+ * No nasm required. Used via require() from hub.js.
  */
 
 function assemble(source) {
   let lines = source.split('\n')
-    .map(l => l.replace(/;.*$/, '').trim())  // 주석 제거
-    .filter(l => l && !l.startsWith('BITS'))  // 빈줄, BITS 지시자 제거
+    .map(l => l.replace(/;.*$/, '').trim())  // strip comments
+    .filter(l => l && !l.startsWith('BITS'))  // remove empty lines & BITS directive
 
   // "label: instruction" → split into two lines
   const expanded = []
@@ -21,13 +21,13 @@ function assemble(source) {
 
   const bytes = []
   const labels = {}     // label → byte offset
-  const fixups = []     // { pos, label, type } — 나중에 패치할 위치
+  const fixups = []     // { pos, label, type } — positions to patch later
 
-  // 1st pass: 라벨 수집 + 인코딩
+  // 1st pass: collect labels + encode
   for (const raw of lines) {
     const line = raw.toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim()
 
-    // ── 라벨 ──
+    // ── labels ──
     if (line.endsWith(':')) {
       labels[line.slice(0, -1)] = bytes.length
       continue
@@ -90,7 +90,7 @@ function assemble(source) {
         continue
       }
 
-      // mov reg, [reg + offset] — MMIO 읽기
+      // mov reg, [reg + offset] — MMIO read
       const memRead = matchMemRead(parts.slice(2).join(' '))
       if (dst !== null && memRead) {
         bytes.push(0x8B)
@@ -98,7 +98,7 @@ function assemble(source) {
         continue
       }
 
-      // mov [reg + offset], reg — MMIO 쓰기
+      // mov [reg + offset], reg — MMIO write
       const memWrite = matchMemRead(parts[1])
       if (memWrite && src !== null) {
         bytes.push(0x89)
@@ -416,7 +416,7 @@ function assemble(source) {
       }
     }
 
-    // ── Jcc (조건 분기) — 라벨은 fixup으로 ──
+    // ── Jcc (conditional branch) — labels resolved via fixup ──
     const jccOps = {
       'jmp': 0xEB, 'je': 0x74, 'jz': 0x74, 'jne': 0x75, 'jnz': 0x75,
       'jl': 0x7C, 'jge': 0x7D, 'jle': 0x7E, 'jg': 0x7F,
@@ -454,11 +454,11 @@ function assemble(source) {
       if (dst === 'dx' && src === 'eax') { bytes.push(0xEF); continue }
     }
 
-    // ── 알 수 없는 명령 ──
+    // ── unknown instruction ──
     throw new Error(`Unknown instruction: "${raw}"`)
   }
 
-  // 2nd pass: fixup (라벨 참조 해결)
+  // 2nd pass: fixup (resolve label references)
   for (const f of fixups) {
     const target = labels[f.label]
     if (target === undefined) throw new Error(`Unknown label: ${f.label}`)
@@ -478,7 +478,7 @@ function assemble(source) {
   return Buffer.from(bytes)
 }
 
-// ── 헬퍼 ──
+// ── helpers ──
 const REGS32 = { eax: 0, ecx: 1, edx: 2, ebx: 3, esp: 4, ebp: 5, esi: 6, edi: 7 }
 const REGS16 = { ax: 0, cx: 1, dx: 2, bx: 3, sp: 4, bp: 5, si: 6, di: 7 }
 

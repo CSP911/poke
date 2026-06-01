@@ -178,11 +178,57 @@ function streamToEdge(endpoint, frames, fps) {
   })
 }
 
+// ── Deploy monitor to edge (MON protocol) ──
+function deployMonitor(endpoint, monitorBinary, intervalMs, condOp, condVal, hubIp, hubPort) {
+  return new Promise((resolve, reject) => {
+    const url = new URL('/poke', endpoint)
+
+    // Build MON packet: magic(3) + interval(4) + cond_op(1) + cond_val(4) + hub_ip(4) + hub_port(2) + code_len(2) + code(N)
+    const packet = Buffer.alloc(20 + monitorBinary.length)
+    packet[0] = 0x4D  // 'M'
+    packet[1] = 0x4F  // 'O'
+    packet[2] = 0x4E  // 'N'
+    packet.writeUInt32LE(intervalMs, 3)
+    packet[7] = condOp
+    packet.writeUInt32LE(condVal, 8)
+
+    // Parse hub IP string to u32 LE
+    const ipParts = hubIp.split('.').map(Number)
+    packet[12] = ipParts[0]
+    packet[13] = ipParts[1]
+    packet[14] = ipParts[2]
+    packet[15] = ipParts[3]
+
+    packet.writeUInt16LE(hubPort, 16)
+    packet.writeUInt16LE(monitorBinary.length, 18)
+    monitorBinary.copy(packet, 20)
+
+    const req = http.request({
+      hostname: url.hostname, port: url.port,
+      path: '/poke', method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': packet.length,
+      },
+      timeout: 10000,
+    }, (res) => {
+      let body = ''
+      res.on('data', c => body += c)
+      res.on('end', () => resolve(body))
+    })
+    req.on('error', e => reject(new PokeTransportError(e.message, 'MONITOR_DEPLOY_ERROR')))
+    req.on('timeout', () => { req.destroy(); reject(new PokeTransportError('timeout', 'TIMEOUT')) })
+    req.write(packet)
+    req.end()
+  })
+}
+
 module.exports = {
   pokeNode,
   pokeNodeARM,
   pokeNodeRaw,
   pokeRelay,
   streamToEdge,
+  deployMonitor,
   PokeTransportError,
 }

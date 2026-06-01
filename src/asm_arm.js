@@ -1,15 +1,15 @@
 /**
  * POKE Mini Assembler — ARM64 (AArch64) assembler (JS built-in, zero deps)
  *
- * LLM이 생성한 ARM64 어셈블리 텍스트를 바이트로 변환합니다.
- * 외부 도구 불필요. hub.js에서 require해서 사용.
+ * Converts LLM-generated ARM64 assembly text into machine code bytes.
+ * No external tools required. Used via require() from hub.js.
  *
  * All ARM64 instructions are exactly 4 bytes, little-endian.
  */
 
 function assembleARM(source) {
   let lines = source.split('\n')
-    .map(l => l.replace(/\/\/.*$/, '').replace(/;.*$/, '').trim())  // 주석 제거
+    .map(l => l.replace(/\/\/.*$/, '').replace(/;.*$/, '').trim())  // strip comments
     .filter(l => l.length > 0)
 
   // "label: instruction" → split into two lines

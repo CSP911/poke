@@ -46,7 +46,7 @@ Types:
 Rules:
 - If command is a math calculation -> type=compute, target=x86-qemu
 - If command asks to show/draw/display something -> type=draw
-- If command is a general question, explanation, or conversation ("what is...", "explain...", "tell me...", "뭐야", "알려줘", "설명해") -> type=answer. NEVER draw or compute for questions.
+- If command is a general question, explanation, or conversation ("what is...", "explain...", "tell me...", and equivalents in any language) -> type=answer. NEVER draw or compute for questions.
 - If command involves hardware (LED, sensor, temperature, GPIO, device) -> type=device
 - Mobile edges (arch=mobile) can only receive images or text, never run assembly
 - Default compute target: x86-qemu (i386)

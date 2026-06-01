@@ -22,3 +22,5 @@ package-lock.json
 docs/patent-figures/
 docs/patent-draft.md
 docs/patent-defense-notes.md
+data/
+docs/patent-moip.md

@@ -76,6 +76,7 @@ function getProfileSummary() {
 // ── Health check + resource monitoring (every 5s) ──
 const edgeHistory = new Map()
 let healthInterval = null
+let onMonitorTrigger = null  // callback: (edgeId, monitorData) => {}
 
 function startHealthCheck() {
   healthInterval = setInterval(() => {
@@ -100,6 +101,24 @@ function startHealthCheck() {
             const history = edgeHistory.get(id)
             history.push({ timestamp: new Date().toISOString(), ...health })
             if (history.length > 60) history.shift()
+
+            // Auto-detect monitor triggers → fire event
+            if (health.monitors && Array.isArray(health.monitors)) {
+              for (const mon of health.monitors) {
+                if (mon.fired && !node._lastFired?.[mon.id]) {
+                  // New trigger detected!
+                  log.info(`[health] MONITOR TRIGGERED on ${id}: monitor=${mon.id} val=${mon.val}`)
+                  if (onMonitorTrigger) {
+                    onMonitorTrigger(id, mon)
+                  }
+                }
+              }
+              // Track fired state to avoid re-firing
+              node._lastFired = {}
+              for (const mon of health.monitors) {
+                node._lastFired[mon.id] = mon.fired
+              }
+            }
           } catch (e) {
             log.warn(`[health] failed to parse health data for ${id}: ${e.message}`)
           }
@@ -120,6 +139,10 @@ function stopHealthCheck() {
   }
 }
 
+function setMonitorTriggerCallback(cb) {
+  onMonitorTrigger = cb
+}
+
 module.exports = {
   nodes,
   profiles,
@@ -130,4 +153,5 @@ module.exports = {
   startHealthCheck,
   stopHealthCheck,
   validateProfile,
+  setMonitorTriggerCallback,
 }

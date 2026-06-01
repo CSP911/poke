@@ -4,11 +4,12 @@
 
 const http = require('http')
 const { log } = require('./logger')
-const { nodes, edgeHistory, enrollNode, profiles } = require('./nodes')
+const { nodes, edgeHistory, enrollNode, profiles, setMonitorTriggerCallback } = require('./nodes')
 const { agentLoop } = require('./agent')
 const { generateAssembly, generateImageCode, planCommand } = require('./llm')
 const { compileAssembly } = require('./compiler')
 const { pokeNode, pokeNodeRaw } = require('./transport')
+const memory = require('./memory')
 
 // ── Security: Auth + Helpers ──
 const HUB_SECRET = process.env.HUB_SECRET || null
@@ -198,6 +199,51 @@ async function handleRequest(req, res) {
     return
   }
 
+  // POST /event — edge fires autonomous event → re-enter agentLoop
+  if (req.method === 'POST' && url.pathname === '/event') {
+    const data = safeJSON(body)
+    if (!data) { jsonError(res, 400, 'invalid event data'); return }
+
+    log.info(`[event] from ${data.edge}: value=${data.value}, trigger=${data.trigger}`)
+
+    const command = `EDGE EVENT from ${data.edge}: ` +
+      `value=${data.value} triggered condition "${data.trigger}". ` +
+      `Monitor ID: ${data.monitor}. ` +
+      `Respond appropriately — alert user and/or take corrective action on other edges.`
+
+    // Non-blocking: fire agentLoop and respond immediately
+    agentLoop(command, data.edge, null).then(result => {
+      log.info(`[event] handled: ${result.result?.slice(0, 80)}`)
+    }).catch(err => {
+      log.warn(`[event] handler failed: ${err.message}`)
+    })
+
+    res.end(JSON.stringify({ ok: true, received: true }))
+    return
+  }
+
+  // GET /memory — get memory stats and recent facts
+  if (req.method === 'GET' && url.pathname === '/memory') {
+    const stats = memory.getStats()
+    const facts = memory.loadFacts().slice(-20)
+    res.end(JSON.stringify({ stats, facts }, null, 2))
+    return
+  }
+
+  // GET /memory/history — search conversation history
+  if (req.method === 'GET' && url.pathname === '/memory/history') {
+    const query = url.searchParams.get('q') || ''
+    const limit = parseInt(url.searchParams.get('limit')) || 20
+    if (query) {
+      const results = memory.searchHistory(query, limit)
+      res.end(JSON.stringify(results, null, 2))
+    } else {
+      const history = memory.loadHistory().slice(-limit)
+      res.end(JSON.stringify(history, null, 2))
+    }
+    return
+  }
+
   // GET /profiles — list all device profiles with operations
   if (req.method === 'GET' && url.pathname === '/profiles') {
     const result = []
@@ -360,8 +406,8 @@ except Exception as e:
 
       // TTS response
       let replyText = result && typeof result === 'string'
-        ? result.replace('eax=', '결과는 ').replace('\n', '') + '입니다'
-        : '처리했습니다'
+        ? result.replace('eax=', 'Result: ').replace('\n', '')
+        : 'Done'
 
       let audioReply = null
       try {
@@ -421,6 +467,26 @@ except Exception as e:
 }
 
 function createServer() {
+  // Register monitor trigger callback → auto agentLoop
+  setMonitorTriggerCallback((edgeId, mon) => {
+    const node = nodes.get(edgeId)
+    const vregs = node?.health?.vregs || {}
+    const command = `AUTONOMOUS EVENT from edge "${edgeId}": ` +
+      `Monitor ${mon.id} triggered with value=${mon.val}. ` +
+      `Current virtual registers: temp=${vregs.temp || '?'}, speed=${vregs.speed || '?'}, fan=${vregs.fan || '?'}. ` +
+      `Analyze the situation and take corrective action. ` +
+      `You can execute assembly on this edge to modify virtual registers at address 0x200000 ` +
+      `(offset 0=temp, 4=speed, 8=fan). Use "mov dword [0x200004], VALUE" to set speed, ` +
+      `"mov dword [0x200008], 1" to turn fan on.`
+
+    log.info(`[event] auto-firing agentLoop for ${edgeId} monitor ${mon.id}`)
+    agentLoop(command, edgeId, edgeId).then(result => {
+      log.info(`[event] result: ${result.result?.slice(0, 100)}`)
+    }).catch(err => {
+      log.warn(`[event] failed: ${err.message}`)
+    })
+  })
+
   return http.createServer(handleRequest)
 }
 

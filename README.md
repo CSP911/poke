@@ -392,8 +392,9 @@ poke/
 │   ├── agent.js          Agent loop + tool definitions
 │   ├── llm.js            LLM API calls
 │   ├── compiler.js       Assembly compilation + guard rail
-│   ├── transport.js      Edge communication (HTTP, TCP)
-│   ├── nodes.js          Node registry + device profiles
+│   ├── transport.js      Edge communication (HTTP, TCP, MON protocol)
+│   ├── nodes.js          Node registry + device profiles + monitor triggers
+│   ├── memory.js         JARVIS memory (history, facts, patterns, search index)
 │   └── logger.js         Structured logging
 │
 ├── asm.js                Built-in x86 assembler (zero deps)
@@ -574,6 +575,82 @@ User: "Read temperature from all sensors, compare with Seoul outside temp"
 
 **What happened:** The agent combined an external weather API with two bare-metal sensor readings from different edge devices, then analyzed the data — three sources, one natural language answer.
 
+### Autonomous Event Loop — JARVIS Mode
+
+POKE edges can **think for themselves**. Deploy a condition monitor to an edge, and it autonomously checks, triggers, and fires events back to the hub — where the LLM decides what to do next. No human in the loop.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Hub as Hub (LLM)
+    participant EdgeA as Edge: Sensors
+    participant EdgeB as Edge: Actuators
+
+    User->>Hub: "If temperature > 30°C,<br/>slow the motor and turn on fan"
+    Hub->>Hub: LLM generates monitor binary<br/>(reads virtual temp register)
+    Hub->>EdgeA: deploy_monitor(asm, "gt:30", 2s)
+    EdgeA-->>Hub: monitor=0, ok
+
+    Note over EdgeA: Autonomous monitoring begins<br/>No hub involvement
+
+    loop Every 2 seconds
+        EdgeA->>EdgeA: Execute monitor code<br/>Read temp register → EAX
+        EdgeA->>EdgeA: Check: EAX > 30?
+    end
+
+    Note over EdgeA: Temperature hits 50°C!
+
+    EdgeA-->>Hub: TRIGGERED! value=50
+    Hub->>Hub: LLM autonomous decision:<br/>"Temperature critical →<br/>reduce speed + activate fan"
+
+    Hub->>EdgeB: execute_x86: mov [speed], 50
+    Hub->>EdgeB: execute_x86: mov [fan], 1
+    EdgeB-->>Hub: speed=50, fan=ON
+
+    Note over EdgeA,EdgeB: Temperature drops: 50→38°C<br/>System self-corrected
+```
+
+**Actual test output from QEMU:**
+
+```
+🔥 MONITOR TRIGGERED!
+   Edge: x86-qemu
+   Value: 50 (temperature)
+   State: temp=50 speed=100 fan=0
+
+   → LLM deciding...
+
+=== LLM DECIDED ===
+   Tool: execute_x86
+   ASM: mov dword [0x200004], 50     ← motor speed 100→50
+   Tool: execute_x86
+   ASM: mov dword [0x200008], 1      ← fan OFF→ON
+
+   LLM says: "Motor speed reduced, fan activated."
+
+=== AFTER LLM ACTION ===
+   temp=38  speed=50  fan=1
+
+✅ LLM autonomously modified edge state!
+```
+
+The full cycle — **sense → decide → act** — happens without any human intervention. The edge monitors hardware, the hub's LLM makes decisions, and the system self-corrects.
+
+```mermaid
+graph LR
+    A["Edge monitors<br/>condition"] -->|"threshold<br/>exceeded"| B["Hub receives<br/>event"]
+    B -->|"LLM<br/>decides"| C["Hub sends<br/>corrective action"]
+    C -->|"new binary<br/>deployed"| D["Edge state<br/>changes"]
+    D -->|"condition<br/>clears"| A
+
+    style A fill:#FF5722,color:#fff
+    style B fill:#FF9800,color:#fff
+    style C fill:#4CAF50,color:#fff
+    style D fill:#2196F3,color:#fff
+```
+
+This is the difference between a remote control and an autonomous system. POKE edges don't wait for commands — they **react**.
+
 ---
 
 ## Roadmap
@@ -590,9 +667,11 @@ User: "Read temperature from all sensors, compare with Seoul outside temp"
 - [x] Virtual sensors (PIT-based, temperature/humidity/light/pressure)
 - [x] Docker one-command setup
 - [x] 126 automated tests + CI
+- [x] Autonomous event loop (edge monitors → LLM auto-decision → corrective action)
+- [x] JARVIS memory system (conversation history, facts, patterns, keyword index)
 - [ ] Real hardware deployment (Raspberry Pi, ESP32)
 - [ ] Device profile marketplace
-- [ ] Web dashboard for edge monitoring
+- [ ] Edge-side log store (bare-metal ring buffer filesystem)
 
 ---
 

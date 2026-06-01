@@ -264,6 +264,8 @@ static u8 my_mac[6];
 static u8 my_ip[4] = {10, 0, 2, 15};     /* QEMU user-mode default guest IP */
 static u8 gw_ip[4] = {10, 0, 2, 2};      /* QEMU gateway */
 static u8 gw_mac[6] = {0,0,0,0,0,0};
+static u8 hub_mac[6] = {0};
+static int hub_mac_resolved = 0;
 
 static void e1000_write(u32 reg, u32 val) {
     *(volatile u32 *)(e1000_base + reg) = val;
@@ -750,6 +752,9 @@ void handle_arp(u8 *pkt, int len) {
     }
     if (arp->opcode == 0x0200) { /* ARP reply */
         mem_copy(gw_mac, arp->sender_mac, 6);
+        /* Also cache as hub MAC for monitor event delivery */
+        mem_copy(hub_mac, arp->sender_mac, 6);
+        hub_mac_resolved = 1;
     }
 }
 
@@ -801,6 +806,9 @@ static u32 tcp_remote_seq = 0;
 static int tcp_connected = 0;
 static u16 tcp_local_port = 80;
 
+/* Forward declarations */
+void tcp_send(u8 *dst_mac, u8 *dst_ip, u16 dst_port, u8 flags, u8 *data, int data_len);
+
 /* Received data buffer */
 #define HTTP_BUF_SIZE 40960
 static u8 http_buf[HTTP_BUF_SIZE];
@@ -809,6 +817,263 @@ static int http_buf_len = 0;
 /* Code execution buffer */
 #define CODE_BUF_SIZE 4096
 static u8 code_buf[CODE_BUF_SIZE] __attribute__((aligned(4096)));
+
+/* ── Monitor System (autonomous event loop) ── */
+#define MAX_MONITORS 4
+#define MONITOR_CODE_SIZE 512
+
+#define MON_OP_GT 0
+#define MON_OP_LT 1
+#define MON_OP_EQ 2
+#define MON_OP_NE 3
+
+typedef struct {
+    u8  active;
+    u8  code[MONITOR_CODE_SIZE];
+    u32 code_len;
+    u32 interval_ticks;         /* check interval in poll cycles */
+    u32 ticks_remaining;        /* countdown to next check */
+    u8  condition_op;           /* GT, LT, EQ, NE */
+    u32 condition_val;          /* threshold value */
+    u32 hub_ip_addr;            /* hub IP as u32 (LE) */
+    u16 hub_port;               /* hub port */
+    u32 trigger_count;          /* total triggers */
+    u32 last_value;             /* last measured value */
+    u8  fired;                  /* pending event flag */
+} monitor_t;
+
+static monitor_t monitors[MAX_MONITORS];
+static int pending_event = -1;
+static u32 pending_event_value = 0;
+static u32 monitor_poll_counter = 0;
+
+/* MON packet magic: "MON\0" = 0x004E4F4D */
+#define MON_MAGIC_0 'M'
+#define MON_MAGIC_1 'O'
+#define MON_MAGIC_2 'N'
+
+/* ── Virtual Registers (simulation sensors/actuators) ── */
+/* Injected code can read/write these via known addresses */
+/* Address 0x200000: temperature (simulated, auto-increments) */
+/* Address 0x200004: motor speed */
+/* Address 0x200008: fan state */
+static volatile u32 *virt_regs = (volatile u32 *)0x200000;
+#define VREG_TEMP   0   /* index 0: temperature */
+#define VREG_SPEED  1   /* index 1: motor speed */
+#define VREG_FAN    2   /* index 2: fan state */
+#define VREG_COUNT  8   /* total virtual registers */
+
+void virt_regs_init(void) {
+    for (int i = 0; i < VREG_COUNT; i++) virt_regs[i] = 0;
+    virt_regs[VREG_TEMP] = 20;    /* initial temp: 20°C */
+    virt_regs[VREG_SPEED] = 100;  /* initial speed: 100% */
+    virt_regs[VREG_FAN] = 0;      /* fan off */
+}
+
+/* Simulate temperature dynamics each tick */
+void virt_regs_tick(void) {
+    static u32 tick_count = 0;
+    tick_count++;
+    if (tick_count % 500000 == 0) {  /* roughly every few seconds in QEMU */
+        u32 temp = virt_regs[VREG_TEMP];
+        u32 speed = virt_regs[VREG_SPEED];
+        u32 fan = virt_regs[VREG_FAN];
+
+        /* Temperature rises with motor speed, drops with fan */
+        if (speed > 50 && !fan) {
+            if (temp < 50) temp++;       /* heating up */
+        } else if (fan || speed <= 50) {
+            if (temp > 20) temp--;       /* cooling down */
+        }
+        virt_regs[VREG_TEMP] = temp;
+    }
+}
+
+void monitor_init(void) {
+    for (int i = 0; i < MAX_MONITORS; i++) {
+        monitors[i].active = 0;
+        monitors[i].trigger_count = 0;
+    }
+    pending_event = -1;
+    pending_event_value = 0;
+}
+
+int monitor_register(u8 *code, u32 code_len, u32 interval,
+                     u8 cond_op, u32 cond_val, u32 hub_ip, u16 hub_port) {
+    for (int i = 0; i < MAX_MONITORS; i++) {
+        if (!monitors[i].active) {
+            if (code_len > MONITOR_CODE_SIZE) code_len = MONITOR_CODE_SIZE;
+            mem_copy(monitors[i].code, code, code_len);
+            monitors[i].code_len = code_len;
+            monitors[i].interval_ticks = interval;
+            monitors[i].ticks_remaining = interval;
+            monitors[i].condition_op = cond_op;
+            monitors[i].condition_val = cond_val;
+            monitors[i].hub_ip_addr = hub_ip;
+            monitors[i].hub_port = hub_port;
+            monitors[i].trigger_count = 0;
+            monitors[i].last_value = 0;
+            monitors[i].fired = 0;
+            monitors[i].active = 1;
+            serial_print("[MON] registered monitor ");
+            serial_hex(i);
+            serial_print("\n");
+            return i;
+        }
+    }
+    return -1;  /* no slot available */
+}
+
+void monitor_tick(void) {
+    /* Called from main loop polling cycle */
+    monitor_poll_counter++;
+
+    for (int i = 0; i < MAX_MONITORS; i++) {
+        monitor_t *m = &monitors[i];
+        if (!m->active) continue;
+
+        m->ticks_remaining--;
+        if (m->ticks_remaining > 0) continue;
+        m->ticks_remaining = m->interval_ticks;
+
+        /* Execute monitor code — returns value in EAX */
+        u32 (*mon_fn)(void) = (u32 (*)(void))m->code;
+        u32 val = mon_fn();
+        m->last_value = val;
+
+        /* Check condition */
+        int triggered = 0;
+        switch (m->condition_op) {
+            case MON_OP_GT: triggered = (val > m->condition_val); break;
+            case MON_OP_LT: triggered = (val < m->condition_val); break;
+            case MON_OP_EQ: triggered = (val == m->condition_val); break;
+            case MON_OP_NE: triggered = (val != m->condition_val); break;
+        }
+
+        if (triggered && !m->fired) {
+            m->trigger_count++;
+            m->fired = 1;  /* prevent rapid re-fire */
+            pending_event = i;
+            pending_event_value = val;
+            serial_print("[MON] TRIGGERED monitor ");
+            serial_hex(i);
+            serial_print(" val=");
+            serial_hex(val);
+            serial_print("\n");
+        } else if (!triggered) {
+            m->fired = 0;  /* reset when condition clears */
+        }
+    }
+}
+
+/* ── TCP Client: fire event to hub ── */
+/* Uses a separate seq/state from the server connection */
+static u32 client_seq = 10000;
+static int client_state = 0;  /* 0=idle, 1=syn_sent, 2=connected, 3=done */
+
+void fire_event_to_hub(int mon_idx, u32 value) {
+    monitor_t *m = &monitors[mon_idx];
+    u8 hub_ip[4];
+    hub_ip[0] = (m->hub_ip_addr) & 0xFF;
+    hub_ip[1] = (m->hub_ip_addr >> 8) & 0xFF;
+    hub_ip[2] = (m->hub_ip_addr >> 16) & 0xFF;
+    hub_ip[3] = (m->hub_ip_addr >> 24) & 0xFF;
+
+    /* For QEMU: hub is at gateway (10.0.2.2), use gateway MAC */
+    /* We need to ARP for the hub IP first if not cached */
+    if (!hub_mac_resolved) {
+        /* Send ARP request for hub IP */
+        u8 arp[60]; mem_set(arp, 0, 60);
+        mem_set(arp, 0xFF, 6);  /* broadcast */
+        mem_copy(arp + 6, my_mac, 6);
+        arp[12] = 0x08; arp[13] = 0x06;  /* ARP */
+        arp[14] = 0x00; arp[15] = 0x01;  /* HW = ethernet */
+        arp[16] = 0x08; arp[17] = 0x00;  /* proto = IPv4 */
+        arp[18] = 6; arp[19] = 4;
+        arp[20] = 0x00; arp[21] = 0x01;  /* REQUEST */
+        mem_copy(arp + 22, my_mac, 6);
+        mem_copy(arp + 28, my_ip, 4);
+        mem_set(arp + 32, 0, 6);
+        mem_copy(arp + 38, hub_ip, 4);
+        nic_send(arp, 60);
+        serial_print("[MON] ARP request for hub\n");
+        /* MAC will be captured when ARP reply comes in handle_packet */
+        return;  /* retry next cycle */
+    }
+
+    /* Build HTTP POST /event */
+    u8 body[256]; int blen = 0;
+    const char *bp;
+
+    bp = "{\"edge\":\"x86-qemu\",\"monitor\":";
+    while (*bp) body[blen++] = *bp++;
+    body[blen++] = '0' + mon_idx;
+    bp = ",\"value\":";
+    while (*bp) body[blen++] = *bp++;
+    /* decimal value */
+    char vbuf[12]; int vi = 0;
+    u32 v = value;
+    if (v == 0) { vbuf[vi++] = '0'; }
+    else { while (v > 0) { vbuf[vi++] = '0' + (v % 10); v /= 10; } }
+    while (vi > 0) body[blen++] = vbuf[--vi];
+    bp = ",\"trigger\":\"";
+    while (*bp) body[blen++] = *bp++;
+    switch (m->condition_op) {
+        case MON_OP_GT: bp = "gt"; break;
+        case MON_OP_LT: bp = "lt"; break;
+        case MON_OP_EQ: bp = "eq"; break;
+        case MON_OP_NE: bp = "ne"; break;
+        default: bp = "?"; break;
+    }
+    while (*bp) body[blen++] = *bp++;
+    body[blen++] = ':';
+    vi = 0; v = m->condition_val;
+    if (v == 0) { vbuf[vi++] = '0'; }
+    else { while (v > 0) { vbuf[vi++] = '0' + (v % 10); v /= 10; } }
+    while (vi > 0) body[blen++] = vbuf[--vi];
+    bp = "\"}";
+    while (*bp) body[blen++] = *bp++;
+
+    /* Build full HTTP request */
+    u8 req[512]; int rlen = 0;
+    bp = "POST /event HTTP/1.1\r\nHost: hub\r\nContent-Type: application/json\r\nContent-Length: ";
+    while (*bp) req[rlen++] = *bp++;
+    /* content length decimal */
+    vi = 0; v = blen;
+    if (v == 0) { vbuf[vi++] = '0'; }
+    else { while (v > 0) { vbuf[vi++] = '0' + (v % 10); v /= 10; } }
+    while (vi > 0) req[rlen++] = vbuf[--vi];
+    bp = "\r\nConnection: close\r\n\r\n";
+    while (*bp) req[rlen++] = *bp++;
+    mem_copy(req + rlen, body, blen);
+    rlen += blen;
+
+    /* Send via TCP — reuse existing tcp_send but with hub as destination
+     * For simplicity: send as a single TCP PSH+ACK+FIN packet
+     * The hub will receive this as a new connection data */
+    u16 hub_port_net = ((m->hub_port & 0xFF) << 8) | ((m->hub_port >> 8) & 0xFF);
+
+    /* Save/restore server connection state */
+    u32 save_local_seq = tcp_local_seq;
+    u32 save_remote_seq = tcp_remote_seq;
+
+    tcp_local_seq = client_seq;
+    tcp_remote_seq = 0;
+
+    /* SYN */
+    tcp_send(hub_mac, hub_ip, hub_port_net, TCP_SYN, 0, 0);
+    client_seq = tcp_local_seq;
+
+    /* Restore server state */
+    tcp_local_seq = save_local_seq;
+    tcp_remote_seq = save_remote_seq;
+
+    /* The rest of the handshake will be handled when we receive SYN-ACK
+     * via handle_tcp — we need to detect client-mode packets */
+    client_state = 1;  /* syn_sent */
+
+    serial_print("[MON] SYN sent to hub\n");
+}
 
 /* Resident processes: not needed in kernel.
  * LLM generates code with loops/delays/conditions.
@@ -1328,6 +1593,49 @@ void handle_http(void) {
         h = ",\"cpu_busy\":false";
         while (*h) resp[rlen++] = *h++;
 
+        /* Monitor status */
+        h = ",\"monitors\":[";
+        while (*h) resp[rlen++] = *h++;
+        int first_mon = 1;
+        for (int mi = 0; mi < MAX_MONITORS; mi++) {
+            if (!monitors[mi].active) continue;
+            if (!first_mon) resp[rlen++] = ',';
+            first_mon = 0;
+            resp[rlen++] = '{';
+            h = "\"id\":"; while (*h) resp[rlen++] = *h++;
+            resp[rlen++] = '0' + mi;
+            h = ",\"val\":"; while (*h) resp[rlen++] = *h++;
+            ni = 0; v = monitors[mi].last_value;
+            if (v == 0) nb[ni++] = '0';
+            else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
+            while (ni > 0) resp[rlen++] = nb[--ni];
+            h = ",\"fired\":"; while (*h) resp[rlen++] = *h++;
+            resp[rlen++] = monitors[mi].fired ? '1' : '0';
+            h = ",\"triggers\":"; while (*h) resp[rlen++] = *h++;
+            ni = 0; v = monitors[mi].trigger_count;
+            if (v == 0) nb[ni++] = '0';
+            else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
+            while (ni > 0) resp[rlen++] = nb[--ni];
+            resp[rlen++] = '}';
+        }
+        resp[rlen++] = ']';
+
+        /* Virtual registers */
+        h = ",\"vregs\":{\"temp\":";
+        while (*h) resp[rlen++] = *h++;
+        ni = 0; v = virt_regs[VREG_TEMP];
+        if (v == 0) nb[ni++] = '0';
+        else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
+        while (ni > 0) resp[rlen++] = nb[--ni];
+        h = ",\"speed\":"; while (*h) resp[rlen++] = *h++;
+        ni = 0; v = virt_regs[VREG_SPEED];
+        if (v == 0) nb[ni++] = '0';
+        else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
+        while (ni > 0) resp[rlen++] = nb[--ni];
+        h = ",\"fan\":"; while (*h) resp[rlen++] = *h++;
+        resp[rlen++] = '0' + (virt_regs[VREG_FAN] ? 1 : 0);
+        resp[rlen++] = '}';
+
         resp[rlen++] = '}';
         resp[rlen++] = '\n';
 
@@ -1345,10 +1653,46 @@ void handle_http(void) {
         return;
     }
 
-    /* Copy body (raw machine code) to code buffer */
+    /* Check for MON magic — monitor registration */
     int code_len = http_buf_len - body_start;
+    u8 *body_ptr = http_buf + body_start;
+
+    if (code_len >= 17 && body_ptr[0] == MON_MAGIC_0 &&
+        body_ptr[1] == MON_MAGIC_1 && body_ptr[2] == MON_MAGIC_2) {
+        /* MON packet: magic(3) + interval_ms(4) + cond_op(1) + cond_val(4) +
+         * hub_ip(4) + hub_port(2) + code_len(2) + code(N) = 20 + N */
+        u32 interval = *(u32*)(body_ptr + 3);
+        u8  cond_op  = body_ptr[7];
+        u32 cond_val = *(u32*)(body_ptr + 8);
+        u32 hub_ip   = *(u32*)(body_ptr + 12);
+        u16 hub_port = *(u16*)(body_ptr + 16);
+        u16 mon_code_len = *(u16*)(body_ptr + 18);
+        u8 *mon_code = body_ptr + 20;
+
+        /* Convert interval_ms to poll ticks (~1 tick per main loop iteration) */
+        /* Rough estimate: 1 tick ≈ 1ms in QEMU polling loop */
+        u32 ticks = interval > 0 ? interval : 1000;
+
+        int slot = monitor_register(mon_code, mon_code_len, ticks,
+                                    cond_op, cond_val, hub_ip, hub_port);
+
+        u8 resp[256]; int rl = 0;
+        const char *rp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n";
+        while (*rp) resp[rl++] = *rp++;
+        if (slot >= 0) {
+            rp = "monitor="; while (*rp) resp[rl++] = *rp++;
+            resp[rl++] = '0' + slot;
+            rp = ",ok\n"; while (*rp) resp[rl++] = *rp++;
+        } else {
+            rp = "error: no monitor slots\n"; while (*rp) resp[rl++] = *rp++;
+        }
+        tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rl);
+        return;
+    }
+
+    /* Copy body (raw machine code) to code buffer */
     if (code_len > CODE_BUF_SIZE) code_len = CODE_BUF_SIZE;
-    mem_copy(code_buf, http_buf + body_start, code_len);
+    mem_copy(code_buf, body_ptr, code_len);
 
     serial_print("[POKE] Code received: ");
     serial_hex(code_len);
@@ -1705,10 +2049,16 @@ void kernel_main(void) {
         vga_print("  [NET] ARP announce sent\n");
     }
 
+    /* Init virtual registers + monitor system */
+    virt_regs_init();
+    monitor_init();
+    vga_print("  [MON] Monitor system ready\n");
+    vga_print("  [SIM] Virtual sensors active\n");
+
     vga_print("\n");
     shell_prompt();
 
-    /* Main loop: shell + network */
+    /* Main loop: shell + network + monitors */
     u8 recv_buf[2048];
     static int pkt_count = 0;
     while (1) {
@@ -1758,6 +2108,16 @@ void kernel_main(void) {
             }
 
             handle_packet(recv_buf, len);
+        }
+
+        /* Simulate sensors + monitor tick */
+        virt_regs_tick();
+        monitor_tick();
+
+        /* Fire pending events to hub */
+        if (pending_event >= 0) {
+            fire_event_to_hub(pending_event, pending_event_value);
+            pending_event = -1;
         }
     }
 }

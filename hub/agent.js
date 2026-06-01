@@ -6,6 +6,7 @@ const { log } = require('./logger')
 const { nodes, profiles, loadProfiles } = require('./nodes')
 const { compileAssembly, compileAssemblyARM, runImageCode } = require('./compiler')
 const { pokeNode, pokeNodeARM, pokeNodeRaw, pokeRelay, streamToEdge } = require('./transport')
+const memory = require('./memory')
 
 // ── Active monitors (Task 2: Autonomous Agent) ──
 const activeMonitors = new Map()
@@ -219,6 +220,54 @@ Each param object has: target (edge ID), asm_code (x86 NASM or ARM64), arch (i38
       },
       required: [],
     },
+  },
+  // ── Autonomous monitor (edge-initiated events) ──
+  {
+    name: 'deploy_monitor',
+    description: `Deploy a condition monitor on a bare-metal edge. The edge autonomously checks a condition by running assembly code periodically. When the condition is met, the edge fires an HTTP POST to the hub, which re-enters the agent loop.
+
+Unlike deploy_autonomous (hub polls edge), this is edge-initiated: the edge fires events on its own. Zero hub overhead.
+
+The assembly code must return a sensor/computed value in EAX. The condition compares EAX against a threshold.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID' },
+        asm_code: { type: 'string', description: 'Assembly code that returns a value in EAX (e.g., read sensor)' },
+        condition: { type: 'string', description: 'Condition: "gt:30", "lt:10", "eq:0", "ne:0"' },
+        interval_ms: { type: 'number', description: 'Check interval in milliseconds (default: 1000)' },
+      },
+      required: ['target', 'asm_code', 'condition'],
+    },
+  },
+  // ── Memory tools (JARVIS-style persistent memory) ──
+  {
+    name: 'memory_save',
+    description: 'Save an important fact to persistent memory. Use this when the user tells you something worth remembering (preferences, names, project context, device nicknames, etc.).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        fact: { type: 'string', description: 'The fact to remember' },
+        category: { type: 'string', description: 'Category: preference, context, device, schedule, or general' },
+      },
+      required: ['fact'],
+    },
+  },
+  {
+    name: 'memory_search',
+    description: 'Search past conversation history. Use when user asks about previous commands, results, or says "last time", "before", "remember when".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search keyword or phrase' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'memory_stats',
+    description: 'Show memory statistics: total conversations, facts, usage patterns, most used edges, top keywords.',
+    input_schema: { type: 'object', properties: {}, required: [] },
   },
 ]
 
@@ -910,6 +959,55 @@ Return ONLY valid JSON (no markdown, no explanation) with this structure:
     return toolInput.text
   }
 
+  // ── Deploy monitor (edge-initiated events) ──
+  if (toolName === 'deploy_monitor') {
+    const target = toolInput.target || 'x86-qemu'
+    const node = nodes.get(target)
+    if (!node) return `Error: edge "${target}" not found`
+    if (node.arch !== 'i386') return 'Error: deploy_monitor currently supports x86 edges only'
+
+    // Parse condition: "gt:30" → op=0, val=30
+    const condMatch = (toolInput.condition || '').match(/^(gt|lt|eq|ne):(\d+)$/)
+    if (!condMatch) return 'Error: condition format must be "gt:N", "lt:N", "eq:N", or "ne:N"'
+    const condOps = { gt: 0, lt: 1, eq: 2, ne: 3 }
+    const condOp = condOps[condMatch[1]]
+    const condVal = parseInt(condMatch[2])
+
+    // Compile assembly
+    const bin = await compileAssembly(toolInput.asm_code)
+    if (!bin) return 'Error: assembly compilation failed'
+
+    // Determine hub IP and port
+    const hubPort = parseInt(process.env.PORT || '9000')
+    const hubIp = '10.0.2.2'  // QEMU gateway = host
+
+    const intervalMs = toolInput.interval_ms || 1000
+
+    try {
+      const { deployMonitor } = require('./transport')
+      const result = await deployMonitor(node.endpoint, bin, intervalMs, condOp, condVal, hubIp, hubPort)
+      return `Monitor deployed on ${target}: check every ${intervalMs}ms, trigger when ${condMatch[1]}:${condVal}. Edge response: ${result}`
+    } catch (err) {
+      return `Error deploying monitor: ${err.message}`
+    }
+  }
+
+  // ── Memory tools ──
+  if (toolName === 'memory_save') {
+    const entry = memory.addFact(toolInput.fact, 'agent', toolInput.category || 'general')
+    return entry ? `Remembered: "${toolInput.fact}"` : 'Already known (duplicate skipped).'
+  }
+
+  if (toolName === 'memory_search') {
+    const results = memory.searchHistory(toolInput.query)
+    if (results.length === 0) return `No memories found for "${toolInput.query}".`
+    return results.map(r => `[${r.time}] "${r.command}" → ${r.result || '(no result)'}`).join('\n')
+  }
+
+  if (toolName === 'memory_stats') {
+    return JSON.stringify(memory.getStats(), null, 2)
+  }
+
   return `Unknown tool: ${toolName}`
 }
 
@@ -921,12 +1019,20 @@ async function agentLoop(command, fromId, targetHint) {
     `${n.node_id}: arch=${n.arch}, endpoint=${n.endpoint}, caps=${(n.capabilities||[]).join(',')}`
   ).join('\n')
 
-  const systemPrompt = `You are the POKE hub agent. You control edge devices by generating and executing machine code.
+  // ── Build memory context ──
+  const memoryContext = memory.buildMemoryContext(command)
+
+  const systemPrompt = `You are JARVIS — the POKE hub agent. You control edge devices by generating and executing machine code.
+You have persistent memory. You remember past conversations and user preferences.
+When the user tells you something personal or important, save it with memory_save.
+When the user references past work ("last time", "before", "remember"), use your memory context below.
 
 Connected edges:
 ${edgeList}
 
 ${targetHint ? `User specified target: ${targetHint}` : ''}
+
+${memoryContext ? `\n--- MEMORY ---\n${memoryContext}\n--- END MEMORY ---\n` : ''}
 
 You have tools to:
 - List edges and devices
@@ -1027,6 +1133,13 @@ Auto-profiling rules:
       log.info(`[agent] end_turn at turn ${turn + 1}`)
       break
     }
+  }
+
+  // ── Save to persistent memory ──
+  try {
+    memory.addHistory(command, steps, finalResult)
+  } catch (e) {
+    log.warn(`[memory] failed to save history: ${e.message}`)
   }
 
   return { steps, result: finalResult }
