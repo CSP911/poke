@@ -240,6 +240,30 @@ The assembly code must return a sensor/computed value in EAX. The condition comp
       required: ['target', 'asm_code', 'condition'],
     },
   },
+  // ── Factory line control (actual QEMU shutdown/restart) ──
+  {
+    name: 'shutdown_line',
+    description: 'ACTUALLY shut down a production line. This kills the QEMU process — the edge goes offline. Use only for low-priority lines in emergencies. NEVER shut down critical lines (web, db).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID to shut down (e.g. "line-C")' },
+        reason: { type: 'string', description: 'Reason for shutdown' },
+      },
+      required: ['target', 'reason'],
+    },
+  },
+  {
+    name: 'restart_line',
+    description: 'Restart a previously shut down production line. Takes ~10 seconds to boot. Use after conditions normalize.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID to restart (e.g. "line-C")' },
+      },
+      required: ['target'],
+    },
+  },
   // ── Memory tools (JARVIS-style persistent memory) ──
   {
     name: 'memory_save',
@@ -957,6 +981,42 @@ Return ONLY valid JSON (no markdown, no explanation) with this structure:
 
   if (toolName === 'reply_text') {
     return toolInput.text
+  }
+
+  // ── Factory line shutdown/restart ──
+  if (toolName === 'shutdown_line') {
+    const target = toolInput.target
+    const node = nodes.get(target)
+    if (!node) return `Error: edge "${target}" not found`
+
+    try {
+      const { shutdownEdge } = require('./transport')
+      const result = await shutdownEdge(node.endpoint)
+      node.status = 'dead'
+      log.info(`[agent] SHUTDOWN ${target}: ${toolInput.reason}`)
+      return `Line ${target} SHUTDOWN. Reason: ${toolInput.reason}. QEMU process terminated. Use restart_line to bring it back.`
+    } catch (e) {
+      return `Shutdown sent to ${target} (${e.message})`
+    }
+  }
+
+  if (toolName === 'restart_line') {
+    const target = toolInput.target
+    // Container name: poke-edge-{line-id lowered}-1 → e.g. "line-C" → "poke-edge-line-c-1"
+    const containerName = 'poke-edge-' + target.toLowerCase() + '-1'
+    try {
+      const { execSync } = require('child_process')
+      execSync(`docker restart ${containerName}`, { timeout: 30000 })
+      log.info(`[agent] RESTART ${target} via docker restart ${containerName}`)
+      // Mark alive after boot delay
+      setTimeout(() => {
+        const node = nodes.get(target)
+        if (node) { node.status = 'alive'; node.last_seen = new Date().toISOString() }
+      }, 10000)
+      return `Line ${target} restarting (container: ${containerName}). Will be online in ~10 seconds.`
+    } catch (e) {
+      return `Restart failed: ${e.message}`
+    }
   }
 
   // ── Deploy monitor (edge-initiated events) ──

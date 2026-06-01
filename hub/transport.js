@@ -223,6 +223,28 @@ function deployMonitor(endpoint, monitorBinary, intervalMs, condOp, condVal, hub
   })
 }
 
+// ── Shutdown edge (DIE protocol) ──
+function shutdownEdge(endpoint) {
+  return new Promise((resolve, reject) => {
+    const url = new URL('/poke', endpoint)
+    const body = Buffer.from('DIE')
+    const req = http.request({
+      hostname: url.hostname, port: url.port,
+      path: '/poke', method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': body.length },
+      timeout: 5000,
+    }, (res) => {
+      let data = ''
+      res.on('data', c => data += c)
+      res.on('end', () => resolve(data))
+    })
+    req.on('error', e => resolve('shutdown sent (connection closed)'))
+    req.on('timeout', () => { req.destroy(); resolve('shutdown sent (timeout)') })
+    req.write(body)
+    req.end()
+  })
+}
+
 module.exports = {
   pokeNode,
   pokeNodeARM,
@@ -230,5 +252,6 @@ module.exports = {
   pokeRelay,
   streamToEdge,
   deployMonitor,
+  shutdownEdge,
   PokeTransportError,
 }

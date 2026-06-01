@@ -361,6 +361,132 @@ ret`
     return
   }
 
+  // GET /factory — factory simulation UI
+  if (req.method === 'GET' && url.pathname === '/factory') {
+    res.setHeader('Content-Type', 'text/html')
+    res.end(require('fs').readFileSync(__dirname + '/../web/scenario/factory.html', 'utf8'))
+    return
+  }
+
+  // GET /scenario/factory/health?line=A — proxy specific line health
+  if (req.method === 'GET' && url.pathname === '/scenario/factory/health') {
+    const line = url.searchParams.get('line')
+    const nodeId = 'line-' + line
+    const node = nodes.get(nodeId)
+    if (!node) { jsonError(res, 404, 'line not found: ' + nodeId); return }
+    try {
+      const http2 = require('http')
+      const edgeRes = await new Promise((resolve, reject) => {
+        http2.get(node.endpoint + '/health', { timeout: 3000 }, (r) => {
+          let d = ''; r.on('data', c => d += c); r.on('end', () => resolve(d))
+        }).on('error', reject)
+      })
+      res.end(edgeRes)
+    } catch (e) { jsonError(res, 502, 'line unreachable') }
+    return
+  }
+
+  // POST /scenario/factory/start — deploy monitors on all lines
+  if (req.method === 'POST' && url.pathname === '/scenario/factory/start') {
+    const lines = ['line-A', 'line-B', 'line-C']
+    const results = []
+    const { compileAssembly: compile } = require('./compiler')
+    const { deployMonitor: deploy } = require('./transport')
+    const hubPort = parseInt(process.env.PORT || '3333')
+
+    for (const lineId of lines) {
+      const node = nodes.get(lineId)
+      if (!node || node.status !== 'alive') { results.push({ line: lineId, error: 'offline' }); continue }
+      try {
+        // Monitor: read defect rate (vreg index 10 = alert, reused as defect %)
+        const bin = await compile('BITS 32\nmov eax, [0x200028]\nret')
+        const r = await deploy(node.endpoint, bin, 3000, 0, 3, '10.0.2.2', hubPort)
+        results.push({ line: lineId, result: r })
+      } catch (e) {
+        results.push({ line: lineId, error: e.message })
+      }
+    }
+    res.end(JSON.stringify({ ok: true, results }))
+    return
+  }
+
+  // POST /scenario/factory/reset — reset all lines
+  if (req.method === 'POST' && url.pathname === '/scenario/factory/reset') {
+    const lines = ['line-A', 'line-B', 'line-C']
+    const { compileAssembly: compile } = require('./compiler')
+    const { pokeNode: poke } = require('./transport')
+
+    const configs = {
+      'line-A': { speed: 100, defect: 2, temp: 25 },
+      'line-B': { speed: 100, defect: 1, temp: 23 },
+      'line-C': { speed: 80,  defect: 5, temp: 30 },
+    }
+
+    for (const lineId of lines) {
+      const node = nodes.get(lineId)
+      if (!node || node.status !== 'alive') continue
+      const cfg = configs[lineId]
+      try {
+        const asm = `BITS 32
+mov dword [0x200000], ${cfg.temp}
+mov dword [0x200004], ${cfg.speed}
+mov dword [0x200008], 1
+mov dword [0x20000C], ${cfg.speed * 8}
+mov dword [0x200010], 1
+mov dword [0x200014], 1
+mov dword [0x200018], 1
+mov dword [0x20001C], 1
+mov dword [0x200020], 1
+mov dword [0x200024], 1
+mov dword [0x200028], ${cfg.defect}
+ret`
+        const bin = await compile(asm)
+        await poke(node.endpoint, bin)
+      } catch (e) { log.warn(`[factory] reset ${lineId} failed: ${e.message}`) }
+    }
+    res.end(JSON.stringify({ ok: true }))
+    return
+  }
+
+  // POST /scenario/factory/shutdown?line=C — shutdown a production line (QEMU halts)
+  if (req.method === 'POST' && url.pathname === '/scenario/factory/shutdown') {
+    const line = url.searchParams.get('line')
+    const nodeId = 'line-' + line
+    const node = nodes.get(nodeId)
+    if (!node) { jsonError(res, 404, 'line not found'); return }
+
+    const { shutdownEdge } = require('./transport')
+    try {
+      const result = await shutdownEdge(node.endpoint)
+      node.status = 'dead'
+      log.info(`[factory] line ${line} SHUTDOWN: ${result}`)
+      res.end(JSON.stringify({ ok: true, line: nodeId, result }))
+    } catch (e) {
+      jsonError(res, 500, e.message)
+    }
+    return
+  }
+
+  // POST /scenario/factory/restart?line=C — restart a stopped line
+  if (req.method === 'POST' && url.pathname === '/scenario/factory/restart') {
+    const line = url.searchParams.get('line')
+    const containerName = 'poke-edge-line-' + line.toLowerCase() + '-1'
+    try {
+      const { execSync } = require('child_process')
+      execSync(`docker restart ${containerName}`, { timeout: 30000 })
+      log.info(`[factory] line ${line} RESTARTED via docker`)
+      // Re-enroll after restart (edge needs time to boot)
+      setTimeout(() => {
+        const node = nodes.get('line-' + line)
+        if (node) { node.status = 'alive'; node.last_seen = new Date().toISOString() }
+      }, 10000)
+      res.end(JSON.stringify({ ok: true, line: 'line-' + line, restarting: true }))
+    } catch (e) {
+      jsonError(res, 500, 'restart failed: ' + e.message)
+    }
+    return
+  }
+
   // GET /ui — hub management dashboard
   if (req.method === 'GET' && url.pathname === '/ui') {
     res.setHeader('Content-Type', 'text/html')
@@ -547,16 +673,24 @@ function createServer() {
   setMonitorTriggerCallback((edgeId, mon) => {
     const node = nodes.get(edgeId)
     const vregs = node?.health?.vregs || {}
+    // Collect status of all edges for multi-line awareness
+    const allEdges = [...nodes.entries()].map(([id, n]) => `${id}: ${n.status}`).join(', ')
     const vregStr = Object.entries(vregs).map(([k,v]) => `${k}=${v}`).join(', ')
+
     const command = `AUTONOMOUS EVENT from edge "${edgeId}": ` +
       `Monitor ${mon.id} triggered with value=${mon.val}. ` +
-      `Current server room state: ${vregStr}. ` +
+      `Current state: ${vregStr}. ` +
+      `All edges: ${allEdges}. ` +
       `Virtual registers at address 0x200000 (u32 each, offset in bytes): ` +
-      `+0=temp, +4=cpu_load, +8=cooling(0=off/1=low/2=high), +12=power, ` +
+      `+0=temp, +4=cpu_load, +8=cooling(0/1/2), +12=power, ` +
       `+16=web_srv, +20=db_srv, +24=cache_srv, +28=log_srv, +32=backup_srv, +36=dev_srv, +40=alert. ` +
-      `Server priority: web,db=critical > cache=important > log=normal > backup,dev=low. ` +
-      `Analyze cascade risk and take corrective action. ` +
-      `Shut down low-priority servers first, increase cooling, protect critical services. ` +
+      `Server priority: web,db=CRITICAL > cache=IMPORTANT > log=NORMAL > backup,dev=LOW. ` +
+      `You have these tools: ` +
+      `1) execute_x86 — modify virtual registers (e.g. cooling, speed). ` +
+      `2) shutdown_line — ACTUALLY kill a QEMU edge (use for LOW priority only!). ` +
+      `3) restart_line — restart a previously killed edge. ` +
+      `Analyze cascade risk. If CRITICAL alert: increase cooling, shut down LOW priority LINES (shutdown_line), ` +
+      `protect CRITICAL services. If alert normalizes later: restart_line to bring them back. ` +
       `Use execute_x86: "BITS 32 / mov dword [0x200000+offset], value / ret".`
 
     log.info(`[event] auto-firing agentLoop for ${edgeId} monitor ${mon.id}`)

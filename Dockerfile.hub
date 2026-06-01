@@ -1,6 +1,7 @@
 FROM node:20-slim
 
-RUN apt-get update && apt-get install -y nasm --no-install-recommends \
+RUN apt-get update && apt-get install -y nasm curl --no-install-recommends \
+    && curl -fsSL https://get.docker.com | sh \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /poke

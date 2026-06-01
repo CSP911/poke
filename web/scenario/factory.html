@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HEX — Factory Simulation</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.header { padding: 12px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 16px; color: #58a6ff; }
+.header h1 span { color: #8b949e; font-weight: 400; font-size: 12px; }
+.header .links { display: flex; gap: 16px; }
+.header .links a { color: #8b949e; text-decoration: none; font-size: 12px; }
+.header .links a:hover { color: #58a6ff; }
+
+.controls { padding: 12px 24px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; }
+.btn { padding: 8px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+.btn-run { background: #238636; color: #fff; }
+.btn-run:hover { background: #2ea043; }
+.btn-run:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+.btn-stop { background: #f8514920; color: #f85149; border: 1px solid #f85149; }
+.btn-reset { background: #21262d; color: #8b949e; }
+.target-info { margin-left: auto; font-size: 12px; color: #8b949e; }
+.target-info b { color: #e6edf3; }
+
+/* Factory Floor */
+.factory { display: flex; gap: 16px; padding: 20px 24px; }
+
+.line-card { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
+.line-card.offline { opacity: 0.4; }
+.line-header { padding: 12px 16px; border-bottom: 1px solid #21262d; display: flex; align-items: center; justify-content: space-between; }
+.line-name { font-size: 14px; font-weight: 700; }
+.line-status { font-size: 10px; padding: 2px 8px; border-radius: 8px; }
+.line-status.on { background: #23863620; color: #3fb950; }
+.line-status.off { background: #f8514920; color: #f85149; }
+
+.line-gauges { padding: 12px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mini-gauge { background: #0d1117; border-radius: 6px; padding: 10px; text-align: center; }
+.mini-gauge .mg-val { font-size: 24px; font-weight: 700; }
+.mini-gauge .mg-label { font-size: 9px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.mini-gauge.danger .mg-val { color: #f85149; }
+.mini-gauge.warning .mg-val { color: #d29922; }
+.mini-gauge.ok .mg-val { color: #3fb950; }
+.mini-gauge.neutral .mg-val { color: #e6edf3; }
+
+.line-bar { padding: 8px 16px; border-top: 1px solid #21262d; }
+.bar-track { height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.bar-label { font-size: 9px; color: #8b949e; margin-top: 4px; display: flex; justify-content: space-between; }
+
+/* Summary */
+.summary { padding: 16px 24px; display: flex; gap: 16px; }
+.summary-card { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: center; }
+.summary-card .sc-val { font-size: 28px; font-weight: 700; }
+.summary-card .sc-label { font-size: 10px; color: #8b949e; text-transform: uppercase; margin-top: 4px; }
+
+/* Event Log */
+.event-log { flex: 1; overflow-y: auto; padding: 12px 24px; max-height: 30vh; }
+.event-log::-webkit-scrollbar { width: 6px; }
+.event-log::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+.event-log h3 { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.evt { padding: 8px 10px; background: #161b22; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 6px; font-size: 11px; }
+.evt .evt-time { color: #484f58; }
+.evt .trigger { color: #f85149; font-weight: 600; }
+.evt .action { color: #58a6ff; font-weight: 600; }
+.evt .result { color: #3fb950; font-weight: 600; }
+.evt .evt-body { margin-top: 3px; color: #8b949e; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>HEX <span>Factory Line Simulation — 3 Lines</span></h1>
+  <div class="links">
+    <a href="/scenario">&larr; Server Room</a>
+    <a href="/ui">&larr; Dashboard</a>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="btn btn-run" id="btnRun" onclick="runFactory()">Run Factory</button>
+  <button class="btn btn-stop" id="btnStop" onclick="stopFactory()" style="display:none">Stop</button>
+  <button class="btn btn-reset" onclick="resetFactory()">Reset All</button>
+  <button class="btn btn-stop" onclick="shutdownLine('C')">Kill Line C</button>
+  <button class="btn btn-reset" onclick="restartLine('C')">Restart Line C</button>
+  <div class="target-info">Target output: <b id="targetOutput">300</b> units/min | Defect limit: <b>3%</b></div>
+</div>
+
+<div class="factory">
+  <div class="line-card" id="cardA">
+    <div class="line-header">
+      <span class="line-name">Line A</span>
+      <span class="line-status on" id="statusA">RUNNING</span>
+    </div>
+    <div class="line-gauges">
+      <div class="mini-gauge ok" id="gSpeedA"><div class="mg-val" id="speedA">100</div><div class="mg-label">Speed %</div></div>
+      <div class="mini-gauge ok" id="gDefectA"><div class="mg-val" id="defectA">2</div><div class="mg-label">Defect %</div></div>
+      <div class="mini-gauge neutral" id="gOutputA"><div class="mg-val" id="outputA">100</div><div class="mg-label">Output/min</div></div>
+      <div class="mini-gauge ok" id="gTempA"><div class="mg-val" id="tempA">22</div><div class="mg-label">Temp °C</div></div>
+    </div>
+    <div class="line-bar">
+      <div class="bar-track"><div class="bar-fill" id="barA" style="width:100%;background:#3fb950"></div></div>
+      <div class="bar-label"><span>Utilization</span><span id="utilA">100%</span></div>
+    </div>
+  </div>
+
+  <div class="line-card" id="cardB">
+    <div class="line-header">
+      <span class="line-name">Line B</span>
+      <span class="line-status on" id="statusB">RUNNING</span>
+    </div>
+    <div class="line-gauges">
+      <div class="mini-gauge ok" id="gSpeedB"><div class="mg-val" id="speedB">100</div><div class="mg-label">Speed %</div></div>
+      <div class="mini-gauge ok" id="gDefectB"><div class="mg-val" id="defectB">1</div><div class="mg-label">Defect %</div></div>
+      <div class="mini-gauge neutral" id="gOutputB"><div class="mg-val" id="outputB">100</div><div class="mg-label">Output/min</div></div>
+      <div class="mini-gauge ok" id="gTempB"><div class="mg-val" id="tempB">22</div><div class="mg-label">Temp °C</div></div>
+    </div>
+    <div class="line-bar">
+      <div class="bar-track"><div class="bar-fill" id="barB" style="width:100%;background:#3fb950"></div></div>
+      <div class="bar-label"><span>Utilization</span><span id="utilB">100%</span></div>
+    </div>
+  </div>
+
+  <div class="line-card" id="cardC">
+    <div class="line-header">
+      <span class="line-name">Line C</span>
+      <span class="line-status on" id="statusC">RUNNING</span>
+    </div>
+    <div class="line-gauges">
+      <div class="mini-gauge ok" id="gSpeedC"><div class="mg-val" id="speedC">80</div><div class="mg-label">Speed %</div></div>
+      <div class="mini-gauge danger" id="gDefectC"><div class="mg-val" id="defectC">5</div><div class="mg-label">Defect %</div></div>
+      <div class="mini-gauge neutral" id="gOutputC"><div class="mg-val" id="outputC">80</div><div class="mg-label">Output/min</div></div>
+      <div class="mini-gauge ok" id="gTempC"><div class="mg-val" id="tempC">22</div><div class="mg-label">Temp °C</div></div>
+    </div>
+    <div class="line-bar">
+      <div class="bar-track"><div class="bar-fill" id="barC" style="width:80%;background:#d29922"></div></div>
+      <div class="bar-label"><span>Utilization</span><span id="utilC">80%</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="summary">
+  <div class="summary-card"><div class="sc-val" id="totalOutput">280</div><div class="sc-label">Total Output / min</div></div>
+  <div class="summary-card"><div class="sc-val" id="avgDefect">2.7</div><div class="sc-label">Avg Defect %</div></div>
+  <div class="summary-card"><div class="sc-val" id="totalPower">--</div><div class="sc-label">Total Power W</div></div>
+  <div class="summary-card"><div class="sc-val" id="linesActive">3/3</div><div class="sc-label">Lines Active</div></div>
+</div>
+
+<div class="event-log" id="eventLog">
+  <h3>HEX Decision Log</h3>
+  <div class="evt">
+    <span class="evt-time">--</span>
+    <span class="result">READY</span>
+    <div class="evt-body">Click <b>Run Factory</b> to start. HEX will monitor defect rates and auto-balance lines.</div>
+  </div>
+</div>
+
+<script>
+const HUB = location.origin
+const LINES = ['A', 'B', 'C']
+const LINE_ENDPOINTS = { A: null, B: null, C: null }
+let pollTimer = null
+let running = false
+
+function addEvent(type, body) {
+  const log = document.getElementById('eventLog')
+  const time = new Date().toLocaleTimeString()
+  const el = document.createElement('div')
+  el.className = 'evt'
+  el.innerHTML = `<span class="evt-time">${time}</span> <span class="${type}">${type.toUpperCase()}</span><div class="evt-body">${body}</div>`
+  log.insertBefore(el, log.children[1])
+}
+
+function gaugeClass(val, warnThreshold, dangerThreshold, invert) {
+  if (invert) return val >= dangerThreshold ? 'danger' : val >= warnThreshold ? 'warning' : 'ok'
+  return val <= dangerThreshold ? 'danger' : val <= warnThreshold ? 'warning' : 'ok'
+}
+
+async function pollLines() {
+  let totalOut = 0, totalDefect = 0, totalPower = 0, active = 0
+
+  for (const line of LINES) {
+    try {
+      const health = await fetch(HUB + '/scenario/factory/health?line=' + line).then(r => r.json())
+      const vr = health.vr || {}
+      const speed = vr.c || 0   // reuse cpu_load as speed
+      const defect = vr.a || 0  // reuse alert as defect %
+      const temp = vr.t || 0
+      const power = vr.p || 0
+      const cooling = vr.co || 0
+      const isOn = speed > 0
+
+      const output = Math.round(speed * 1.0) // output ≈ speed
+
+      document.getElementById('speed' + line).textContent = speed
+      document.getElementById('defect' + line).textContent = defect
+      document.getElementById('output' + line).textContent = output
+      document.getElementById('temp' + line).textContent = temp
+
+      document.getElementById('gSpeed' + line).className = 'mini-gauge ' + (speed >= 80 ? 'ok' : speed >= 50 ? 'warning' : 'danger')
+      document.getElementById('gDefect' + line).className = 'mini-gauge ' + (defect <= 2 ? 'ok' : defect <= 4 ? 'warning' : 'danger')
+      document.getElementById('gTemp' + line).className = 'mini-gauge ' + (temp <= 35 ? 'ok' : temp <= 45 ? 'warning' : 'danger')
+
+      document.getElementById('bar' + line).style.width = speed + '%'
+      document.getElementById('bar' + line).style.background = speed >= 80 ? '#3fb950' : speed >= 50 ? '#d29922' : '#f85149'
+      document.getElementById('util' + line).textContent = speed + '%'
+
+      document.getElementById('status' + line).textContent = isOn ? 'RUNNING' : 'STOPPED'
+      document.getElementById('status' + line).className = 'line-status ' + (isOn ? 'on' : 'off')
+      document.getElementById('card' + line).className = 'line-card' + (isOn ? '' : ' offline')
+
+      totalOut += output
+      totalDefect += defect
+      totalPower += power
+      if (isOn) active++
+    } catch (e) {
+      document.getElementById('status' + line).textContent = 'OFFLINE'
+      document.getElementById('status' + line).className = 'line-status off'
+    }
+  }
+
+  document.getElementById('totalOutput').textContent = totalOut
+  document.getElementById('totalOutput').style.color = totalOut >= 280 ? '#3fb950' : totalOut >= 200 ? '#d29922' : '#f85149'
+  document.getElementById('avgDefect').textContent = (totalDefect / Math.max(active, 1)).toFixed(1)
+  document.getElementById('totalPower').textContent = totalPower
+  document.getElementById('linesActive').textContent = active + '/3'
+}
+
+async function runFactory() {
+  if (running) return
+  running = true
+  document.getElementById('btnRun').disabled = true
+  document.getElementById('btnStop').style.display = ''
+
+  addEvent('action', 'Factory started — deploying defect monitors on all lines...')
+
+  try {
+    const res = await fetch(HUB + '/scenario/factory/start', { method: 'POST' })
+    const data = await res.json()
+    addEvent('action', 'Monitors deployed: ' + JSON.stringify(data.results))
+
+    pollTimer = setInterval(pollLines, 2000)
+    pollLines()
+  } catch (e) {
+    addEvent('trigger', 'Error: ' + e.message)
+    stopFactory()
+  }
+}
+
+function stopFactory() {
+  running = false
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  document.getElementById('btnRun').disabled = false
+  document.getElementById('btnStop').style.display = 'none'
+  addEvent('result', 'Factory stopped')
+}
+
+async function resetFactory() {
+  try {
+    await fetch(HUB + '/scenario/factory/reset', { method: 'POST' })
+    addEvent('action', 'All lines reset to initial state')
+    pollLines()
+  } catch (e) {
+    addEvent('trigger', 'Reset error: ' + e.message)
+  }
+}
+
+async function shutdownLine(line) {
+  addEvent('trigger', `Shutting down Line ${line} — QEMU will halt!`)
+  try {
+    const res = await fetch(HUB + `/scenario/factory/shutdown?line=${line}`, { method: 'POST' })
+    const data = await res.json()
+    addEvent('action', `Line ${line} shutdown: ${data.result || 'sent'}`)
+  } catch (e) {
+    addEvent('trigger', 'Shutdown error: ' + e.message)
+  }
+}
+
+async function restartLine(line) {
+  addEvent('action', `Restarting Line ${line} — docker restart (takes ~10s)...`)
+  try {
+    const res = await fetch(HUB + `/scenario/factory/restart?line=${line}`, { method: 'POST' })
+    const data = await res.json()
+    addEvent('result', `Line ${line} restarting... will be back online in ~10s`)
+  } catch (e) {
+    addEvent('trigger', 'Restart error: ' + e.message)
+  }
+}
+
+// Initial check
+fetch(HUB + '/nodes').then(r => r.json()).then(data => {
+  const lines = (data.nodes || []).filter(n => n.node_id.startsWith('line-'))
+  if (lines.length === 0) {
+    addEvent('trigger', 'No factory lines connected. Use: docker compose -f docker-compose.factory.yml up')
+  } else {
+    addEvent('result', `Connected: ${lines.map(n => n.node_id).join(', ')}`)
+    pollLines()
+  }
+})
+</script>
+</body>
+</html>

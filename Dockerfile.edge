@@ -47,4 +47,6 @@ CMD ["qemu-system-i386", \
      "-device", "virtio-balloon-pci", \
      "-display", "none", \
      "-monitor", "none", \
-     "-nographic"]
+     "-nographic", \
+     "-no-reboot", \
+     "-device", "isa-debug-exit,iobase=0x501,iosize=0x02"]

@@ -1701,9 +1701,25 @@ void handle_http(void) {
         return;
     }
 
-    /* Check for MON magic — monitor registration */
+    /* Check for DIE magic — graceful shutdown */
     int code_len = http_buf_len - body_start;
     u8 *body_ptr = http_buf + body_start;
+
+    if (code_len >= 3 && body_ptr[0] == 'D' && body_ptr[1] == 'I' && body_ptr[2] == 'E') {
+        serial_print("[POKE] SHUTDOWN requested\n");
+        u8 resp[128]; int rl = 0;
+        const char *rp = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nshutdown=ok\n";
+        while (*rp) resp[rl++] = *rp++;
+        tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rl);
+        /* Give time for TCP to send */
+        for (volatile int i = 0; i < 1000000; i++);
+        /* QEMU debug exit: I/O port 0x501, value 0x31 → exit code (0x31*2+1)=99 */
+        outb(0x501, 0x31);
+        /* Fallback: triple fault to crash QEMU */
+        __asm__ volatile("cli; hlt");
+    }
+
+    /* Check for MON magic — monitor registration */
 
     if (code_len >= 17 && body_ptr[0] == MON_MAGIC_0 &&
         body_ptr[1] == MON_MAGIC_1 && body_ptr[2] == MON_MAGIC_2) {
