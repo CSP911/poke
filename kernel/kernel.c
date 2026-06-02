@@ -1537,7 +1537,7 @@ u16 tcp_checksum(u8 *tcp_start, int tcp_len, u8 *src_ip, u8 *dst_ip) {
 }
 
 void tcp_send(u8 *dst_mac, u8 *dst_ip, u16 dst_port, u8 flags, u8 *data, int data_len) {
-    u8 pkt[1500];
+    static u8 pkt[1500];
     mem_set(pkt, 0, 1500);
     int offset = 0;
 
@@ -1605,6 +1605,60 @@ static u16 remote_port;
 
 const char http_200[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n";
 const char http_ok[] = "OK: code executed\n";
+
+/* Handle CTX write in separate stack frame */
+static void __attribute__((noinline)) handle_ctx_write(u8 *body, int len) {
+    ctx_append(body[3],
+        body[4]|(body[5]<<8)|(body[6]<<16)|(body[7]<<24),
+        (char*)(body+8), len-8);
+    u8 *r = (u8 *)0x2000100;
+    mem_set(r, 0, 64);
+    int rl = 0;
+    const char ok[] = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nstored\n";
+    for (int i = 0; ok[i]; i++) r[rl++] = ok[i];
+    tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, r, rl);
+}
+
+/* Execute injected code in isolated stack frame — saves/restores all registers */
+static u32 __attribute__((noinline)) run_injected_code(void) {
+    u32 eax_result;
+    __asm__ volatile(
+        "pushal\n"               /* save ALL registers */
+        "push %1\n"              /* &result_len */
+        "push %2\n"              /* result_buf */
+        "call *%3\n"             /* call code_buf */
+        "add $8, %%esp\n"        /* clean up args */
+        "mov %%eax, %0\n"        /* save return value */
+        "popal\n"                /* restore ALL registers */
+        : "=m"(eax_result)
+        : "r"(&result_len), "r"(result_buf), "r"(code_buf)
+        : "memory"
+    );
+    return eax_result;
+}
+
+/* Send HTTP response for code execution — separate function to isolate from code_fn */
+static void __attribute__((noinline)) send_exec_response(int has_ret, u32 ret_eax) {
+    u8 *resp = (u8 *)0x2000000;
+    mem_set(resp, 0, 256);
+    int rlen = 0;
+    const char hdr[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n";
+    for (int i = 0; hdr[i]; i++) resp[rlen++] = hdr[i];
+
+    if (!has_ret) {
+        const char *r = "rejected\n"; while (*r) resp[rlen++] = *r++;
+    } else if (result_len > 0) {
+        for (int i = 0; i < result_len && rlen < 240; i++) resp[rlen++] = result_buf[i];
+    } else {
+        const char *r = "eax="; while (*r) resp[rlen++] = *r++;
+        char d[12]; int di = 0; u32 v = ret_eax;
+        if (v == 0) d[di++] = '0';
+        else { while (v > 0) { d[di++] = '0' + (v % 10); v /= 10; } }
+        while (di > 0) resp[rlen++] = d[--di];
+        resp[rlen++] = '\n';
+    }
+    tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rlen);
+}
 
 void handle_http(void) {
     /* Find POST /poke */
@@ -1995,16 +2049,9 @@ void handle_http(void) {
         __asm__ volatile("cli; hlt");
     }
 
-    /* CTX magic — context store write */
+    /* CTX magic — context store write (handled in separate function) */
     if (code_len >= 8 && body_ptr[0]=='C' && body_ptr[1]=='T' && body_ptr[2]=='X') {
-        ctx_append(body_ptr[3],
-            body_ptr[4]|(body_ptr[5]<<8)|(body_ptr[6]<<16)|(body_ptr[7]<<24),
-            (char*)(body_ptr+8), code_len-8);
-        /* respond using same pattern as /health */
-        u8 cr[64]; int cl=0;
-        const char *cp="HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nok\n";
-        while(*cp) cr[cl++]=*cp++;
-        tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, cr, cl);
+        handle_ctx_write(body_ptr, code_len);
         return;
     }
 
@@ -2071,46 +2118,11 @@ void handle_http(void) {
     }
 
     if (has_ret) {
-        serial_print("[POKE] Executing code...\n");
-        u32 (*code_fn)(char *rbuf, int *rlen) = (u32 (*)(char *, int *))code_buf;
-        ret_eax = code_fn(result_buf, &result_len);
-        serial_print("[POKE] Execution complete, eax=");
-        serial_hex(ret_eax);
-        serial_print("\n");
-    } else {
-        serial_print("[POKE] Rejected\n");
+        ret_eax = run_injected_code();
     }
 
-    /* Build HTTP response */
-    u8 resp[512]; mem_set(resp, 0, 512);
-    int rlen = 0;
-    const char *rp;
-    rp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n";
-    while (*rp) resp[rlen++] = *rp++;
-
-    if (!has_ret) {
-        rp = "no RET found, not executed\n";
-        while (*rp) resp[rlen++] = *rp++;
-    } else if (result_len > 0) {
-        /* Return whatever the code wrote to result_buf */
-        for (int i = 0; i < result_len && rlen < 500; i++)
-            resp[rlen++] = result_buf[i];
-    } else {
-        /* Return EAX as decimal */
-        rp = "eax=";
-        while (*rp) resp[rlen++] = *rp++;
-        /* decimal conversion */
-        char dbuf[12];
-        int di = 0;
-        u32 v = ret_eax;
-        if (v == 0) { dbuf[di++] = '0'; }
-        else { while (v > 0) { dbuf[di++] = '0' + (v % 10); v /= 10; } }
-        while (di > 0) resp[rlen++] = dbuf[--di];
-        resp[rlen++] = '\n';
-    }
-
-    tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rlen);
-    serial_print("[POKE] Response sent\n");
+    /* Send response in separate function (isolated stack frame) */
+    send_exec_response(has_ret, ret_eax);
 }
 
 void handle_tcp(u8 *pkt, int len) {
@@ -2140,29 +2152,31 @@ void handle_tcp(u8 *pkt, int len) {
     mem_copy(remote_ip, ip->src, 4);
     remote_port = tcp->src_port; /* keep network order */
 
+    /* RST — immediately reset everything */
+    if (tcp->flags & TCP_RST) {
+        tcp_connected = 0;
+        http_buf_len = 0;
+        return;
+    }
+
     if (tcp->flags & TCP_SYN) {
-        /* Debug: show SYN received on line 3 */
-        u16 *tdbg = (u16 *)(VGA_BASE + (VGA_WIDTH * 3) * 2);
-        tdbg[0]=(0x0A<<8)|'S'; tdbg[1]=(0x0A<<8)|'Y'; tdbg[2]=(0x0A<<8)|'N';
-        tdbg[3]=(0x0A<<8)|' ';
-        tdbg[4]=(0x0A<<8)|('0'+remote_ip[0]/100);
-        tdbg[5]=(0x0A<<8)|('0'+(remote_ip[0]/10)%10);
-        tdbg[6]=(0x0A<<8)|('0'+remote_ip[0]%10);
-        tdbg[7]=(0x0A<<8)|'.';
-        tdbg[8]=(0x0A<<8)|('0'+remote_ip[3]/10);
-        tdbg[9]=(0x0A<<8)|('0'+remote_ip[3]%10);
+        /* New connection — full state reset */
+        tcp_connected = 0;
+        http_buf_len = 0;
 
-        /* SYN received → SYN+ACK */
         tcp_remote_seq = their_seq + 1;
-        tcp_local_seq = 5000;
-        serial_print("[TCP] SYN recv, sending SYN+ACK\n");
-        tcp_send(remote_mac, remote_ip, remote_port, TCP_SYN | TCP_ACK, 0, 0);
-        serial_print("[TCP] SYN+ACK sent\n");
+        /* Use incrementing ISN to avoid seq conflicts across connections */
+        static u32 isn_counter = 5000;
+        isn_counter += 10000;
+        if (isn_counter > 900000) isn_counter = 5000;
+        tcp_local_seq = isn_counter;
 
-        tdbg[11]=(0x0B<<8)|'S'; tdbg[12]=(0x0B<<8)|'A'; tdbg[13]=(0x0B<<8)|'K';
+        serial_print("[TCP] SYN recv, seq=");
+        serial_hex(tcp_local_seq);
+        serial_print("\n");
+        tcp_send(remote_mac, remote_ip, remote_port, TCP_SYN | TCP_ACK, 0, 0);
 
         tcp_connected = 1;
-        http_buf_len = 0;
         return;
     }
 
@@ -2176,8 +2190,9 @@ void handle_tcp(u8 *pkt, int len) {
                 http_buf_len += data_len;
             }
 
-            /* ACK the data */
-            tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK, 0, 0);
+            /* Delayed ACK: don't send standalone ACK for each segment.
+             * The response (PSH+ACK+FIN) will ACK all received data.
+             * Sending intermediate ACKs confuses QEMU user-mode TCP proxy. */
 
             /* Check if HTTP request is complete */
             int header_end = -1;
@@ -2243,7 +2258,10 @@ void handle_tcp(u8 *pkt, int len) {
     if (tcp->flags & TCP_FIN) {
         tcp_remote_seq = their_seq + 1;
         tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_FIN, 0, 0);
+        /* Full connection cleanup for next connection */
         tcp_connected = 0;
+        http_buf_len = 0;
+        serial_print("[TCP] FIN — connection closed\n");
     }
 }
 
