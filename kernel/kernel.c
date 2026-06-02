@@ -852,7 +852,42 @@ static u32 monitor_poll_counter = 0;
 #define MON_MAGIC_1 'O'
 #define MON_MAGIC_2 'N'
 
-/* ── ATA PIO Disk Driver — disabled until bootloader supports >24KB kernel ── */
+/* ── Memory-Mapped Context Store ── */
+/* Uses 0x300000 (3MB), volatile per-boot but hub syncs for persistence */
+#define CTX_BASE  0x300000
+#define CTX_MAGIC 0x58455443
+#define CTX_MAX   200
+#define CTX_ENTRY 128
+static volatile u32 *ctx_hdr = (volatile u32 *)CTX_BASE;
+#define CTX_DATA (CTX_BASE + 32)
+
+static int ctx_ready = 0;
+
+void ctx_store_init(void) {
+    /* Zero-init the context area first (might be uninitialized RAM) */
+    u8 *p = (u8 *)CTX_BASE;
+    for (int i = 0; i < 32; i++) p[i] = 0;
+    ctx_hdr[0] = CTX_MAGIC;
+    ctx_hdr[1] = 1;
+    ctx_ready = 1;
+    vga_print("  [CTX] ready\n");
+}
+
+int ctx_append(u8 type, u32 ts, const char *data, int len) {
+    if (!ctx_ready) return -1;
+    if (len>120) len=120;
+    u32 idx = ctx_hdr[3];
+    u8 *e = (u8*)(CTX_DATA + idx*CTX_ENTRY);
+    *(u32*)e=ts; e[4]=type; e[5]=len; e[6]=0; e[7]=0;
+    mem_copy(e+8, (u8*)data, len);
+    for(int i=8+len; i<CTX_ENTRY; i++) e[i]=0;
+    ctx_hdr[3]=(idx+1)%CTX_MAX;
+    if(ctx_hdr[2]<CTX_MAX) ctx_hdr[2]++;
+    ctx_hdr[4]++;
+    return ctx_hdr[4]-1;
+}
+
+/* ATA disk driver — preserved for future use with 2-stage bootloader */
 #if 0  /* ENABLE_ATA */
 /* store.img is -drive if=ide,index=1 → primary slave (0x1F0, drive=1) */
 #define ATA_DATA    0x1F0
@@ -1960,78 +1995,18 @@ void handle_http(void) {
         __asm__ volatile("cli; hlt");
     }
 
-#if 0  /* ENABLE_ATA — context store endpoints */
-    /* Check for CTX magic — context store write */
-    if (code_len >= 7 && body_ptr[0] == 'C' && body_ptr[1] == 'T' && body_ptr[2] == 'X') {
-        /* CTX packet: "CTX" + type(1) + timestamp(4) + data */
-        u8 ctx_type = body_ptr[3];
-        u32 ctx_ts = *(u32*)(body_ptr + 3);  /* bytes 3-6: timestamp LE ... actually: */
-        /* Reparse: CTX(3) type(1) ts(4) data(N) */
-        ctx_type = body_ptr[3];
-        ctx_ts = body_ptr[4] | (body_ptr[5]<<8) | (body_ptr[6]<<16) | (body_ptr[7]<<24);
-        int ctx_data_len = code_len - 8;
-        if (ctx_data_len > 248) ctx_data_len = 248;
-
-        int seq = ctx_store_append(ctx_type, ctx_ts, (char*)(body_ptr + 8), ctx_data_len);
-
-        u8 resp[128]; int rl = 0;
-        const char *rp = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nstored=";
-        while (*rp) resp[rl++] = *rp++;
-        char nb2[12]; int ni2 = 0;
-        u32 sv = (seq >= 0) ? seq : 0;
-        if (sv == 0) nb2[ni2++] = '0';
-        else { while (sv > 0) { nb2[ni2++] = '0' + sv%10; sv /= 10; } }
-        while (ni2 > 0) resp[rl++] = nb2[--ni2];
-        rp = ",entries="; while (*rp) resp[rl++] = *rp++;
-        ni2 = 0; sv = ctx_header.entry_count;
-        if (sv == 0) nb2[ni2++] = '0';
-        else { while (sv > 0) { nb2[ni2++] = '0' + sv%10; sv /= 10; } }
-        while (ni2 > 0) resp[rl++] = nb2[--ni2];
-        resp[rl++] = '\n';
-        tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rl);
+    /* CTX magic — context store write */
+    if (code_len >= 8 && body_ptr[0]=='C' && body_ptr[1]=='T' && body_ptr[2]=='X') {
+        ctx_append(body_ptr[3],
+            body_ptr[4]|(body_ptr[5]<<8)|(body_ptr[6]<<16)|(body_ptr[7]<<24),
+            (char*)(body_ptr+8), code_len-8);
+        /* respond using same pattern as /health */
+        u8 cr[64]; int cl=0;
+        const char *cp="HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nok\n";
+        while(*cp) cr[cl++]=*cp++;
+        tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, cr, cl);
         return;
     }
-
-    /* Check for GET /store — read context entries */
-    {
-        int is_store_get = 0;
-        for (int i = 0; i < http_buf_len - 5; i++) {
-            if (http_buf[i]=='/' && http_buf[i+1]=='s' && http_buf[i+2]=='t' &&
-                http_buf[i+3]=='o' && http_buf[i+4]=='r' && http_buf[i+5]=='e') {
-                is_store_get = 1; break;
-            }
-        }
-        if (is_store_get && !is_post) {
-            /* Return recent entries as text */
-            static u8 resp[1400];
-            int rl = 0;
-            const char *rp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n";
-            while (*rp) resp[rl++] = *rp++;
-
-            ctx_entry_t entries[5];
-            int count = ctx_store_read_recent(entries, 5);
-            for (int i = 0; i < count && rl < 1300; i++) {
-                /* [seq] type=N ts=N data */
-                resp[rl++] = '[';
-                char nb2[12]; int ni2 = 0;
-                u32 sv = entries[i].timestamp;
-                if (sv == 0) nb2[ni2++] = '0';
-                else { while (sv > 0) { nb2[ni2++] = '0' + sv%10; sv /= 10; } }
-                while (ni2 > 0) resp[rl++] = nb2[--ni2];
-                resp[rl++] = ']'; resp[rl++] = ' ';
-                for (int j = 0; j < entries[i].len && j < 248 && rl < 1300; j++)
-                    resp[rl++] = entries[i].data[j];
-                resp[rl++] = '\n';
-            }
-            if (count == 0) {
-                rp = "(empty)\n"; while (*rp) resp[rl++] = *rp++;
-            }
-            tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rl);
-            return;
-        }
-    }
-
-#endif /* ENABLE_ATA — context store endpoints */
 
     /* Check for MON magic — monitor registration */
 
@@ -2428,7 +2403,7 @@ void kernel_main(void) {
     }
 
     /* Init context store (disk) — disabled until ATA driver stabilized */
-    /* ctx_store_init(); */
+    ctx_store_init();
     virt_regs_init();
     monitor_init();
     vga_print("  [MON] Monitor system ready\n");
