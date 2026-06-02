@@ -23,10 +23,9 @@ start:
     mov si, msg_boot
     call print_string_16
 
-    ; Load kernel from disk in chunks (BIOS may limit per-read)
-    ; Chunk 1: sectors 2-49 (48 sectors, 24KB) → 0x1000
+    ; Load kernel: 54 sectors (27KB) from sector 2 → 0x1000
     mov ah, 0x02
-    mov al, 48
+    mov al, 54
     mov ch, 0
     mov cl, 2
     mov dh, 0
@@ -34,17 +33,6 @@ start:
     mov bx, 0x1000
     int 0x13
     jc disk_error
-
-    ; Chunk 2: sectors 20-37 (18 sectors, 9KB) → 0x5800
-    mov ah, 0x02
-    mov al, 18
-    mov ch, 0
-    mov cl, 20
-    mov dh, 0
-    mov dl, [boot_drive]
-    mov bx, 0x5800
-    int 0x13
-    ; ignore error for chunk 2 (kernel might be smaller)
 
     ; Enable A20 line
     call enable_a20

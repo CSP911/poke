@@ -1644,6 +1644,34 @@ static void __attribute__((noinline)) handle_key(void) {
     tcp_send(remote_mac,remote_ip,remote_port,TCP_ACK|TCP_PSH|TCP_FIN,r,rl);
 }
 
+/* GET /store — read context entries from virtio disk */
+static void __attribute__((noinline)) handle_store(void) {
+    u8 *r = (u8 *)0x2001000;
+    int l = 0;
+    const char hdr[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n";
+    for (int i = 0; hdr[i]; i++) r[l++] = hdr[i];
+    /* header: count,write_idx,total */
+    #define SN(val) { char nb[12]; int ni=0; u32 vv=(val); \
+        if(vv==0)nb[ni++]='0'; else{while(vv>0){nb[ni++]='0'+vv%10;vv/=10;}} \
+        while(ni>0)r[l++]=nb[--ni]; }
+    SN(ctx_n) r[l++]=','; SN(ctx_wi) r[l++]=','; SN(ctx_tot) r[l++]='\n';
+    /* last 8 entries from disk */
+    int count = ctx_n < 8 ? ctx_n : 8;
+    int idx = (ctx_wi - 1 + CTX_MAX) % CTX_MAX;
+    u8 *sec = (u8 *)0x2002000;
+    for (int i = 0; i < count && l < 1200; i++) {
+        if (vio_ok) vio_rw(1 + (idx/4), sec, 0);
+        u8 *e = sec + (idx%4)*CTX_ENTRY;
+        SN(*(u32*)e) r[l++]=':'; r[l++]='0'+e[4]; r[l++]=':';
+        u8 elen = e[5]; if(elen>120) elen=120;
+        for (int j=0; j<elen && l<1200; j++) r[l++]=e[8+j];
+        r[l++]='\n';
+        idx = (idx - 1 + CTX_MAX) % CTX_MAX;
+    }
+    #undef SN
+    tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, r, l);
+}
+
 /* ── Main HTTP dispatcher (now thin) ── */
 
 void handle_http(void) {
@@ -1667,11 +1695,11 @@ void handle_http(void) {
         if (http_buf[i]=='/'&&http_buf[i+1]=='k'&&http_buf[i+2]=='e'&&http_buf[i+3]=='y') { handle_key(); return; }
     }
 
-    /* GET /health */
-    for (int i = 0; i < http_buf_len - 6; i++) {
-        if (http_buf[i]=='/'&&http_buf[i+1]=='h'&&http_buf[i+2]=='e'&&
-            http_buf[i+3]=='a'&&http_buf[i+4]=='l'&&http_buf[i+5]=='t'&&http_buf[i+6]=='h') {
-            handle_health(); return;
+    /* GET /health, /store */
+    for (int i = 0; i < http_buf_len - 5; i++) {
+        if (http_buf[i]=='/') {
+            if (http_buf[i+1]=='h'&&http_buf[i+2]=='e'&&http_buf[i+3]=='a'&&http_buf[i+4]=='l') { handle_health(); return; }
+            if (http_buf[i+1]=='s'&&http_buf[i+2]=='t'&&http_buf[i+3]=='o'&&http_buf[i+4]=='r') { handle_store(); return; }
         }
     }
 
