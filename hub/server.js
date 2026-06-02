@@ -286,6 +286,23 @@ async function handleRequest(req, res) {
     return
   }
 
+  // GET /edge/context — read context stats from all alive edges
+  if (req.method === 'GET' && url.pathname === '/edge/context') {
+    const { readEdgeContext } = require('./transport')
+    const results = []
+    for (const [id, node] of nodes) {
+      if (node.status !== 'alive' || node.endpoint.startsWith('polling:')) continue
+      try {
+        const ctx = await readEdgeContext(node.endpoint)
+        results.push({ edge: id, entries: ctx.entries })
+      } catch (e) {
+        results.push({ edge: id, error: e.message })
+      }
+    }
+    res.end(JSON.stringify(results, null, 2))
+    return
+  }
+
   // GET /scenario/trace — SSE stream of hub events
   if (req.method === 'GET' && url.pathname === '/scenario/trace') {
     res.writeHead(200, {

@@ -223,6 +223,58 @@ function deployMonitor(endpoint, monitorBinary, intervalMs, condOp, condVal, hub
   })
 }
 
+// ── Read edge context store (via code injection — POKE way) ──
+// Sends C code that reads the context header from memory at 0x300000
+// Falls back to reading health ctx count if code injection fails
+async function readEdgeContext(endpoint) {
+  // The context header is at memory 0x300000 (if memory-mapped)
+  // or on virtio disk sector 0. We read from memory since ctx_store_init
+  // copies disk header into ctx_n/ctx_wi/ctx_tot globals.
+  // Simplest: just use health endpoint's ctx field.
+  try {
+    const healthRes = await new Promise((resolve, reject) => {
+      http.get(endpoint + '/health', { timeout: 5000 }, (res) => {
+        let d = ''; res.on('data', c => d += c)
+        res.on('end', () => { try { resolve(JSON.parse(d)) } catch(e) { reject(e) } })
+      }).on('error', reject)
+    })
+    return {
+      entries: healthRes.ctx || 0,
+      edgeId: endpoint,
+    }
+  } catch (e) {
+    return { entries: 0, error: e.message }
+  }
+}
+
+// ── Write context to edge store (CTX protocol) ──
+function writeEdgeContext(endpoint, type, timestamp, data) {
+  return new Promise((resolve, reject) => {
+    const url = new URL('/poke', endpoint)
+    const dataBuf = Buffer.from(data, 'utf8')
+    const ctx = Buffer.alloc(8 + dataBuf.length)
+    ctx[0] = 0x43; ctx[1] = 0x54; ctx[2] = 0x58  // CTX
+    ctx[3] = type
+    ctx.writeUInt32LE(timestamp, 4)
+    dataBuf.copy(ctx, 8)
+
+    const req = http.request({
+      hostname: url.hostname, port: url.port,
+      path: '/poke', method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': ctx.length },
+      timeout: 5000,
+    }, (res) => {
+      let body = ''
+      res.on('data', c => body += c)
+      res.on('end', () => resolve(body.trim()))
+    })
+    req.on('error', e => reject(new PokeTransportError(e.message, 'CTX_WRITE_ERROR')))
+    req.on('timeout', () => { req.destroy(); reject(new PokeTransportError('timeout', 'TIMEOUT')) })
+    req.write(ctx)
+    req.end()
+  })
+}
+
 // ── Shutdown edge (DIE protocol) ──
 function shutdownEdge(endpoint) {
   return new Promise((resolve, reject) => {
@@ -253,5 +305,7 @@ module.exports = {
   streamToEdge,
   deployMonitor,
   shutdownEdge,
+  readEdgeContext,
+  writeEdgeContext,
   PokeTransportError,
 }

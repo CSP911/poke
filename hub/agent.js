@@ -1204,9 +1204,10 @@ Auto-profiling rules:
     }
   }
 
-  // ── Save to persistent memory ──
+  // ── Save to persistent memory + sync to edges ──
   try {
-    memory.addHistory(command, steps, finalResult)
+    const entry = memory.addHistory(command, steps, finalResult)
+    memory.syncToEdge(entry).catch(() => {})  // fire-and-forget
   } catch (e) {
     log.warn(`[memory] failed to save history: ${e.message}`)
   }

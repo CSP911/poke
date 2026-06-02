@@ -594,6 +594,33 @@ function migrateIfNeeded() {
   log.info(`[memory] migration complete: ${byMonth.size} month files created`)
 }
 
+// ── Edge sync: write hub history to edge disk ──
+async function syncToEdge(entry) {
+  try {
+    const { nodes } = require('./nodes')
+    const { writeEdgeContext } = require('./transport')
+
+    const payload = `${entry.command.slice(0, 60)} → ${(entry.result || '').slice(0, 50)}`
+    const ts = Math.floor(new Date(entry.timestamp).getTime() / 1000)
+
+    for (const [id, node] of nodes) {
+      if (node.status !== 'alive') continue
+      if (node.endpoint.startsWith('polling:') || node.endpoint.startsWith('tcp:')) continue
+      // Check if edge supports context store
+      if (!node.health?.ctx && node.health?.ctx !== 0) continue
+
+      try {
+        await writeEdgeContext(node.endpoint, 1, ts, payload)
+        log.debug(`[memory] synced to edge ${id}`)
+      } catch (e) {
+        log.debug(`[memory] edge sync failed for ${id}: ${e.message}`)
+      }
+    }
+  } catch (e) {
+    // nodes module not loaded yet, skip
+  }
+}
+
 // ── Auto-migrate on load ──
 try { migrateIfNeeded() } catch (e) { /* ignore */ }
 
@@ -610,4 +637,5 @@ module.exports = {
   getStats,
   rebuildIndex,
   compressOldEntries,
+  syncToEdge,
 }
