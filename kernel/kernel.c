@@ -852,279 +852,111 @@ static u32 monitor_poll_counter = 0;
 #define MON_MAGIC_1 'O'
 #define MON_MAGIC_2 'N'
 
-/* ── Memory-Mapped Context Store ── */
-/* Uses 0x300000 (3MB), volatile per-boot but hub syncs for persistence */
-#define CTX_BASE  0x300000
+/* ── VirtIO-blk Driver (minimal, legacy PCI interface) ── */
+#define VIO_VENDOR 0x1AF4
+#define VIO_BLK_ID 0x1001
+static u16 vio_io = 0;
+static int vio_ok = 0;
+static u16 vio_qs = 0;
+#define VQ_MEM 0x500000  /* page-aligned virtqueue memory */
+
+struct vdesc { u32 a0,a1,len; u16 fl,nx; } __attribute__((packed));
+struct vblkh { u32 type,pri,sec0,sec1; } __attribute__((packed));
+
+static struct vdesc *vqd;
+static u16 *vqa;  /* avail ring */
+static u32 *vqu;  /* used ring */
+static u16 vqa_i=0, vqu_l=0;
+static struct vblkh *bh = (struct vblkh *)0x510000;
+static u8 *bdat = (u8 *)0x511000;
+static u8 *bst = (u8 *)0x512000;
+
+static void __attribute__((noinline)) virtio_blk_init(void) {
+    for (int s=0; s<32; s++) {
+        u32 id=pci_read(0,s,0,0);
+        if((id&0xFFFF)==VIO_VENDOR && ((id>>16)&0xFFFF)==VIO_BLK_ID) {
+            vio_io=pci_read(0,s,0,0x10)&0xFFFC;
+            pci_write(0,s,0,0x04, pci_read(0,s,0,0x04)|0x04);
+            break;
+        }
+    }
+    if(!vio_io) { vga_print("  [VIO] No disk\n"); return; }
+    outb(vio_io+0x12, 0);    /* reset */
+    outb(vio_io+0x12, 1);    /* ack */
+    outb(vio_io+0x12, 3);    /* driver */
+    outl(vio_io+0x04, 0);    /* features: none */
+    outb(vio_io+0x12, 0x0B); /* features ok */
+    outw(vio_io+0x0E, 0);    /* select queue 0 */
+    vio_qs = inw(vio_io+0x0C);
+    if(!vio_qs || vio_qs>256) vio_qs=128;
+    mem_set((void*)VQ_MEM, 0, 0x8000);
+    vqd = (struct vdesc *)VQ_MEM;
+    vqa = (u16*)(VQ_MEM + vio_qs*16);
+    u32 ua = ((u32)vqa + 4 + 2*vio_qs + 4095) & ~4095;
+    vqu = (u32*)ua;
+    outl(vio_io+0x08, VQ_MEM>>12);
+    outb(vio_io+0x12, 0x0F); /* driver ok */
+    vio_ok = 1;
+    vga_print("  [VIO] Disk ready\n");
+}
+
+static int __attribute__((noinline)) vio_rw(u32 sec, u8 *buf, int wr) {
+    if(!vio_ok) return -1;
+    bh->type=wr?1:0; bh->pri=0; bh->sec0=sec; bh->sec1=0;
+    *bst=0xFF;
+    if(wr) mem_copy(bdat, buf, 512);
+    vqd[0].a0=(u32)bh;  vqd[0].a1=0; vqd[0].len=16; vqd[0].fl=1; vqd[0].nx=1;
+    vqd[1].a0=(u32)bdat; vqd[1].a1=0; vqd[1].len=512; vqd[1].fl=1|(wr?0:2); vqd[1].nx=2;
+    vqd[2].a0=(u32)bst;  vqd[2].a1=0; vqd[2].len=1; vqd[2].fl=2; vqd[2].nx=0;
+    vqa[1+(vqa_i%vio_qs)]=0;
+    __asm__ volatile("mfence":::"memory");
+    vqa_i++;
+    *(u16*)((u8*)vqa+2)=vqa_i;
+    outw(vio_io+0x10, 0);
+    for(int t=0;t<1000000;t++) {
+        if(*(u16*)((u8*)vqu+2)!=vqu_l) {
+            vqu_l=*(u16*)((u8*)vqu+2);
+            if(*bst==0) { if(!wr) mem_copy(buf,bdat,512); return 0; }
+            return -1;
+        }
+    }
+    return -2;
+}
+
+/* ── Context Store (virtio-blk backed, falls back to memory) ── */
 #define CTX_MAGIC 0x58455443
 #define CTX_MAX   200
 #define CTX_ENTRY 128
-static volatile u32 *ctx_hdr = (volatile u32 *)CTX_BASE;
-#define CTX_DATA (CTX_BASE + 32)
-
+static u32 ctx_n=0, ctx_wi=0, ctx_tot=0;
 static int ctx_ready = 0;
 
 void ctx_store_init(void) {
-    /* Zero-init the context area first (might be uninitialized RAM) */
-    u8 *p = (u8 *)CTX_BASE;
-    for (int i = 0; i < 32; i++) p[i] = 0;
-    ctx_hdr[0] = CTX_MAGIC;
-    ctx_hdr[1] = 1;
-    ctx_ready = 1;
-    vga_print("  [CTX] ready\n");
+    virtio_blk_init();
+    if(!vio_ok) { ctx_ready=1; vga_print("  [CTX] mem-only\n"); return; }
+    static u8 s[512];
+    if(vio_rw(0,s,0)<0) { ctx_ready=1; return; }
+    u32 *h=(u32*)s;
+    if(h[0]!=CTX_MAGIC) { mem_set(s,0,512); h[0]=CTX_MAGIC; h[1]=1; vio_rw(0,s,1); }
+    else { ctx_n=h[2]; ctx_wi=h[3]; ctx_tot=h[4]; }
+    ctx_ready=1;
+    vga_print("  [CTX] "); vga_print_dec(ctx_n); vga_print(" on disk\n");
 }
 
 int ctx_append(u8 type, u32 ts, const char *data, int len) {
-    if (!ctx_ready) return -1;
-    if (len>120) len=120;
-    u32 idx = ctx_hdr[3];
-    u8 *e = (u8*)(CTX_DATA + idx*CTX_ENTRY);
-    *(u32*)e=ts; e[4]=type; e[5]=len; e[6]=0; e[7]=0;
-    mem_copy(e+8, (u8*)data, len);
-    for(int i=8+len; i<CTX_ENTRY; i++) e[i]=0;
-    ctx_hdr[3]=(idx+1)%CTX_MAX;
-    if(ctx_hdr[2]<CTX_MAX) ctx_hdr[2]++;
-    ctx_hdr[4]++;
-    return ctx_hdr[4]-1;
+    if(!ctx_ready) return -1;
+    if(len>120) len=120;
+    static u8 s[512];
+    u32 sn=1+(ctx_wi/4); u32 off=(ctx_wi%4)*CTX_ENTRY;
+    if(vio_ok) vio_rw(sn,s,0); else mem_set(s,0,512);
+    u8 *e=s+off; mem_set(e,0,CTX_ENTRY);
+    *(u32*)e=ts; e[4]=type; e[5]=len; mem_copy(e+8,(u8*)data,len);
+    if(vio_ok) vio_rw(sn,s,1);
+    ctx_wi=(ctx_wi+1)%CTX_MAX;
+    if(ctx_n<CTX_MAX) ctx_n++;
+    ctx_tot++;
+    if(vio_ok) { mem_set(s,0,512); u32 *h=(u32*)s; h[0]=CTX_MAGIC;h[1]=1;h[2]=ctx_n;h[3]=ctx_wi;h[4]=ctx_tot; vio_rw(0,s,1); }
+    return ctx_tot-1;
 }
-
-/* ATA disk driver — preserved for future use with 2-stage bootloader */
-#if 0  /* ENABLE_ATA */
-/* store.img is -drive if=ide,index=1 → primary slave (0x1F0, drive=1) */
-#define ATA_DATA    0x1F0
-#define ATA_ERROR   0x1F1
-#define ATA_COUNT   0x1F2
-#define ATA_SECTOR  0x1F3
-#define ATA_CYLOW   0x1F4
-#define ATA_CYHIGH  0x1F5
-#define ATA_DRIVE   0x1F6
-#define ATA_STATUS  0x1F7
-#define ATA_CMD     0x1F7
-
-#define ATA_STATUS_BSY  0x80
-#define ATA_STATUS_DRQ  0x08
-#define ATA_STATUS_ERR  0x01
-#define ATA_CMD_READ    0x20
-#define ATA_CMD_WRITE   0x30
-
-#define STORE_SECTOR_SIZE 512
-#define STORE_DISK_SECTORS 8192  /* 4MB / 512B = 8192 sectors */
-
-static int ata_store_ready = 0;
-
-static void ata_wait_bsy(void) {
-    for (int i = 0; i < 100000; i++) {
-        if (!(inb(ATA_STATUS) & ATA_STATUS_BSY)) return;
-    }
-}
-
-static void ata_wait_drq(void) {
-    for (int i = 0; i < 100000; i++) {
-        if (inb(ATA_STATUS) & ATA_STATUS_DRQ) return;
-    }
-}
-
-/* Select primary slave drive */
-static void ata_select_slave(void) {
-    outb(ATA_DRIVE, 0xF0);  /* 0xF0 = slave, LBA mode */
-    /* 400ns delay: read status 4 times */
-    inb(ATA_STATUS); inb(ATA_STATUS); inb(ATA_STATUS); inb(ATA_STATUS);
-}
-
-/* Read one 512-byte sector from store disk */
-int ata_read_sector(u32 lba, u8 *buf) {
-    if (!ata_store_ready) return -1;
-    if (lba >= STORE_DISK_SECTORS) return -1;
-
-    ata_wait_bsy();
-    outb(ATA_DRIVE, 0xF0 | ((lba >> 24) & 0x0F));  /* slave + LBA high bits */
-    outb(ATA_COUNT, 1);
-    outb(ATA_SECTOR, lba & 0xFF);
-    outb(ATA_CYLOW, (lba >> 8) & 0xFF);
-    outb(ATA_CYHIGH, (lba >> 16) & 0xFF);
-    outb(ATA_CMD, ATA_CMD_READ);
-
-    ata_wait_bsy();
-    ata_wait_drq();
-
-    if (inb(ATA_STATUS) & ATA_STATUS_ERR) return -1;
-
-    /* Read 256 words (512 bytes) */
-    u16 *p = (u16 *)buf;
-    for (int i = 0; i < 256; i++) {
-        p[i] = inw(ATA_DATA);
-    }
-    return 0;
-}
-
-/* Write one 512-byte sector to store disk */
-int ata_write_sector(u32 lba, const u8 *buf) {
-    if (!ata_store_ready) return -1;
-    if (lba >= STORE_DISK_SECTORS) return -1;
-
-    ata_wait_bsy();
-    outb(ATA_DRIVE, 0xF0 | ((lba >> 24) & 0x0F));
-    outb(ATA_COUNT, 1);
-    outb(ATA_SECTOR, lba & 0xFF);
-    outb(ATA_CYLOW, (lba >> 8) & 0xFF);
-    outb(ATA_CYHIGH, (lba >> 16) & 0xFF);
-    outb(ATA_CMD, ATA_CMD_WRITE);
-
-    ata_wait_bsy();
-    ata_wait_drq();
-
-    /* Write 256 words (512 bytes) */
-    const u16 *p = (const u16 *)buf;
-    for (int i = 0; i < 256; i++) {
-        outw(ATA_DATA, p[i]);
-    }
-
-    /* Flush */
-    ata_wait_bsy();
-    return (inb(ATA_STATUS) & ATA_STATUS_ERR) ? -1 : 0;
-}
-
-/* ── Context Store (persistent on disk) ── */
-/* Sector 0: header, Sectors 1+: entries */
-#define CTX_MAGIC 0x58455443  /* "CTEX" */
-#define CTX_MAX_ENTRIES 500
-#define CTX_ENTRY_SIZE 256    /* fixed-size entries */
-/* 1 header sector + ceil(500*256/512) = 1 + 250 = 251 sectors */
-
-typedef struct {
-    u32 magic;
-    u32 version;
-    u32 entry_count;
-    u32 write_index;       /* next write position (wraps) */
-    u32 total_written;
-    u32 reserved[3];
-} __attribute__((packed)) ctx_header_t;
-
-typedef struct {
-    u32 timestamp;
-    u8  type;              /* 1=command, 2=result, 3=fact, 4=event */
-    u8  len;               /* data length (max 249) */
-    u8  reserved[2];
-    char data[248];        /* UTF-8 text, null-terminated */
-} __attribute__((packed)) ctx_entry_t;
-
-static ctx_header_t ctx_header;
-
-void ctx_store_init(void) {
-    serial_print("[CTX] Probing IDE slave...\n");
-
-    /* Soft-probe: select slave and check for presence */
-    outb(ATA_DRIVE, 0xB0);  /* select slave */
-    /* 400ns delay */
-    inb(0x3F6); inb(0x3F6); inb(0x3F6); inb(0x3F6);
-
-    /* Write a pattern to sector count/number and read back */
-    outb(ATA_COUNT, 0x55);
-    outb(ATA_SECTOR, 0xAA);
-    u8 cnt = inb(ATA_COUNT);
-    u8 sec = inb(ATA_SECTOR);
-
-    if (cnt != 0x55 || sec != 0xAA) {
-        serial_print("[CTX] No store disk (probe failed)\n");
-        vga_print("  [CTX] No store disk\n");
-        ata_store_ready = 0;
-        return;
-    }
-    ata_store_ready = 1;
-    serial_print("[CTX] IDE slave detected\n");
-
-    /* Read header sector */
-    static u8 sector[512];
-    if (ata_read_sector(0, sector) < 0) {
-        serial_print("[CTX] Disk read error\n");
-        vga_print("  [CTX] Disk read error\n");
-        ata_store_ready = 0;
-        return;
-    }
-
-    mem_copy(&ctx_header, sector, sizeof(ctx_header_t));
-
-    if (ctx_header.magic != CTX_MAGIC) {
-        /* First use — initialize header */
-        serial_print("[CTX] Initializing store disk\n");
-        mem_set(&ctx_header, 0, sizeof(ctx_header_t));
-        ctx_header.magic = CTX_MAGIC;
-        ctx_header.version = 1;
-
-        mem_set(sector, 0, 512);
-        mem_copy(sector, &ctx_header, sizeof(ctx_header_t));
-        ata_write_sector(0, sector);
-    }
-
-    serial_print("[CTX] Store ready: ");
-    serial_hex(ctx_header.entry_count);
-    serial_print(" entries\n");
-
-    vga_print("  [CTX] Context store: ");
-    vga_print_dec(ctx_header.entry_count);
-    vga_print(" entries on disk\n");
-}
-
-/* Append an entry to the context store */
-int ctx_store_append(u8 type, u32 timestamp, const char *data, int data_len) {
-    if (!ata_store_ready) return -1;
-    if (data_len > 248) data_len = 248;
-
-    /* Build entry */
-    ctx_entry_t entry;
-    mem_set(&entry, 0, sizeof(ctx_entry_t));
-    entry.timestamp = timestamp;
-    entry.type = type;
-    entry.len = data_len;
-    mem_copy(entry.data, (u8 *)data, data_len);
-
-    /* Calculate sector and offset: 2 entries per sector (256*2=512) */
-    u32 idx = ctx_header.write_index;
-    u32 sector_num = 1 + (idx / 2);  /* sector 0 is header */
-    u32 offset = (idx % 2) * 256;
-
-    /* Read sector, modify entry, write back */
-    u8 sector[512];
-    ata_read_sector(sector_num, sector);
-    mem_copy(sector + offset, &entry, sizeof(ctx_entry_t));
-    ata_write_sector(sector_num, sector);
-
-    /* Update header */
-    ctx_header.write_index = (idx + 1) % CTX_MAX_ENTRIES;
-    if (ctx_header.entry_count < CTX_MAX_ENTRIES) ctx_header.entry_count++;
-    ctx_header.total_written++;
-
-    /* Write header sector */
-    u8 hdr_sector[512];
-    mem_set(hdr_sector, 0, 512);
-    mem_copy(hdr_sector, &ctx_header, sizeof(ctx_header_t));
-    ata_write_sector(0, hdr_sector);
-
-    return ctx_header.total_written - 1;
-}
-
-/* Read recent N entries (newest first) */
-int ctx_store_read_recent(ctx_entry_t *out, int count) {
-    if (!ata_store_ready || ctx_header.entry_count == 0) return 0;
-    if (count > (int)ctx_header.entry_count) count = ctx_header.entry_count;
-
-    int read = 0;
-    int idx = (ctx_header.write_index - 1 + CTX_MAX_ENTRIES) % CTX_MAX_ENTRIES;
-
-    for (int i = 0; i < count; i++) {
-        u32 sector_num = 1 + (idx / 2);
-        u32 offset = (idx % 2) * 256;
-
-        u8 sector[512];
-        ata_read_sector(sector_num, sector);
-        mem_copy(&out[read], sector + offset, sizeof(ctx_entry_t));
-        read++;
-
-        idx = (idx - 1 + CTX_MAX_ENTRIES) % CTX_MAX_ENTRIES;
-    }
-    return read;
-}
-
-#endif /* ENABLE_ATA */
 
 /* ── Virtual Registers (server room simulation) ── */
 /* Address 0x200000 + index*4: each register is u32 LE */
@@ -1662,6 +1494,56 @@ static void __attribute__((noinline)) send_exec_response(int has_ret, u32 ret_ea
 
 /* ── HTTP sub-handlers (each in own stack frame) ── */
 
+static void __attribute__((noinline)) handle_health(void) {
+    static u32 pings = 0;
+    pings++;
+    u8 *r = (u8*)0x2000000; mem_set(r, 0, 512);
+    int l = 0;
+    const char *h;
+    #define HA(s) h=s; while(*h) r[l++]=*h++;
+    #define HN(val) { char nb[12]; int ni=0; u32 vv=(val); if(vv==0)nb[ni++]='0'; else{while(vv>0){nb[ni++]='0'+vv%10;vv/=10;}} while(ni>0)r[l++]=nb[--ni]; }
+
+    HA("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{")
+    HA("\"status\":\"alive\",\"arch\":\"i386\",\"memory_mb\":64,")
+    HA(gfx_mode ? "\"gfx\":true," : "\"gfx\":false,")
+    HA("\"health_pings\":") HN(pings)
+    HA(",\"cpu_busy\":false")
+
+    /* Monitors */
+    HA(",\"monitors\":[")
+    int fm=1;
+    for(int mi=0;mi<MAX_MONITORS;mi++) {
+        if(!monitors[mi].active) continue;
+        if(!fm) r[l++]=','; fm=0;
+        r[l++]='{'; HA("\"id\":") r[l++]='0'+mi;
+        HA(",\"val\":") HN(monitors[mi].last_value)
+        HA(",\"fired\":") r[l++]=monitors[mi].fired?'1':'0';
+        HA(",\"triggers\":") HN(monitors[mi].trigger_count)
+        r[l++]='}';
+    }
+    r[l++]=']';
+
+    /* Virtual registers */
+    HA(",\"vr\":{\"t\":") HN(virt_regs[VREG_TEMP])
+    HA(",\"c\":") HN(virt_regs[VREG_CPU_LOAD])
+    HA(",\"co\":") r[l++]='0'+virt_regs[VREG_COOLING];
+    HA(",\"p\":") HN(virt_regs[VREG_POWER])
+    HA(",\"srv\":") u32 sv=(virt_regs[VREG_SRV_WEB]?1:0)|(virt_regs[VREG_SRV_DB]?2:0)|
+        (virt_regs[VREG_SRV_CACHE]?4:0)|(virt_regs[VREG_SRV_LOG]?8:0)|
+        (virt_regs[VREG_SRV_BACKUP]?16:0)|(virt_regs[VREG_SRV_DEV]?32:0); HN(sv)
+    HA(",\"a\":") r[l++]='0'+virt_regs[VREG_ALERT];
+    r[l++]='}';
+
+    /* Context store */
+    HA(",\"ctx\":") HN(ctx_n)
+
+    r[l++]='}'; r[l++]='\n';
+    #undef HA
+    #undef HN
+    tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, r, l);
+}
+
+
 static void __attribute__((noinline)) handle_stream(int body_start) {
     u8 *bd = http_buf + body_start;
     if (!gfx_mode) vbe_set_mode(640, 480);
@@ -1780,115 +1662,16 @@ void handle_http(void) {
         if (http_buf[i]=='/'&&http_buf[i+1]=='k'&&http_buf[i+2]=='e'&&http_buf[i+3]=='y') { handle_key(); return; }
     }
 
-    /* Check for GET /health */
-    int is_health = 0;
+    /* GET /health */
     for (int i = 0; i < http_buf_len - 6; i++) {
-        if (http_buf[i]=='/' && http_buf[i+1]=='h' && http_buf[i+2]=='e' &&
-            http_buf[i+3]=='a' && http_buf[i+4]=='l' && http_buf[i+5]=='t' && http_buf[i+6]=='h') {
-            is_health = 1; break;
+        if (http_buf[i]=='/'&&http_buf[i+1]=='h'&&http_buf[i+2]=='e'&&
+            http_buf[i+3]=='a'&&http_buf[i+4]=='l'&&http_buf[i+5]=='t'&&http_buf[i+6]=='h') {
+            handle_health(); return;
         }
-    }
-
-    if (is_health) {
-        /* Collect runtime stats */
-        static u32 uptime_ticks = 0;
-        static u32 exec_count = 0;
-        static u32 total_bytes_recv = 0;
-        uptime_ticks++;
-        total_bytes_recv += http_buf_len;
-
-        static u8 resp[512]; mem_set(resp, 0, 512);
-        int rlen = 0;
-        const char *h = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{";
-        while (*h) resp[rlen++] = *h++;
-
-        /* status */
-        h = "\"status\":\"alive\",";
-        while (*h) resp[rlen++] = *h++;
-
-        /* arch */
-        h = "\"arch\":\"i386\",";
-        while (*h) resp[rlen++] = *h++;
-
-        /* memory */
-        h = "\"memory_mb\":64,";
-        while (*h) resp[rlen++] = *h++;
-
-        /* graphics mode */
-        h = gfx_mode ? "\"gfx\":true," : "\"gfx\":false,";
-        while (*h) resp[rlen++] = *h++;
-
-        /* health requests (as proxy for uptime) */
-        h = "\"health_pings\":";
-        while (*h) resp[rlen++] = *h++;
-        /* decimal */
-        char nb[12]; int ni = 0; u32 v = uptime_ticks;
-        if (v == 0) nb[ni++] = '0';
-        else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
-        while (ni > 0) resp[rlen++] = nb[--ni];
-
-        h = ",\"cpu_busy\":false";
-        while (*h) resp[rlen++] = *h++;
-
-        /* Monitor status */
-        h = ",\"monitors\":[";
-        while (*h) resp[rlen++] = *h++;
-        int first_mon = 1;
-        for (int mi = 0; mi < MAX_MONITORS; mi++) {
-            if (!monitors[mi].active) continue;
-            if (!first_mon) resp[rlen++] = ',';
-            first_mon = 0;
-            resp[rlen++] = '{';
-            h = "\"id\":"; while (*h) resp[rlen++] = *h++;
-            resp[rlen++] = '0' + mi;
-            h = ",\"val\":"; while (*h) resp[rlen++] = *h++;
-            ni = 0; v = monitors[mi].last_value;
-            if (v == 0) nb[ni++] = '0';
-            else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
-            while (ni > 0) resp[rlen++] = nb[--ni];
-            h = ",\"fired\":"; while (*h) resp[rlen++] = *h++;
-            resp[rlen++] = monitors[mi].fired ? '1' : '0';
-            h = ",\"triggers\":"; while (*h) resp[rlen++] = *h++;
-            ni = 0; v = monitors[mi].trigger_count;
-            if (v == 0) nb[ni++] = '0';
-            else { while (v > 0) { nb[ni++] = '0' + v % 10; v /= 10; } }
-            while (ni > 0) resp[rlen++] = nb[--ni];
-            resp[rlen++] = '}';
-        }
-        resp[rlen++] = ']';
-
-        /* Virtual registers — server room (compact: key numbers) */
-        /* t=temp c=cpu co=cooling p=power s=servers(bitmask) a=alert */
-        h = ",\"vr\":{\"t\":"; while (*h) resp[rlen++] = *h++;
-        ni=0; v=virt_regs[VREG_TEMP]; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
-        h = ",\"c\":"; while (*h) resp[rlen++] = *h++;
-        ni=0; v=virt_regs[VREG_CPU_LOAD]; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
-        h = ",\"co\":"; while (*h) resp[rlen++] = *h++;
-        resp[rlen++] = '0' + virt_regs[VREG_COOLING];
-        h = ",\"p\":"; while (*h) resp[rlen++] = *h++;
-        ni=0; v=virt_regs[VREG_POWER]; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
-        /* servers as bitmask: bit0=web,1=db,2=cache,3=log,4=backup,5=dev */
-        h = ",\"srv\":"; while (*h) resp[rlen++] = *h++;
-        v = (virt_regs[VREG_SRV_WEB]?1:0)|(virt_regs[VREG_SRV_DB]?2:0)|
-            (virt_regs[VREG_SRV_CACHE]?4:0)|(virt_regs[VREG_SRV_LOG]?8:0)|
-            (virt_regs[VREG_SRV_BACKUP]?16:0)|(virt_regs[VREG_SRV_DEV]?32:0);
-        ni=0; if(v==0)nb[ni++]='0'; else{while(v>0){nb[ni++]='0'+v%10;v/=10;}} while(ni>0)resp[rlen++]=nb[--ni];
-        h = ",\"a\":"; while (*h) resp[rlen++] = *h++;
-        resp[rlen++] = '0' + virt_regs[VREG_ALERT];
-        resp[rlen++] = '}';
-
-        /* Context store info — available when ATA driver enabled */
-
-        resp[rlen++] = '}';
-        resp[rlen++] = '\n';
-
-        tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rlen);
-        return;
     }
 
     if (!is_post || body_start < 0) {
-        u8 resp[256]; mem_set(resp, 0, 256);
-        int rlen = 0;
+        u8 *resp = (u8*)0x2000200; int rlen = 0;
         const char *h = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nPOKE OS ready\n";
         while (*h) resp[rlen++] = *h++;
         tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rlen);
