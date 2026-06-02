@@ -1660,259 +1660,124 @@ static void __attribute__((noinline)) send_exec_response(int has_ret, u32 ret_ea
     tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rlen);
 }
 
+/* ── HTTP sub-handlers (each in own stack frame) ── */
+
+static void __attribute__((noinline)) handle_stream(int body_start) {
+    u8 *bd = http_buf + body_start;
+    if (!gfx_mode) vbe_set_mode(640, 480);
+    u8 resp[128]; int rl = 0;
+    const char *rp = "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n\r\nSTREAM OK\n";
+    while (*rp) resp[rl++] = *rp++;
+    tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH, resp, rl);
+
+    u8 *stream_ptr = bd + 3;
+    int stream_remain = http_buf_len - body_start - 3;
+    static u8 stream_buf[25000];
+    int sbuf_len = 0;
+    if (stream_remain > 0) { mem_copy(stream_buf, stream_ptr, stream_remain); sbuf_len = stream_remain; }
+
+    u8 recv_buf2[2048];
+    int stream_active = 1, frame_count = 0;
+    while (stream_active) {
+        while (sbuf_len >= 11) {
+            if (stream_buf[0]=='F' && stream_buf[1]=='R' && stream_buf[2]=='M') {
+                u16 fw=stream_buf[3]|(stream_buf[4]<<8), fh=stream_buf[5]|(stream_buf[6]<<8);
+                u32 fsize=stream_buf[7]|(stream_buf[8]<<8)|(stream_buf[9]<<16)|(stream_buf[10]<<24);
+                if (sbuf_len>=(int)(11+fsize)) {
+                    u8 *fp=stream_buf+11;
+                    int fox=(gfx_width-fw)/2, foy=(gfx_height-fh)/2;
+                    for(int py=0;py<fh;py++) for(int px=0;px<fw;px++){
+                        int pi=(py*fw+px)*3; if(pi+2<(int)fsize) fb_pixel(fox+px,foy+py,fp[pi],fp[pi+1],fp[pi+2]);
+                    }
+                    frame_count++;
+                    int consumed=11+fsize, left=sbuf_len-consumed;
+                    if(left>0) for(int i=0;i<left;i++) stream_buf[i]=stream_buf[consumed+i];
+                    sbuf_len=left;
+                } else break;
+            } else if(stream_buf[0]=='E'&&stream_buf[1]=='N'&&stream_buf[2]=='D') { stream_active=0; break; }
+            else { for(int i=0;i<sbuf_len-1;i++) stream_buf[i]=stream_buf[i+1]; sbuf_len--; }
+        }
+        int rlen2=nic_recv(recv_buf2);
+        if(rlen2>0) {
+            struct eth_header *re=(struct eth_header*)recv_buf2;
+            if(re->type==ETH_ARP) handle_arp(recv_buf2,rlen2);
+            else if(re->type==ETH_IP) {
+                struct ip_header *ri=(struct ip_header*)(recv_buf2+14);
+                if(ri->protocol==6) {
+                    struct tcp_header *rt=(struct tcp_header*)(recv_buf2+34);
+                    int rh=(rt->data_offset>>4)*4, rl2=((ri->total_len&0xFF)<<8)|((ri->total_len>>8)&0xFF), rd=rl2-20-rh;
+                    if(rt->flags&TCP_FIN) { stream_active=0; tcp_remote_seq=__builtin_bswap32(rt->seq)+rd+1; tcp_send(remote_mac,remote_ip,remote_port,TCP_ACK|TCP_FIN,0,0); }
+                    else if(rd>0) { tcp_remote_seq=__builtin_bswap32(rt->seq)+rd; tcp_send(remote_mac,remote_ip,remote_port,TCP_ACK,0,0);
+                        if(sbuf_len+rd>=(int)sizeof(stream_buf)) sbuf_len=0;
+                        mem_copy(stream_buf+sbuf_len,recv_buf2+34+rh,rd); sbuf_len+=rd; }
+                }
+            }
+        }
+    }
+    http_buf_len = 0;
+}
+
+static void __attribute__((noinline)) handle_img(int body_start) {
+    u8 *bd = http_buf + body_start;
+    u16 w=bd[3]|(bd[4]<<8), h=bd[5]|(bd[6]<<8);
+    u8 *px=bd+7; int avail=http_buf_len-body_start-7;
+    if(!gfx_mode) vbe_set_mode(640,480);
+    fb_clear(30,30,50);
+    int ox=(gfx_width-w)/2, oy=(gfx_height-h)/2;
+    for(int py=0;py<h;py++) for(int pxx=0;pxx<w;pxx++){
+        int pi=(py*w+pxx)*3; if(pi+2<avail) fb_pixel(ox+pxx,oy+py,px[pi],px[pi+1],px[pi+2]);
+    }
+    u8 *r=(u8*)0x2000100; int rl=0;
+    const char ok[]="HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nIMG OK\n";
+    for(int i=0;ok[i];i++) r[rl++]=ok[i];
+    tcp_send(remote_mac,remote_ip,remote_port,TCP_ACK|TCP_PSH|TCP_FIN,r,rl);
+}
+
+static void __attribute__((noinline)) handle_draw(int body_start) {
+    u8 *bd = http_buf + body_start;
+    if(!gfx_mode) vbe_set_mode(640,480);
+    fb_clear(20,20,30);
+    int cl=http_buf_len-body_start-4;
+    if(cl>0&&cl<CODE_BUF_SIZE) { mem_copy(code_buf,bd+4,cl); void(*fn)(void)=(void(*)(void))code_buf; fn(); }
+    u8 *r=(u8*)0x2000100; int rl=0;
+    const char ok[]="HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nDRAW OK\n";
+    for(int i=0;ok[i];i++) r[rl++]=ok[i];
+    tcp_send(remote_mac,remote_ip,remote_port,TCP_ACK|TCP_PSH|TCP_FIN,r,rl);
+}
+
+static void __attribute__((noinline)) handle_key(void) {
+    volatile u32 wi=kb_write_idx;
+    u8 last=(wi>0)?kb_ring[(wi-1)%KB_BUF_SIZE]:0;
+    u8 *r=(u8*)0x2000100; int rl=0;
+    const char hdr[]="HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nkey=";
+    for(int i=0;hdr[i];i++) r[rl++]=hdr[i];
+    if(last==0) r[rl++]='0';
+    else { char d[4]; int di=0; u32 v=last; while(v>0){d[di++]='0'+v%10;v/=10;} while(di>0) r[rl++]=d[--di]; }
+    r[rl++]='\n';
+    tcp_send(remote_mac,remote_ip,remote_port,TCP_ACK|TCP_PSH|TCP_FIN,r,rl);
+}
+
+/* ── Main HTTP dispatcher (now thin) ── */
+
 void handle_http(void) {
-    /* Find POST /poke */
-    int is_post = 0;
-    int body_start = -1;
-
+    int is_post = 0, body_start = -1;
     for (int i = 0; i < http_buf_len - 3; i++) {
-        if (http_buf[i] == 'P' && http_buf[i+1] == 'O' && http_buf[i+2] == 'S' && http_buf[i+3] == 'T')
-            is_post = 1;
-        if (http_buf[i] == '\r' && http_buf[i+1] == '\n' && http_buf[i+2] == '\r' && http_buf[i+3] == '\n') {
-            body_start = i + 4;
-            break;
-        }
+        if (http_buf[i]=='P'&&http_buf[i+1]=='O'&&http_buf[i+2]=='S'&&http_buf[i+3]=='T') is_post=1;
+        if (http_buf[i]=='\r'&&http_buf[i+1]=='\n'&&http_buf[i+2]=='\r'&&http_buf[i+3]=='\n') { body_start=i+4; break; }
     }
 
-    /* Check for stream protocol: body starts with "STR" */
-    if (is_post && body_start >= 0 && (http_buf_len - body_start) >= 3) {
+    /* Protocol dispatch for POST body */
+    if (is_post && body_start >= 0) {
         u8 *bd = http_buf + body_start;
-        if (bd[0] == 'S' && bd[1] == 'T' && bd[2] == 'R') {
-            serial_print("[STREAM] entering stream mode\n");
-            if (!gfx_mode) vbe_set_mode(640, 480);
-
-            /* Send OK immediately, then keep connection open */
-            u8 resp[128]; mem_set(resp, 0, 128);
-            int rl = 0;
-            const char *rp = "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n\r\nSTREAM OK\n";
-            while (*rp) resp[rl++] = *rp++;
-            tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH, resp, rl);
-
-            /* Enter stream receive loop */
-            /* Remaining data after "STR" might have first frame */
-            u8 *stream_ptr = bd + 3;
-            int stream_remain = http_buf_len - body_start - 3;
-
-            /* Stream state */
-            static u8 stream_buf[25000]; /* 80*80*3=19200 + header + margin */
-            int sbuf_len = 0;
-
-            /* Copy any remaining data */
-            if (stream_remain > 0) {
-                mem_copy(stream_buf, stream_ptr, stream_remain);
-                sbuf_len = stream_remain;
-            }
-
-            /* Stream loop — keep receiving and rendering frames */
-            u8 recv_buf2[2048];
-            int stream_active = 1;
-            int frame_count = 0;
-
-            while (stream_active) {
-                /* Check for FRM header in buffer */
-                while (sbuf_len >= 11) { /* FRM(3) + W(2) + H(2) + size(4) = 11 */
-                    if (stream_buf[0] == 'F' && stream_buf[1] == 'R' && stream_buf[2] == 'M') {
-                        u16 fw = stream_buf[3] | (stream_buf[4] << 8);
-                        u16 fh = stream_buf[5] | (stream_buf[6] << 8);
-                        u32 fsize = stream_buf[7] | (stream_buf[8] << 8) |
-                                   (stream_buf[9] << 16) | (stream_buf[10] << 24);
-
-                        if (sbuf_len >= (int)(11 + fsize)) {
-                            /* Full frame available — render it */
-                            u8 *fpixels = stream_buf + 11;
-                            int fox = (gfx_width - fw) / 2;
-                            int foy = (gfx_height - fh) / 2;
-
-                            for (int py = 0; py < fh; py++) {
-                                for (int px = 0; px < fw; px++) {
-                                    int pi = (py * fw + px) * 3;
-                                    if (pi + 2 < (int)fsize)
-                                        fb_pixel(fox + px, foy + py,
-                                                fpixels[pi], fpixels[pi+1], fpixels[pi+2]);
-                                }
-                            }
-                            frame_count++;
-                            serial_print("[FRM] #");
-                            serial_hex(frame_count);
-                            serial_print(" w="); serial_hex(fw);
-                            serial_print(" h="); serial_hex(fh);
-                            serial_print(" sz="); serial_hex(fsize);
-                            serial_print(" buf="); serial_hex(sbuf_len);
-                            serial_print("\n");
-
-                            /* Shift buffer */
-                            int consumed = 11 + fsize;
-                            int left = sbuf_len - consumed;
-                            if (left > 0) {
-                                for (int i = 0; i < left; i++)
-                                    stream_buf[i] = stream_buf[consumed + i];
-                            }
-                            sbuf_len = left;
-                        } else {
-                            break; /* Need more data */
-                        }
-                    } else if (stream_buf[0] == 'E' && stream_buf[1] == 'N' && stream_buf[2] == 'D') {
-                        stream_active = 0;
-                        break;
-                    } else {
-                        /* Unknown byte, skip */
-                        for (int i = 0; i < sbuf_len - 1; i++)
-                            stream_buf[i] = stream_buf[i + 1];
-                        sbuf_len--;
-                    }
-                }
-
-                /* Receive more TCP data */
-                int rlen = nic_recv(recv_buf2);
-                if (rlen > 0) {
-                    struct eth_header *re = (struct eth_header *)recv_buf2;
-                    if (re->type == ETH_ARP) {
-                        handle_arp(recv_buf2, rlen);
-                    } else if (re->type == ETH_IP) {
-                        struct ip_header *ri = (struct ip_header *)(recv_buf2 + 14);
-                        if (ri->protocol == 6) {
-                            struct tcp_header *rt = (struct tcp_header *)(recv_buf2 + 34);
-                            int rt_hdr = (rt->data_offset >> 4) * 4;
-                            int rt_iplen = ((ri->total_len & 0xFF) << 8) | ((ri->total_len >> 8) & 0xFF);
-                            int rt_datalen = rt_iplen - 20 - rt_hdr;
-
-                            if (rt->flags & TCP_FIN) {
-                                stream_active = 0;
-                                tcp_remote_seq = __builtin_bswap32(rt->seq) + rt_datalen + 1;
-                                tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_FIN, 0, 0);
-                            } else if (rt_datalen > 0) {
-                                u8 *rt_data = recv_buf2 + 34 + rt_hdr;
-                                tcp_remote_seq = __builtin_bswap32(rt->seq) + rt_datalen;
-                                tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK, 0, 0);
-
-                                /* Append to stream buffer — drop old data if full */
-                                if (sbuf_len + rt_datalen >= (int)sizeof(stream_buf)) {
-                                    /* Buffer full — skip to latest data */
-                                    sbuf_len = 0;
-                                }
-                                mem_copy(stream_buf + sbuf_len, rt_data, rt_datalen);
-                                sbuf_len += rt_datalen;
-                            }
-                        }
-                    }
-                }
-            }
-
-            serial_print("[STREAM] ended. frames=");
-            serial_hex(frame_count);
-            serial_print("\n");
-
-            http_buf_len = 0;
-            return;
-        }
+        int blen = http_buf_len - body_start;
+        if (blen>=3 && bd[0]=='S'&&bd[1]=='T'&&bd[2]=='R') { handle_stream(body_start); return; }
+        if (blen>=7 && bd[0]=='I'&&bd[1]=='M'&&bd[2]=='G') { handle_img(body_start); return; }
+        if (blen>=4 && bd[0]=='D'&&bd[1]=='R'&&bd[2]=='A'&&bd[3]=='W') { handle_draw(body_start); return; }
     }
 
-    /* Check for image protocol: body starts with "IMG" */
-    if (is_post && body_start >= 0 && (http_buf_len - body_start) >= 7) {
-        u8 *bd = http_buf + body_start;
-        if (bd[0] == 'I' && bd[1] == 'M' && bd[2] == 'G') {
-            u16 img_w = bd[3] | (bd[4] << 8);
-            u16 img_h = bd[5] | (bd[6] << 8);
-            u8 *pixels = bd + 7;
-            int pixel_count = img_w * img_h;
-            int data_available = http_buf_len - body_start - 7;
-
-            serial_print("[POKE] IMG received: ");
-            serial_hex(img_w); serial_print("x"); serial_hex(img_h);
-            serial_print("\n");
-
-            /* Switch to graphics mode */
-            if (!gfx_mode) vbe_set_mode(640, 480);
-            fb_clear(30, 30, 50); /* dark blue-gray, not pure black */
-
-            /* Debug: directly write to framebuffer instead of using fb_pixel */
-            serial_print("[IMG] w="); serial_hex(img_w);
-            serial_print(" h="); serial_hex(img_h);
-            serial_print(" data_avail="); serial_hex(data_available);
-            serial_print(" pixels_ptr="); serial_hex((u32)pixels);
-            serial_print(" first3=");
-            serial_hex(pixels[0]); serial_putc(',');
-            serial_hex(pixels[1]); serial_putc(',');
-            serial_hex(pixels[2]);
-            serial_print("\n");
-
-            int ox = (gfx_width - img_w) / 2;
-            int oy = (gfx_height - img_h) / 2;
-
-            /* Draw using pitch-aware fb_pixel */
-            int drawn = 0;
-            for (int py = 0; py < (int)img_h; py++) {
-                for (int px = 0; px < (int)img_w; px++) {
-                    int pi = (py * img_w + px) * 3;
-                    if (pi + 2 >= data_available) break;
-                    fb_pixel(ox + px, oy + py, pixels[pi], pixels[pi+1], pixels[pi+2]);
-                    drawn++;
-                }
-            }
-            serial_print("[IMG] drawn="); serial_hex(drawn); serial_print("\n");
-
-            /* Send response */
-            u8 resp[128]; mem_set(resp, 0, 128);
-            int rl = 0;
-            const char *rp = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nIMG OK\n";
-            while (*rp) resp[rl++] = *rp++;
-            tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rl);
-            serial_print("[POKE] IMG drawn\n");
-            return;
-        }
-    }
-
-    /* Check for DRAW command: body starts with "DRAW" → procedural drawing */
-    if (is_post && body_start >= 0 && (http_buf_len - body_start) >= 4) {
-        u8 *bd = http_buf + body_start;
-        if (bd[0] == 'D' && bd[1] == 'R' && bd[2] == 'A' && bd[3] == 'W') {
-            serial_print("[POKE] DRAW command\n");
-
-            if (!gfx_mode) vbe_set_mode(640, 480);
-            fb_clear(20, 20, 30); /* dark bg */
-
-            /* Parse simple draw commands after "DRAW" */
-            /* For now: just execute the code that follows as machine code */
-            u8 *code = bd + 4;
-            int code_len = http_buf_len - body_start - 4;
-            if (code_len > 0 && code_len < CODE_BUF_SIZE) {
-                mem_copy(code_buf, code, code_len);
-                /* Pass framebuffer functions via known addresses */
-                /* The code can call our fb_pixel etc via function pointers */
-                void (*fn)(void) = (void (*)(void))code_buf;
-                fn();
-            }
-
-            u8 resp[128]; mem_set(resp, 0, 128);
-            int rl = 0;
-            const char *rp = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nDRAW OK\n";
-            while (*rp) resp[rl++] = *rp++;
-            tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, resp, rl);
-            return;
-        }
-    }
-
-    serial_print("[POKE] HTTP request received, is_post=");
-    serial_putc(is_post ? '1' : '0');
-    serial_print(" body_start=");
-    serial_hex(body_start);
-    serial_print("\n");
-
-    /* Check for GET /key — return last scancode */
+    /* GET route dispatch */
     for (int i = 0; i < http_buf_len - 3; i++) {
-        if (http_buf[i]=='/' && http_buf[i+1]=='k' && http_buf[i+2]=='e' && http_buf[i+3]=='y') {
-            volatile u32 wi = kb_write_idx;  /* force re-read from memory */
-            u8 last = (wi > 0) ? kb_ring[(wi - 1) % KB_BUF_SIZE] : 0;
-            u8 kr[80]; int kl = 0;
-            const char *kh = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n";
-            while (*kh) kr[kl++] = *kh++;
-            kh = "key="; while (*kh) kr[kl++] = *kh++;
-            if (last == 0) { kr[kl++] = '0'; }
-            else { char d[4]; int di=0; u32 lv=last; while(lv>0){d[di++]='0'+lv%10;lv/=10;} while(di>0)kr[kl++]=d[--di]; }
-            kr[kl++] = '\n';
-            tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK | TCP_PSH | TCP_FIN, kr, kl);
-            return;
-        }
+        if (http_buf[i]=='/'&&http_buf[i+1]=='k'&&http_buf[i+2]=='e'&&http_buf[i+3]=='y') { handle_key(); return; }
     }
 
     /* Check for GET /health */
