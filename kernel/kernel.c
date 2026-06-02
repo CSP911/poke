@@ -896,6 +896,9 @@ static void __attribute__((noinline)) virtio_blk_init(void) {
     vqu = (u32*)ua;
     outl(vio_io+0x08, VQ_MEM>>12);
     outb(vio_io+0x12, 0x0F); /* driver ok */
+    /* Sync used ring index to current state */
+    vqu_l = *(u16*)((u8*)vqu+2);
+    vqa_i = vqu_l;  /* match avail to used so first request works */
     vio_ok = 1;
     vga_print("  [VIO] Disk ready\n");
 }
@@ -913,9 +916,11 @@ static int __attribute__((noinline)) vio_rw(u32 sec, u8 *buf, int wr) {
     vqa_i++;
     *(u16*)((u8*)vqa+2)=vqa_i;
     outw(vio_io+0x10, 0);
+    u16 expect = vqu_l + 1;
     for(int t=0;t<1000000;t++) {
-        if(*(u16*)((u8*)vqu+2)!=vqu_l) {
-            vqu_l=*(u16*)((u8*)vqu+2);
+        u16 ui=*(volatile u16*)((u8*)vqu+2);
+        if(ui==expect) {
+            vqu_l=expect;
             if(*bst==0) { if(!wr) mem_copy(buf,bdat,512); return 0; }
             return -1;
         }

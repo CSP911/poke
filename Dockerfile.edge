@@ -42,7 +42,7 @@ RUN dd if=/dev/zero of=/poke/store.img bs=512 count=1024 2>/dev/null
 
 CMD ["qemu-system-i386", \
      "-drive", "format=raw,file=/poke/poke.img", \
-     "-drive", "format=raw,file=/poke/store.img,if=none,id=store", \
+     "-drive", "format=raw,file=/poke/store.img,if=none,id=store,cache=writethrough", \
      "-device", "virtio-blk-pci,drive=store", \
      "-m", "64M", \
      "-vga", "std", \
