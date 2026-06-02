@@ -223,28 +223,34 @@ function deployMonitor(endpoint, monitorBinary, intervalMs, condOp, condVal, hub
   })
 }
 
-// ── Read edge context store (via code injection — POKE way) ──
-// Sends C code that reads the context header from memory at 0x300000
-// Falls back to reading health ctx count if code injection fails
+// ── Read edge context store (GET /store) ──
 async function readEdgeContext(endpoint) {
-  // The context header is at memory 0x300000 (if memory-mapped)
-  // or on virtio disk sector 0. We read from memory since ctx_store_init
-  // copies disk header into ctx_n/ctx_wi/ctx_tot globals.
-  // Simplest: just use health endpoint's ctx field.
-  try {
-    const healthRes = await new Promise((resolve, reject) => {
-      http.get(endpoint + '/health', { timeout: 5000 }, (res) => {
-        let d = ''; res.on('data', c => d += c)
-        res.on('end', () => { try { resolve(JSON.parse(d)) } catch(e) { reject(e) } })
-      }).on('error', reject)
-    })
-    return {
-      entries: healthRes.ctx || 0,
-      edgeId: endpoint,
-    }
-  } catch (e) {
-    return { entries: 0, error: e.message }
-  }
+  return new Promise((resolve, reject) => {
+    http.get(endpoint + '/store', { timeout: 10000 }, (res) => {
+      let d = ''; res.on('data', c => d += c)
+      res.on('end', () => {
+        try {
+          const lines = d.trim().split('\n')
+          if (lines.length === 0) { resolve({ count: 0, entries: [] }); return }
+          // Line 0: count,write_idx,total
+          const [count, writeIdx, total] = lines[0].split(',').map(Number)
+          // Lines 1+: ts:type:data
+          const entries = []
+          for (let i = 1; i < lines.length; i++) {
+            const parts = lines[i].match(/^(\d+):(\d+):(.*)$/)
+            if (parts) {
+              entries.push({
+                timestamp: parseInt(parts[1]),
+                type: parseInt(parts[2]),
+                data: parts[3],
+              })
+            }
+          }
+          resolve({ count, writeIdx, total, entries })
+        } catch (e) { resolve({ count: 0, entries: [], error: e.message }) }
+      })
+    }).on('error', e => resolve({ count: 0, entries: [], error: e.message }))
+  })
 }
 
 // ── Write context to edge store (CTX protocol) ──

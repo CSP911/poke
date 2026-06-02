@@ -286,17 +286,18 @@ async function handleRequest(req, res) {
     return
   }
 
-  // GET /edge/context — read context stats from all alive edges
+  // GET /edge/context — read full context from all alive edges
   if (req.method === 'GET' && url.pathname === '/edge/context') {
     const { readEdgeContext } = require('./transport')
     const results = []
     for (const [id, node] of nodes) {
       if (node.status !== 'alive' || node.endpoint.startsWith('polling:')) continue
+      if (node.endpoint.startsWith('tcp:')) continue
       try {
         const ctx = await readEdgeContext(node.endpoint)
-        results.push({ edge: id, entries: ctx.entries })
+        results.push({ edge: id, ...ctx })
       } catch (e) {
-        results.push({ edge: id, error: e.message })
+        results.push({ edge: id, count: 0, entries: [], error: e.message })
       }
     }
     res.end(JSON.stringify(results, null, 2))

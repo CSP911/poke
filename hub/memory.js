@@ -621,6 +621,29 @@ async function syncToEdge(entry) {
   }
 }
 
+// ── Recover context from edges (on hub startup) ──
+async function recoverFromEdges() {
+  try {
+    const { nodes } = require('./nodes')
+    const { readEdgeContext } = require('./transport')
+
+    for (const [id, node] of nodes) {
+      if (node.status !== 'alive' || node.endpoint.startsWith('polling:') || node.endpoint.startsWith('tcp:')) continue
+      try {
+        const ctx = await readEdgeContext(node.endpoint)
+        if (ctx.entries && ctx.entries.length > 0) {
+          log.info(`[memory] recovered ${ctx.entries.length} entries from edge ${id}`)
+          for (const entry of ctx.entries) {
+            addFact(`[edge:${id}] ${entry.data}`, 'edge-recovery', 'context')
+          }
+        }
+      } catch (e) {
+        log.debug(`[memory] recovery from ${id} failed: ${e.message}`)
+      }
+    }
+  } catch (e) { /* nodes not loaded */ }
+}
+
 // ── Auto-migrate on load ──
 try { migrateIfNeeded() } catch (e) { /* ignore */ }
 
@@ -638,4 +661,5 @@ module.exports = {
   rebuildIndex,
   compressOldEntries,
   syncToEdge,
+  recoverFromEdges,
 }
