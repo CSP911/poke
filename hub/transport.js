@@ -281,6 +281,36 @@ function writeEdgeContext(endpoint, type, timestamp, data) {
   })
 }
 
+// ── Read PCI device list from edge ──
+function readEdgePCI(endpoint) {
+  return new Promise((resolve, reject) => {
+    http.get(endpoint + '/pci', { timeout: 10000 }, (res) => {
+      let d = ''; res.on('data', c => d += c)
+      res.on('end', () => {
+        try {
+          const lines = d.trim().split('\n')
+          const count = parseInt(lines[0])
+          const devices = []
+          for (let i = 1; i < lines.length; i++) {
+            const m = lines[i].match(/^(\d+),([0-9A-F]{4}):([0-9A-F]{4}),([0-9A-F]{2}):([0-9A-F]{2}),([0-9A-F]+)$/)
+            if (m) {
+              devices.push({
+                slot: parseInt(m[1]),
+                vendor: m[2],
+                device: m[3],
+                class: m[4],
+                subclass: m[5],
+                bar0: m[6],
+              })
+            }
+          }
+          resolve({ count, devices })
+        } catch (e) { resolve({ count: 0, devices: [], error: e.message }) }
+      })
+    }).on('error', e => resolve({ count: 0, devices: [], error: e.message }))
+  })
+}
+
 // ── Shutdown edge (DIE protocol) ──
 function shutdownEdge(endpoint) {
   return new Promise((resolve, reject) => {
@@ -313,5 +343,6 @@ module.exports = {
   shutdownEdge,
   readEdgeContext,
   writeEdgeContext,
+  readEdgePCI,
   PokeTransportError,
 }

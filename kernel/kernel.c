@@ -205,6 +205,41 @@ void pci_write(u8 bus, u8 slot, u8 func, u8 offset, u32 val) {
     outl(0xCFC, val);
 }
 
+/* ── PCI Device Registry (boot-time scan) ── */
+#define PCI_MAX_DEVS 16
+struct pci_dev {
+    u8  slot;
+    u16 vendor;
+    u16 device;
+    u8  class;
+    u8  subclass;
+    u32 bar0;
+};
+static struct pci_dev pci_devs[PCI_MAX_DEVS];
+static int pci_dev_count = 0;
+
+void pci_scan(void) {
+    pci_dev_count = 0;
+    for (int s = 0; s < 32 && pci_dev_count < PCI_MAX_DEVS; s++) {
+        u32 id = pci_read(0, s, 0, 0);
+        u16 ven = id & 0xFFFF;
+        if (ven == 0xFFFF || ven == 0) continue;
+        u16 dev = (id >> 16) & 0xFFFF;
+        u32 cls = pci_read(0, s, 0, 0x08);
+        u32 bar = pci_read(0, s, 0, 0x10);
+        struct pci_dev *d = &pci_devs[pci_dev_count++];
+        d->slot = s;
+        d->vendor = ven;
+        d->device = dev;
+        d->class = (cls >> 24) & 0xFF;
+        d->subclass = (cls >> 16) & 0xFF;
+        d->bar0 = bar;
+    }
+    vga_print("  [PCI] ");
+    vga_print_dec(pci_dev_count);
+    vga_print(" devices\n");
+}
+
 /* ── E1000 Network Driver ── */
 #define E1000_VENDOR 0x8086
 #define E1000_DEVICE 0x100E  /* 82540EM */
@@ -1745,6 +1780,36 @@ static void __attribute__((noinline)) handle_store(void) {
     tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, r, l);
 }
 
+/* GET /pci — return all discovered PCI devices */
+static void __attribute__((noinline)) handle_pci(void) {
+    u8 *r = (u8 *)0x2001000;
+    int l = 0;
+    const char hdr[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n";
+    for (int i = 0; hdr[i]; i++) r[l++] = hdr[i];
+
+    #define PN(val) { char nb[12]; int ni=0; u32 vv=(val); \
+        if(vv==0)nb[ni++]='0'; else{while(vv>0){nb[ni++]='0'+vv%10;vv/=10;}} \
+        while(ni>0)r[l++]=nb[--ni]; }
+    /* hex helper */
+    #define PH(val,digits) { u32 vv=(val); for(int sh=(digits-1)*4;sh>=0;sh-=4){ \
+        u8 nib=(vv>>sh)&0xF; r[l++]=nib<10?'0'+nib:'A'+nib-10; } }
+
+    /* Line 1: device count */
+    PN(pci_dev_count) r[l++]='\n';
+
+    /* Each device: slot,vendor:device,class:subclass,bar0 */
+    for (int i = 0; i < pci_dev_count && l < 1200; i++) {
+        struct pci_dev *d = &pci_devs[i];
+        PN(d->slot) r[l++]=',';
+        PH(d->vendor, 4) r[l++]=':'; PH(d->device, 4) r[l++]=',';
+        PH(d->class, 2) r[l++]=':'; PH(d->subclass, 2) r[l++]=',';
+        PH(d->bar0, 8) r[l++]='\n';
+    }
+    #undef PN
+    #undef PH
+    tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, r, l);
+}
+
 /* ── Main HTTP dispatcher (now thin) ── */
 
 void handle_http(void) {
@@ -1773,6 +1838,7 @@ void handle_http(void) {
         if (http_buf[i]=='/') {
             if (http_buf[i+1]=='h'&&http_buf[i+2]=='e'&&http_buf[i+3]=='a'&&http_buf[i+4]=='l') { handle_health(); return; }
             if (http_buf[i+1]=='s'&&http_buf[i+2]=='t'&&http_buf[i+3]=='o'&&http_buf[i+4]=='r') { handle_store(); return; }
+            if (http_buf[i+1]=='p'&&http_buf[i+2]=='c'&&http_buf[i+3]=='i') { handle_pci(); return; }
         }
     }
 
@@ -2098,8 +2164,11 @@ void kernel_main(void) {
     vga_set_color(0x07, 0x00);
     vga_print("  inject & run\n\n");
 
+    /* PCI device discovery */
+    pci_scan();
+
     /* Init network */
-    serial_print("[POKE] PCI scan...\n");
+    serial_print("[POKE] NIC scan...\n");
     vga_print("  [NIC] Scanning PCI... ");
     if (e1000_find()) {
         nic_is_ne2k = 0;

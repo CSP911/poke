@@ -10,6 +10,7 @@ const { generateAssembly, generateImageCode, planCommand } = require('./llm')
 const { compileAssembly } = require('./compiler')
 const { pokeNode, pokeNodeRaw } = require('./transport')
 const memory = require('./memory')
+const { incubate } = require('./incubate')
 const trace = require('./trace')
 
 // ── Security: Auth + Helpers ──
@@ -78,6 +79,37 @@ async function handleRequest(req, res) {
     if (!node || !node.node_id || !node.endpoint) { jsonError(res, 400, 'invalid body: need node_id, endpoint'); return }
     enrollNode(node)
     res.end(JSON.stringify({ ok: true, enrolled: node.node_id }))
+    // Auto-incubate after enrollment (non-blocking)
+    if (node.endpoint && !node.endpoint.startsWith('polling:')) {
+      setTimeout(() => {
+        incubate(node.node_id, node.endpoint).then(report => {
+          log.info(`[enroll] incubation complete: ${report.profiles?.length || 0} new profiles`)
+          // Reload profiles so new tools are available
+          if (report.profiles?.length > 0) {
+            const { loadProfiles, profiles } = require('./nodes')
+            profiles.clear()
+            loadProfiles()
+          }
+        }).catch(e => log.warn(`[enroll] incubation failed: ${e.message}`))
+      }, 2000)  // wait 2s for edge to stabilize
+    }
+    return
+  }
+
+  // GET /incubate/:id — manually trigger incubation for an edge
+  if (req.method === 'GET' && url.pathname.startsWith('/incubate/')) {
+    const nodeId = url.pathname.slice('/incubate/'.length)
+    const node = nodes.get(nodeId)
+    if (!node) { jsonError(res, 404, 'edge not found'); return }
+    try {
+      const report = await incubate(nodeId, node.endpoint)
+      if (report.profiles?.length > 0) {
+        const { loadProfiles, profiles } = require('./nodes')
+        profiles.clear()
+        loadProfiles()
+      }
+      res.end(JSON.stringify(report, null, 2))
+    } catch (e) { jsonError(res, 500, e.message) }
     return
   }
 
