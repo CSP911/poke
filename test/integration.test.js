@@ -90,8 +90,11 @@ const tests = [
   }),
 
   test('QEMU edge boots and responds', async () => {
-    // Clean + start
+    // Clean: remove test container AND any other container on port 8080
     try { execSync(`docker rm -f ${CONTAINER} 2>/dev/null`) } catch(e) {}
+    try { execSync(`docker rm -f poke-edge-test 2>/dev/null`) } catch(e) {}
+    try { execSync(`docker rm -f $(docker ps -q --filter publish=8080) 2>/dev/null`) } catch(e) {}
+    await sleep(1000)
     execSync(`docker run -d --name ${CONTAINER} -p 8080:8080 poke-edge`, { timeout: 10000 })
     await sleep(12000)
     const health = await httpGet(EDGE_URL + '/health')
@@ -187,6 +190,50 @@ const tests = [
 
   test('asm_arm.js: ARM64 assembler (49 built-in tests)', async () => {
     execSync('node test/asm_arm.test.js', { timeout: 10000 })
+  }),
+
+  // === Scenario System (uses direct edge calls, no hub needed) ===
+  test('Scenario: virtual registers readable', async () => {
+    const h = JSON.parse(await httpGet(EDGE_URL + '/health'))
+    assert(typeof h.vr === 'object', 'no virtual registers')
+    assert(typeof h.vr.t === 'number', 'no temp register')
+    assert(typeof h.vr.c === 'number', 'no cpu register')
+    assert(typeof h.vr.p === 'number', 'no power register')
+  }),
+
+  test('Scenario: virtual registers writable (reset)', async () => {
+    // Write temp=22 via code injection
+    const { compileAssembly } = require('../hub/compiler')
+    const { pokeNode } = require('../hub/transport')
+    const bin = await compileAssembly('BITS 32\nmov dword [0x200000], 22\nmov eax, [0x200000]\nret')
+    const r = await pokeNode(EDGE_URL, bin)
+    assert(r.includes('eax=22'), 'virt reg write failed: ' + r)
+  }),
+
+  test('Incubation: 13+ devices (7 PCI + 6 virtual)', async () => {
+    const data = await httpGet(EDGE_URL + '/pci')
+    const count = parseInt(data.trim().split('\n')[0])
+    assert(count >= 13, 'expected 13+ devices, got ' + count)
+    assert(data.includes('504B:0001'), 'missing virtual temp sensor')
+    assert(data.includes('8086:100E'), 'missing e1000 NIC')
+  }),
+
+  test('ASM cache: sketches loaded', async () => {
+    const asmcache = require('../hub/asmcache')
+    const list = asmcache.list()
+    assert(list.length >= 10, 'expected 10+ templates, got ' + list.length)
+    assert(list.some(t => t.key.includes('network')), 'missing network sketch')
+    assert(list.some(t => t.key.includes('sensor')), 'missing sensor sketch')
+  }),
+
+  test('ASM cache: resolve + compile', async () => {
+    const asmcache = require('../hub/asmcache')
+    asmcache.register('test_add', 'BITS 32\nmov eax, {{A}}\nadd eax, {{B}}\nret', ['A','B'], 'test', ['test'])
+    const bin = await asmcache.resolve('test_add', {A:'10', B:'20'})
+    assert(bin && bin.length > 0, 'resolve failed')
+    const { pokeNode } = require('../hub/transport')
+    const r = await pokeNode(EDGE_URL, bin)
+    assert(r.includes('eax=30'), 'cache exec failed: ' + r)
   }),
 
   // === DIE (shutdown) — run last ===
