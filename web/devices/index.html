@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HEX — Device Incubation</title>
+<title>HEX — Assembly Library</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
@@ -13,126 +13,178 @@ body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFo
 .header a{color:#8b949e;text-decoration:none;font-size:12px;margin-left:16px}
 .header a:hover{color:#58a6ff}
 
-.controls{padding:12px 24px;background:#161b22;border-bottom:1px solid #30363d;display:flex;gap:10px;align-items:center}
+.controls{padding:12px 24px;background:#161b22;border-bottom:1px solid #30363d;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:600}
 .btn-scan{background:#238636;color:#fff}
 .btn-scan:hover{background:#2ea043}
 .edge-sel{background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:6px 12px;border-radius:6px;font-size:12px}
+.tag-filter{display:flex;gap:6px;margin-left:auto}
+.tag-btn{padding:4px 10px;border-radius:12px;border:1px solid #30363d;background:none;color:#8b949e;font-size:10px;cursor:pointer}
+.tag-btn.active{background:#1f6feb20;color:#58a6ff;border-color:#58a6ff}
+.tag-btn:hover{border-color:#58a6ff}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;padding:20px 24px}
-.card{background:#161b22;border:1px solid #30363d;border-radius:10px;overflow:hidden}
-.card-hdr{padding:10px 14px;border-bottom:1px solid #21262d;display:flex;align-items:center;justify-content:space-between}
-.card-hdr .name{font-size:13px;font-weight:700}
-.card-hdr .id{font-size:11px;color:#8b949e;font-family:monospace}
-.card-hdr .badge{font-size:9px;padding:2px 8px;border-radius:8px}
-.badge.network{background:#1f6feb20;color:#58a6ff}
-.badge.storage{background:#23863620;color:#3fb950}
-.badge.display{background:#d2992220;color:#d29922}
-.badge.rng{background:#a371f720;color:#a371f7}
-.badge.bridge{background:#21262d;color:#484f58}
-.badge.unknown{background:#21262d;color:#8b949e}
+.stats{padding:8px 24px;background:#0d1117;border-bottom:1px solid #21262d;font-size:11px;color:#8b949e;display:flex;gap:20px}
+.stat-val{color:#e6edf3;font-weight:600}
 
-.card-body{padding:10px 14px;font-size:11px}
-.field{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #21262d}
-.field .fk{color:#8b949e}
-.field .fv{font-family:monospace;color:#e6edf3}
+.list{padding:16px 24px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 180px);overflow-y:auto}
+.list::-webkit-scrollbar{width:6px}
+.list::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
 
-.ops{margin-top:8px}
-.ops h4{font-size:10px;color:#8b949e;text-transform:uppercase;margin-bottom:4px}
-.op{padding:4px 8px;background:#0d1117;border-radius:4px;margin-bottom:3px;font-size:11px}
-.op .op-name{color:#58a6ff;font-weight:600}
-.op .op-val{color:#3fb950;font-family:monospace;float:right}
-.op .op-desc{color:#8b949e;font-size:10px;display:block;margin-top:2px}
+.asm-card{background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:hidden;transition:border-color 0.15s}
+.asm-card:hover{border-color:#58a6ff}
+.asm-hdr{padding:10px 14px;display:flex;align-items:center;gap:10px;cursor:pointer}
+.asm-key{font-size:13px;font-weight:700;color:#58a6ff;font-family:monospace}
+.asm-desc{font-size:11px;color:#8b949e;flex:1}
+.asm-tags{display:flex;gap:4px}
+.asm-tag{font-size:9px;padding:2px 6px;border-radius:8px;background:#21262d;color:#8b949e}
+.asm-tag.network{background:#1f6feb15;color:#58a6ff}
+.asm-tag.storage{background:#23863615;color:#3fb950}
+.asm-tag.display{background:#d2992215;color:#d29922}
+.asm-tag.math{background:#a371f715;color:#a371f7}
+.asm-tag.probe{background:#f8514915;color:#f85149}
+.asm-tag.generic{background:#21262d;color:#8b949e}
+.asm-uses{font-size:10px;color:#484f58;min-width:50px;text-align:right}
 
-.empty{text-align:center;padding:60px;color:#484f58}
+.asm-body{display:none;border-top:1px solid #21262d;padding:12px 14px}
+.asm-card.open .asm-body{display:block}
+
+.asm-section{margin-bottom:10px}
+.asm-section h4{font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.asm-code{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 12px;font-family:'SF Mono',Monaco,monospace;font-size:12px;line-height:1.6;color:#e6edf3;white-space:pre;overflow-x:auto}
+.asm-code .kw{color:#ff7b72}
+.asm-code .reg{color:#79c0ff}
+.asm-code .num{color:#a5d6ff}
+.asm-code .param{color:#ffa657;font-weight:700}
+.asm-code .cmt{color:#484f58}
+
+.asm-params{display:flex;gap:8px;flex-wrap:wrap}
+.asm-param{background:#0d1117;border:1px solid #21262d;border-radius:4px;padding:3px 8px;font-size:11px}
+.asm-param .pk{color:#ffa657;font-weight:600}
+
+.asm-meta{display:flex;gap:16px;font-size:10px;color:#484f58}
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>HEX <span>Device Incubation</span></h1>
+  <h1>HEX <span>Assembly Library</span></h1>
   <div><a href="/ui">&larr; Dashboard</a><a href="/scenario">Scenario</a></div>
 </div>
 
 <div class="controls">
   <select class="edge-sel" id="edgeSel"><option value="">Select edge...</option></select>
-  <button class="btn btn-scan" onclick="scanEdge()">Incubate</button>
-  <span id="status" style="font-size:11px;color:#8b949e;margin-left:auto"></span>
+  <button class="btn btn-scan" onclick="incubateEdge()">Incubate Edge</button>
+  <div class="tag-filter" id="tagFilter"></div>
 </div>
 
-<div class="grid" id="deviceGrid">
-  <div class="empty">Select an edge and click Incubate to discover devices.</div>
+<div class="stats" id="stats">
+  <span>Templates: <span class="stat-val" id="statCount">-</span></span>
+  <span>Total uses: <span class="stat-val" id="statUses">-</span></span>
+  <span>Tags: <span class="stat-val" id="statTags">-</span></span>
 </div>
+
+<div class="list" id="asmList"></div>
 
 <script>
 const HUB = location.origin
+let allTemplates = []
+let activeTag = null
 
-// Load edges
 fetch(HUB+'/nodes').then(r=>r.json()).then(d=>{
   const sel=document.getElementById('edgeSel')
-  for(const n of d.nodes||[]){
-    const o=document.createElement('option');o.value=n.node_id;o.textContent=`${n.node_id} (${n.arch})`;sel.appendChild(o)
-  }
+  for(const n of d.nodes||[]){const o=document.createElement('option');o.value=n.node_id;o.textContent=n.node_id;sel.appendChild(o)}
 })
 
-async function scanEdge(){
-  const id=document.getElementById('edgeSel').value
-  if(!id){alert('Select an edge');return}
-  document.getElementById('status').textContent='Incubating...'
-  document.getElementById('deviceGrid').innerHTML='<div class="empty">Scanning PCI bus + running sketches...</div>'
-
-  try{
-    const r=await fetch(HUB+'/incubate/'+id).then(r=>r.json())
-    renderDevices(r)
-    document.getElementById('status').textContent=`Done: ${r.devices?.length||0} devices, ${r.profiles?.length||0} new profiles`
-  }catch(e){
-    document.getElementById('status').textContent='Error: '+e.message
-  }
+function highlightAsm(code) {
+  return code
+    .replace(/\{\{(\w+)\}\}/g, '<span class="param">{{$1}}</span>')
+    .replace(/;(.*)$/gm, '<span class="cmt">;$1</span>')
+    .replace(/\b(mov|add|sub|imul|idiv|and|or|xor|shl|shr|in|out|push|pop|ret|call|nop|cmp|jmp|je|jne|jg|jl|jge|jle|movzx|lea)\b/g, '<span class="kw">$1</span>')
+    .replace(/\b(eax|ebx|ecx|edx|esi|edi|esp|ebp|ax|bx|cx|dx|al|bl|cl|dl|ah|bh|ch|dh)\b/g, '<span class="reg">$1</span>')
+    .replace(/\b(0x[0-9A-Fa-f]+|\d+)\b/g, '<span class="num">$1</span>')
+    .replace(/^(BITS \d+)/gm, '<span class="cmt">$1</span>')
 }
 
-function renderDevices(report){
-  const grid=document.getElementById('deviceGrid')
-  grid.innerHTML=''
-  if(!report.devices||report.devices.length===0){grid.innerHTML='<div class="empty">No devices found.</div>';return}
+function renderList(templates) {
+  const list = document.getElementById('asmList')
+  const filtered = activeTag ? templates.filter(t => t.tags?.includes(activeTag)) : templates
+  list.innerHTML = ''
 
-  for(const dev of report.devices){
-    const card=document.createElement('div')
-    card.className='card'
+  if (filtered.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:40px;color:#484f58">No templates found. Incubate an edge to discover devices.</div>'
+    return
+  }
 
-    const type=dev.type||'unknown'
-    const badgeClass=type==='bridge'?'bridge':type==='network'?'network':type==='storage'?'storage':type==='graphics'||type==='display'?'display':type==='rng'?'rng':'unknown'
+  for (const t of filtered) {
+    const card = document.createElement('div')
+    card.className = 'asm-card'
+    const tagColors = {'network':'network','storage':'storage','display':'display','math':'math','probe':'probe','generic':'generic','identify':'probe','stats':'network','read':'storage','compute':'math'}
+    const tagsHtml = (t.tags||[]).map(tag => `<span class="asm-tag ${tagColors[tag]||''}">${tag}</span>`).join('')
+    const paramsHtml = (t.params||[]).map(p => `<span class="asm-param"><span class="pk">{{${p}}}</span></span>`).join('')
 
-    let opsHtml=''
-    // Find profile for this device
-    const profileKey=dev.id?.replace(':','_')
-    if(dev.profiled!==false && !dev.skip){
-      // Try to get sketch results from the report
-      opsHtml='<div class="ops"><h4>Operations</h4>'
-      // We'll fetch the profile if available
-      opsHtml+='<div class="op"><span class="op-name">profiled</span><span class="op-val">✓</span></div>'
-      opsHtml+='</div>'
-    }
-
-    card.innerHTML=`
-      <div class="card-hdr">
-        <div>
-          <div class="name">${dev.name||dev.id}</div>
-          <div class="id">${dev.id} slot:${dev.slot}</div>
-        </div>
-        <span class="badge ${badgeClass}">${type}</span>
+    card.innerHTML = `
+      <div class="asm-hdr" onclick="this.parentElement.classList.toggle('open')">
+        <span class="asm-key">${t.key}</span>
+        <span class="asm-desc">${t.desc||''}</span>
+        <span class="asm-tags">${tagsHtml}</span>
+        <span class="asm-uses">${t.uses||0} uses</span>
       </div>
-      <div class="card-body">
-        <div class="field"><span class="fk">BAR0</span><span class="fv">0x${dev.bar0||'?'}</span></div>
-        <div class="field"><span class="fk">Class</span><span class="fv">${dev.class}${dev.skip?' (skipped)':''}</span></div>
-        ${opsHtml}
+      <div class="asm-body">
+        <div class="asm-section">
+          <h4>Assembly Template</h4>
+          <div class="asm-code">${highlightAsm(t.template||'')}</div>
+        </div>
+        ${t.params?.length ? `<div class="asm-section"><h4>Parameters</h4><div class="asm-params">${paramsHtml}</div></div>` : ''}
+        <div class="asm-meta">
+          <span>Created: ${t.created ? new Date(t.created).toLocaleDateString() : '-'}</span>
+          <span>Uses: ${t.uses||0}</span>
+        </div>
       </div>`
-    grid.appendChild(card)
+    list.appendChild(card)
   }
 }
 
-// Auto-load if incubation data exists
-fetch(HUB+'/incubate/report').then(r=>r.json()).then(reports=>{
-  if(reports.length>0) renderDevices(reports[0])
-})
+function renderTags(templates) {
+  const tags = {}
+  for (const t of templates) for (const tag of t.tags||[]) tags[tag] = (tags[tag]||0) + 1
+  const container = document.getElementById('tagFilter')
+  container.innerHTML = '<span class="tag-btn'+(activeTag?'':' active')+'" onclick="filterTag(null)">All</span>'
+  for (const [tag, count] of Object.entries(tags).sort((a,b)=>b[1]-a[1])) {
+    container.innerHTML += `<span class="tag-btn${activeTag===tag?' active':''}" onclick="filterTag('${tag}')">${tag} (${count})</span>`
+  }
+}
+
+function filterTag(tag) {
+  activeTag = tag
+  renderTags(allTemplates)
+  renderList(allTemplates)
+}
+
+function updateStats(templates) {
+  document.getElementById('statCount').textContent = templates.length
+  document.getElementById('statUses').textContent = templates.reduce((s,t)=>s+(t.uses||0),0)
+  const tags = new Set(); templates.forEach(t=>(t.tags||[]).forEach(tag=>tags.add(tag)))
+  document.getElementById('statTags').textContent = tags.size
+}
+
+async function loadCache() {
+  const data = await fetch(HUB+'/asmcache').then(r=>r.json())
+  allTemplates = data
+  updateStats(data)
+  renderTags(data)
+  renderList(data)
+}
+
+async function incubateEdge() {
+  const id = document.getElementById('edgeSel').value
+  if (!id) { alert('Select an edge'); return }
+  document.getElementById('asmList').innerHTML = '<div style="text-align:center;padding:40px;color:#8b949e">Incubating... scanning PCI + running sketches...</div>'
+  try {
+    await fetch(HUB+'/incubate/'+id).then(r=>r.json())
+    await loadCache()
+  } catch(e) { alert('Error: '+e.message) }
+}
+
+loadCache()
 </script>
 </body>
 </html>

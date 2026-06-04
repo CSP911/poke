@@ -121,6 +121,7 @@ function findByTag(tag) {
 function list() {
   return Object.entries(registry).map(([k, v]) => ({
     key: k,
+    template: v.template,
     desc: v.desc,
     params: v.params,
     tags: v.tags,
