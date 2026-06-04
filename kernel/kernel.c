@@ -963,6 +963,79 @@ int ctx_append(u8 type, u32 ts, const char *data, int len) {
     return ctx_tot-1;
 }
 
+/* ── Module Loader (self-extending kernel from disk) ── */
+/* Loads additional code from virtio disk sector 512+ into memory at 0x100000 */
+/* Module format: sector 512 = header, 513+ = binary code */
+#define MOD_MAGIC   0x444F4D50  /* "PMOD" */
+#define MOD_SECTOR  512         /* start sector on disk */
+#define MOD_ADDR    0x100000    /* load address (1MB mark) */
+#define MOD_MAX     32768       /* max 32KB module */
+
+static int mod_loaded = 0;
+static u32 mod_size = 0;
+
+/* Module function table — module fills this on init */
+/* Address 0x100000: module code
+ * Module entry: void mod_init(void **ftable)
+ * ftable[0] = vio_rw pointer (so module can do disk I/O)
+ * ftable[1] = tcp_send pointer
+ * ftable[2] = mem_copy pointer
+ * ftable[3] = serial_print pointer
+ */
+static void *mod_ftable[8] = {0};
+
+static void __attribute__((noinline)) module_load(void) {
+    if (!vio_ok) return;
+
+    /* Read module header from sector 512 */
+    static u8 s[512];
+    if (vio_rw(MOD_SECTOR, s, 0) < 0) return;
+
+    u32 *hdr = (u32 *)s;
+    if (hdr[0] != MOD_MAGIC) {
+        vga_print("  [MOD] No module\n");
+        return;
+    }
+
+    u32 size = hdr[1];   /* module size in bytes */
+    u32 entry = hdr[2];  /* entry offset from MOD_ADDR */
+
+    if (size == 0 || size > MOD_MAX) {
+        vga_print("  [MOD] Invalid size\n");
+        return;
+    }
+
+    /* Load module binary from sectors 513+ into 0x100000 */
+    u32 sectors = (size + 511) / 512;
+    u8 *dst = (u8 *)MOD_ADDR;
+
+    for (u32 i = 0; i < sectors; i++) {
+        if (vio_rw(MOD_SECTOR + 1 + i, dst + i * 512, 0) < 0) {
+            vga_print("  [MOD] Read error\n");
+            return;
+        }
+    }
+
+    mod_size = size;
+    mod_loaded = 1;
+
+    /* Setup function table for module to call kernel functions */
+    mod_ftable[0] = (void *)vio_rw;
+    mod_ftable[1] = (void *)tcp_send;
+    mod_ftable[2] = (void *)mem_copy;
+    mod_ftable[3] = (void *)serial_print;
+
+    vga_print("  [MOD] Loaded ");
+    vga_print_dec(size);
+    vga_print("B at 0x100000\n");
+
+    /* Call module entry point */
+    void (*mod_entry)(void **) = (void (*)(void **))((u8 *)MOD_ADDR + entry);
+    mod_entry(mod_ftable);
+
+    vga_print("  [MOD] Initialized\n");
+}
+
 /* ── Virtual Registers (server room simulation) ── */
 /* Address 0x200000 + index*4: each register is u32 LE */
 static volatile u32 *virt_regs = (volatile u32 *)0x200000;
@@ -2103,6 +2176,7 @@ void kernel_main(void) {
 
     /* Init context store (disk) — disabled until ATA driver stabilized */
     ctx_store_init();
+    module_load();
     virt_regs_init();
     monitor_init();
     vga_print("  [MON] Monitor system ready\n");
