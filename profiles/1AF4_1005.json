@@ -4,46 +4,50 @@
   "type": "rng",
   "arch": "i386",
   "bar0": {
-    "raw": 49217,
-    "isIO": 1,
-    "address": 49216
+    "address": "0xC101",
+    "isIO": true
   },
+  "pci_class": "00:FF",
+  "pci_slot": 5,
   "operations": [
     {
-      "name": "read_device_features",
-      "desc": "Read the device features register to determine supported RNG capabilities",
-      "returns": "32-bit feature flags indicating supported operations",
-      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 0\nin eax, dx\nret"
+      "name": "read_random",
+      "desc": "Read random number from VirtIO RNG",
+      "returns": "Device status byte",
+      "asm": "BITS 32\nmov dx, 0xc100\nadd dx, 0x12\nxor eax, eax\nin al, dx\nret",
+      "probe_value": 0
     },
     {
-      "name": "read_device_status",
-      "desc": "Read the device status register to check current device state",
-      "returns": "8-bit status value (bit 0=ACKNOWLEDGE, bit 1=DRIVER, bit 2=DRIVER_OK, bit 3=FEATURES_OK)",
-      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 6\nin al, dx\nmovzx eax, al\nret"
+      "name": "read_bar0_io",
+      "desc": "Read first register at BAR0 (I/O port)",
+      "returns": "First register value",
+      "asm": "BITS 32\nmov dx, 0xc100\nin eax, dx\nret",
+      "probe_value": 2030043136
+    }
+  ],
+  "incubated": "2026-06-04T08:11:11.321Z",
+  "edge": "x86-qemu",
+  "sketch_results": [
+    {
+      "name": "read_random",
+      "desc": "Read random number from VirtIO RNG",
+      "tags": [
+        "rng",
+        "probe",
+        "read"
+      ],
+      "value": 0,
+      "raw": "eax=0"
     },
     {
-      "name": "read_interrupt_status",
-      "desc": "Read the interrupt status register to check for pending device events",
-      "returns": "8-bit interrupt status (bit 0=used buffer notification, bit 1=configuration change)",
-      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 4\nin al, dx\nmovzx eax, al\nret"
-    },
-    {
-      "name": "read_queue_size",
-      "desc": "Read the queue size register for the RNG request queue",
-      "returns": "16-bit maximum queue size supported",
-      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 12\nin ax, dx\nmovzx eax, ax\nret"
-    },
-    {
-      "name": "read_device_id",
-      "desc": "Verify device identity by reading magic value and device ID",
-      "returns": "Device ID value (should be 0x1005 for VirtIO RNG)",
-      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 8\nin ax, dx\nmovzx eax, ax\nret"
-    },
-    {
-      "name": "check_device_ready",
-      "desc": "Poll device ready state to ensure RNG is initialized and operational",
-      "returns": "Non-zero if device is ready and features negotiated, zero otherwise",
-      "asm": "BITS 32\nmov dx, 0xc040\nadd dx, 6\nin al, dx\nand al, 0x7\ncmp al, 0x7\njne .not_ready\nmov eax, 1\nret\n.not_ready:\nxor eax, eax\nret"
+      "name": "read_bar0_io",
+      "desc": "Read first register at BAR0 (I/O port)",
+      "tags": [
+        "generic",
+        "probe"
+      ],
+      "value": 2030043136,
+      "raw": "eax=2030043136"
     }
   ]
 }

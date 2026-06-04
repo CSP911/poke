@@ -1,49 +1,36 @@
 {
   "vendor_device": "1234:1111",
-  "name": "QEMU stdvga",
-  "type": "graphics",
+  "name": "QEMU Standard VGA",
+  "type": "display",
   "arch": "i386",
   "bar0": {
-    "raw": 4244635656,
-    "isIO": 0,
-    "address": -50331648
+    "address": "0xFD000008",
+    "isIO": false
   },
+  "pci_class": "03:00",
+  "pci_slot": 2,
   "operations": [
     {
-      "name": "read_vram_size",
-      "desc": "Read VRAM size from VGA memory configuration",
-      "returns": "VRAM size in bytes",
-      "asm": "BITS 32\nmov eax, [0xfca00000]\nand eax, 0xFF\nshl eax, 20\nret"
-    },
+      "name": "read_vbe_version",
+      "desc": "Read BochsVBE version via I/O ports",
+      "returns": "VBE version (0xB0C0 = Bochs)",
+      "asm": "BITS 32\nmov dx, 0x01CE\nxor eax, eax\nout dx, ax\nmov dx, 0x01CF\nin ax, dx\nmovzx eax, ax\nret",
+      "probe_value": 45253
+    }
+  ],
+  "incubated": "2026-06-04T08:11:11.288Z",
+  "edge": "x86-qemu",
+  "sketch_results": [
     {
-      "name": "read_framebuffer_offset",
-      "desc": "Read current framebuffer base offset in VRAM",
-      "returns": "Framebuffer offset in bytes",
-      "asm": "BITS 32\nmov eax, [0xfca00004]\nand eax, 0xFFFFFF00\nret"
-    },
-    {
-      "name": "read_display_width",
-      "desc": "Read current display width resolution",
-      "returns": "Width in pixels",
-      "asm": "BITS 32\nmov eax, [0xfca00008]\nand eax, 0xFFFF\nret"
-    },
-    {
-      "name": "read_display_height",
-      "desc": "Read current display height resolution",
-      "returns": "Height in pixels",
-      "asm": "BITS 32\nmov eax, [0xfca0000C]\nand eax, 0xFFFF\nret"
-    },
-    {
-      "name": "read_color_depth",
-      "desc": "Read color depth bits per pixel",
-      "returns": "Bits per pixel (8, 16, 24, or 32)",
-      "asm": "BITS 32\nmov eax, [0xfca00010]\nand eax, 0xFF\nret"
-    },
-    {
-      "name": "read_device_status",
-      "desc": "Read device status and capabilities flags",
-      "returns": "Status flags (bit 0=enabled, bit 1=LFB mode)",
-      "asm": "BITS 32\nmov eax, [0xfca00014]\nand eax, 0x000F\nret"
+      "name": "read_vbe_version",
+      "desc": "Read BochsVBE version via I/O ports",
+      "tags": [
+        "display",
+        "identify",
+        "probe"
+      ],
+      "value": 45253,
+      "raw": "eax=45253"
     }
   ]
 }
