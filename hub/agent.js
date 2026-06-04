@@ -265,6 +265,40 @@ The assembly code must return a sensor/computed value in EAX. The condition comp
       required: ['target'],
     },
   },
+  // ── Assembly cache tools ──
+  {
+    name: 'asm_cache_save',
+    description: 'Save a reusable assembly template. Use after you create assembly that works well — save it for reuse. Template uses {{PARAM}} placeholders. Example: key="read_temp", template="BITS 32\\nmov ebx, {{BAR0}}\\nmov eax, [ebx + 0x10]\\nret", params=["BAR0"]',
+    input_schema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Unique key for this template' },
+        template: { type: 'string', description: 'Assembly with {{PARAM}} placeholders' },
+        params: { type: 'array', items: { type: 'string' }, description: 'Parameter names' },
+        desc: { type: 'string', description: 'What this code does' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tags for search' },
+      },
+      required: ['key', 'template', 'params'],
+    },
+  },
+  {
+    name: 'asm_cache_run',
+    description: 'Execute a cached assembly template with parameters. Much faster than generating new assembly — uses pre-compiled cache. List available templates with asm_cache_list first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Template key to execute' },
+        target: { type: 'string', description: 'Edge node ID' },
+        params: { type: 'object', description: 'Parameter values: {"BAR0": "0xFEB80000"}' },
+      },
+      required: ['key', 'target'],
+    },
+  },
+  {
+    name: 'asm_cache_list',
+    description: 'List all cached assembly templates with their keys, parameters, and usage counts.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
   // ── Memory tools (JARVIS-style persistent memory) ──
   {
     name: 'memory_save',
@@ -1018,6 +1052,30 @@ Return ONLY valid JSON (no markdown, no explanation) with this structure:
     } catch (e) {
       return `Restart failed: ${e.message}`
     }
+  }
+
+  // ── Assembly cache tools ──
+  if (toolName === 'asm_cache_save') {
+    const asmcache = require('./asmcache')
+    asmcache.register(toolInput.key, toolInput.template, toolInput.params, toolInput.desc || '', toolInput.tags || [])
+    return `Saved template "${toolInput.key}" with params [${toolInput.params.join(',')}]`
+  }
+
+  if (toolName === 'asm_cache_run') {
+    const asmcache = require('./asmcache')
+    const target = toolInput.target || 'x86-qemu'
+    const node = nodes.get(target)
+    if (!node) return `Error: edge "${target}" not found`
+    const bin = await asmcache.resolve(toolInput.key, toolInput.params || {})
+    if (!bin) return `Error: template "${toolInput.key}" not found or compile failed`
+    try {
+      return await pokeNode(node.endpoint, bin)
+    } catch (e) { return `Error: ${e.message}` }
+  }
+
+  if (toolName === 'asm_cache_list') {
+    const asmcache = require('./asmcache')
+    return JSON.stringify(asmcache.list(), null, 2)
   }
 
   // ── Deploy monitor (edge-initiated events) ──

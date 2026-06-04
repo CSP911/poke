@@ -373,6 +373,13 @@ async function handleRequest(req, res) {
     return
   }
 
+  // GET /asmcache — list cached assembly templates
+  if (req.method === 'GET' && url.pathname === '/asmcache') {
+    const asmcache = require('./asmcache')
+    res.end(JSON.stringify(asmcache.list(), null, 2))
+    return
+  }
+
   // GET /devices — device incubation UI
   if (req.method === 'GET' && url.pathname === '/devices') {
     res.setHeader('Content-Type', 'text/html')
