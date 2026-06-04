@@ -83,7 +83,10 @@ async function handleRequest(req, res) {
     if (node.endpoint && !node.endpoint.startsWith('polling:')) {
       setTimeout(() => {
         incubate(node.node_id, node.endpoint).then(report => {
-          log.info(`[enroll] incubation complete: ${report.profiles?.length || 0} new profiles`)
+          // Store incubation report on node
+        const n = nodes.get(node.node_id)
+        if (n) n._incubation = report
+        log.info(`[enroll] incubation complete: ${report.profiles?.length || 0} new profiles`)
           // Reload profiles so new tools are available
           if (report.profiles?.length > 0) {
             const { loadProfiles, profiles } = require('./nodes')
@@ -336,6 +339,16 @@ async function handleRequest(req, res) {
     return
   }
 
+  // GET /incubate/report — latest incubation results for all edges
+  if (req.method === 'GET' && url.pathname === '/incubate/report') {
+    const results = []
+    for (const [id, node] of nodes) {
+      if (node._incubation) results.push(node._incubation)
+    }
+    res.end(JSON.stringify(results, null, 2))
+    return
+  }
+
   // GET /scenario/trace — SSE stream of hub events
   if (req.method === 'GET' && url.pathname === '/scenario/trace') {
     res.writeHead(200, {
@@ -357,6 +370,13 @@ async function handleRequest(req, res) {
     const since = parseInt(url.searchParams.get('since') || '0')
     const events = trace.recent(50).filter(e => e.id > since)
     res.end(JSON.stringify(events))
+    return
+  }
+
+  // GET /devices — device incubation UI
+  if (req.method === 'GET' && url.pathname === '/devices') {
+    res.setHeader('Content-Type', 'text/html')
+    res.end(require('fs').readFileSync(__dirname + '/../web/devices/index.html', 'utf8'))
     return
   }
 

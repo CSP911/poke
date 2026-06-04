@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HEX — Device Incubation</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.header{padding:12px 24px;background:#161b22;border-bottom:1px solid #30363d;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:16px;color:#58a6ff}
+.header h1 span{color:#8b949e;font-weight:400;font-size:12px}
+.header a{color:#8b949e;text-decoration:none;font-size:12px;margin-left:16px}
+.header a:hover{color:#58a6ff}
+
+.controls{padding:12px 24px;background:#161b22;border-bottom:1px solid #30363d;display:flex;gap:10px;align-items:center}
+.btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:600}
+.btn-scan{background:#238636;color:#fff}
+.btn-scan:hover{background:#2ea043}
+.edge-sel{background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:6px 12px;border-radius:6px;font-size:12px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;padding:20px 24px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;overflow:hidden}
+.card-hdr{padding:10px 14px;border-bottom:1px solid #21262d;display:flex;align-items:center;justify-content:space-between}
+.card-hdr .name{font-size:13px;font-weight:700}
+.card-hdr .id{font-size:11px;color:#8b949e;font-family:monospace}
+.card-hdr .badge{font-size:9px;padding:2px 8px;border-radius:8px}
+.badge.network{background:#1f6feb20;color:#58a6ff}
+.badge.storage{background:#23863620;color:#3fb950}
+.badge.display{background:#d2992220;color:#d29922}
+.badge.rng{background:#a371f720;color:#a371f7}
+.badge.bridge{background:#21262d;color:#484f58}
+.badge.unknown{background:#21262d;color:#8b949e}
+
+.card-body{padding:10px 14px;font-size:11px}
+.field{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #21262d}
+.field .fk{color:#8b949e}
+.field .fv{font-family:monospace;color:#e6edf3}
+
+.ops{margin-top:8px}
+.ops h4{font-size:10px;color:#8b949e;text-transform:uppercase;margin-bottom:4px}
+.op{padding:4px 8px;background:#0d1117;border-radius:4px;margin-bottom:3px;font-size:11px}
+.op .op-name{color:#58a6ff;font-weight:600}
+.op .op-val{color:#3fb950;font-family:monospace;float:right}
+.op .op-desc{color:#8b949e;font-size:10px;display:block;margin-top:2px}
+
+.empty{text-align:center;padding:60px;color:#484f58}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>HEX <span>Device Incubation</span></h1>
+  <div><a href="/ui">&larr; Dashboard</a><a href="/scenario">Scenario</a></div>
+</div>
+
+<div class="controls">
+  <select class="edge-sel" id="edgeSel"><option value="">Select edge...</option></select>
+  <button class="btn btn-scan" onclick="scanEdge()">Incubate</button>
+  <span id="status" style="font-size:11px;color:#8b949e;margin-left:auto"></span>
+</div>
+
+<div class="grid" id="deviceGrid">
+  <div class="empty">Select an edge and click Incubate to discover devices.</div>
+</div>
+
+<script>
+const HUB = location.origin
+
+// Load edges
+fetch(HUB+'/nodes').then(r=>r.json()).then(d=>{
+  const sel=document.getElementById('edgeSel')
+  for(const n of d.nodes||[]){
+    const o=document.createElement('option');o.value=n.node_id;o.textContent=`${n.node_id} (${n.arch})`;sel.appendChild(o)
+  }
+})
+
+async function scanEdge(){
+  const id=document.getElementById('edgeSel').value
+  if(!id){alert('Select an edge');return}
+  document.getElementById('status').textContent='Incubating...'
+  document.getElementById('deviceGrid').innerHTML='<div class="empty">Scanning PCI bus + running sketches...</div>'
+
+  try{
+    const r=await fetch(HUB+'/incubate/'+id).then(r=>r.json())
+    renderDevices(r)
+    document.getElementById('status').textContent=`Done: ${r.devices?.length||0} devices, ${r.profiles?.length||0} new profiles`
+  }catch(e){
+    document.getElementById('status').textContent='Error: '+e.message
+  }
+}
+
+function renderDevices(report){
+  const grid=document.getElementById('deviceGrid')
+  grid.innerHTML=''
+  if(!report.devices||report.devices.length===0){grid.innerHTML='<div class="empty">No devices found.</div>';return}
+
+  for(const dev of report.devices){
+    const card=document.createElement('div')
+    card.className='card'
+
+    const type=dev.type||'unknown'
+    const badgeClass=type==='bridge'?'bridge':type==='network'?'network':type==='storage'?'storage':type==='graphics'||type==='display'?'display':type==='rng'?'rng':'unknown'
+
+    let opsHtml=''
+    // Find profile for this device
+    const profileKey=dev.id?.replace(':','_')
+    if(dev.profiled!==false && !dev.skip){
+      // Try to get sketch results from the report
+      opsHtml='<div class="ops"><h4>Operations</h4>'
+      // We'll fetch the profile if available
+      opsHtml+='<div class="op"><span class="op-name">profiled</span><span class="op-val">✓</span></div>'
+      opsHtml+='</div>'
+    }
+
+    card.innerHTML=`
+      <div class="card-hdr">
+        <div>
+          <div class="name">${dev.name||dev.id}</div>
+          <div class="id">${dev.id} slot:${dev.slot}</div>
+        </div>
+        <span class="badge ${badgeClass}">${type}</span>
+      </div>
+      <div class="card-body">
+        <div class="field"><span class="fk">BAR0</span><span class="fv">0x${dev.bar0||'?'}</span></div>
+        <div class="field"><span class="fk">Class</span><span class="fv">${dev.class}${dev.skip?' (skipped)':''}</span></div>
+        ${opsHtml}
+      </div>`
+    grid.appendChild(card)
+  }
+}
+
+// Auto-load if incubation data exists
+fetch(HUB+'/incubate/report').then(r=>r.json()).then(reports=>{
+  if(reports.length>0) renderDevices(reports[0])
+})
+</script>
+</body>
+</html>

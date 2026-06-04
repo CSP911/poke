@@ -17,12 +17,67 @@ const trace = require('./trace')
 const fs = require('fs')
 const path = require('path')
 
+// Load sketch library
+const SKETCHES = JSON.parse(fs.readFileSync(path.join(__dirname, 'sketches.json'), 'utf8'))
+
+/**
+ * Run a sketch against an edge device.
+ * @param {string} endpoint - Edge HTTP endpoint
+ * @param {object} sketch - Sketch definition from sketches.json
+ * @param {object} params - Parameter values (BAR0, IOBASE, etc.)
+ * @returns {object} { value, raw, error }
+ */
+async function runSketch(endpoint, sketch, params) {
+  let asm = sketch.asm
+  for (const [k, v] of Object.entries(params)) {
+    asm = asm.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), v)
+  }
+  try {
+    const bin = await compileAssembly(asm)
+    if (!bin) return { error: 'compile failed' }
+    const raw = await pokeNode(endpoint, bin)
+    const match = raw.match(/eax=(\d+)/)
+    return match ? { value: parseInt(match[1]), raw: raw.trim() } : { raw: raw.trim(), error: 'no eax' }
+  } catch (e) {
+    return { error: e.message }
+  }
+}
+
+/**
+ * Run all sketches matching a device type.
+ * @returns {Array} results with sketch name + value
+ */
+async function runSketchesForType(endpoint, type, params) {
+  const results = []
+  const typeSketches = SKETCHES[type] || {}
+  const genericSketches = SKETCHES.generic || {}
+
+  for (const [name, sketch] of Object.entries(typeSketches)) {
+    // Check if we have required params
+    const missing = (sketch.params || []).filter(p => !params[p])
+    if (missing.length > 0) continue
+    const result = await runSketch(endpoint, sketch, params)
+    results.push({ name, desc: sketch.desc, tags: sketch.tag, ...result })
+    trace.emit('sketch_run', { sketch: name, type, ...result })
+  }
+
+  // Also run generic sketches if params available
+  for (const [name, sketch] of Object.entries(genericSketches)) {
+    const missing = (sketch.params || []).filter(p => !params[p])
+    if (missing.length > 0) continue
+    const result = await runSketch(endpoint, sketch, params)
+    results.push({ name, desc: sketch.desc, tags: sketch.tag, ...result })
+  }
+
+  return results
+}
+
 // Known PCI vendors/devices for quick identification
 const KNOWN = {
   '8086:1237': { name: 'Intel 440FX Host Bridge', type: 'bridge', skip: true },
   '8086:7000': { name: 'Intel PIIX3 ISA Bridge', type: 'bridge', skip: true },
   '8086:100E': { name: 'Intel 82540EM (e1000)', type: 'network' },
-  '1234:1111': { name: 'QEMU Standard VGA', type: 'graphics' },
+  '1234:1111': { name: 'QEMU Standard VGA', type: 'display' },
   '1AF4:1001': { name: 'VirtIO Block Device', type: 'storage' },
   '1AF4:1005': { name: 'VirtIO RNG', type: 'rng' },
   '1AF4:1002': { name: 'VirtIO Balloon', type: 'memory', skip: true },
@@ -102,34 +157,47 @@ async function incubate(nodeId, endpoint) {
       edge: nodeId,
     }
 
-    // Step 5: Try basic probe (read BAR0 first register)
-    if (dev.bar0 !== '00000000') {
-      const bar0val = parseInt(dev.bar0, 16)
-      const isIO = bar0val & 1
-      const addr = bar0val & (isIO ? 0xFFFC : 0xFFFFFFF0)
-
-      if (addr > 0) {
-        try {
-          let probeAsm
-          if (isIO) {
-            probeAsm = `BITS 32\nmov dx, ${addr}\nin eax, dx\nret`
-          } else {
-            probeAsm = `BITS 32\nmov ebx, ${addr}\nmov eax, [ebx]\nret`
-          }
-          const bin = await compileAssembly(probeAsm)
-          if (bin) {
-            const result = await pokeNode(endpoint, bin)
-            const match = result.match(/eax=(\d+)/)
-            if (match) {
-              profile.probe_result = parseInt(match[1])
-              trace.emit('incubate_probe', { edge: nodeId, device: key, result: profile.probe_result })
-            }
-          }
-        } catch (e) {
-          log.debug(`[incubate] probe failed for ${key}: ${e.message}`)
-        }
-      }
+    // Step 5: Run sketches for this device type
+    const bar0val = parseInt(dev.bar0, 16)
+    const isIO = bar0val & 1
+    const addr = bar0val & (isIO ? 0xFFFC : 0xFFFFFFF0)
+    const sketchParams = {}
+    if (addr > 0) {
+      if (isIO) sketchParams.IOBASE = '0x' + addr.toString(16)
+      else sketchParams.BAR0 = '0x' + addr.toString(16)
     }
+
+    const sketchResults = await runSketchesForType(endpoint, devInfo.type, sketchParams)
+    profile.sketch_results = sketchResults
+
+    // Build operations from successful sketches
+    for (const sr of sketchResults) {
+      if (sr.error) continue
+      // Find the original sketch to get the asm template
+      const allSketches = { ...SKETCHES[devInfo.type], ...SKETCHES.generic }
+      const origSketch = allSketches[sr.name]
+      if (!origSketch) continue
+
+      let opAsm = origSketch.asm
+      for (const [k, v] of Object.entries(sketchParams)) {
+        opAsm = opAsm.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), v)
+      }
+
+      profile.operations.push({
+        name: sr.name,
+        desc: sr.desc,
+        returns: origSketch.returns,
+        asm: opAsm,
+        probe_value: sr.value,
+      })
+    }
+
+    trace.emit('incubate_sketches', {
+      edge: nodeId, device: key,
+      ran: sketchResults.length,
+      success: sketchResults.filter(r => !r.error).length,
+      ops: profile.operations.length,
+    })
 
     // Save profile
     if (!fs.existsSync(profileDir)) fs.mkdirSync(profileDir, { recursive: true })

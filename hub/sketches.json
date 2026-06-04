@@ -1,0 +1,82 @@
+{
+  "network": {
+    "read_mac_mmio": {
+      "desc": "Read MAC address from MMIO NIC (e1000-style)",
+      "tag": ["network", "mac", "identify"],
+      "asm": "BITS 32\nmov ebx, {{BAR0}}\nmov eax, [ebx + 0x5400]\nret",
+      "returns": "MAC low 32 bits in EAX",
+      "params": ["BAR0"]
+    },
+    "read_status_mmio": {
+      "desc": "Read link status from MMIO NIC",
+      "tag": ["network", "status", "probe"],
+      "asm": "BITS 32\nmov ebx, {{BAR0}}\nmov eax, [ebx + 0x0008]\nret",
+      "returns": "Status register (bit 1 = link up)",
+      "params": ["BAR0"]
+    },
+    "read_rx_packets": {
+      "desc": "Read RX good packets counter",
+      "tag": ["network", "stats"],
+      "asm": "BITS 32\nmov ebx, {{BAR0}}\nmov eax, [ebx + 0x4074]\nret",
+      "returns": "Total RX packets",
+      "params": ["BAR0"]
+    }
+  },
+  "storage": {
+    "read_capacity_virtio": {
+      "desc": "Read VirtIO block device capacity (sectors)",
+      "tag": ["storage", "capacity", "identify"],
+      "asm": "BITS 32\nmov dx, {{IOBASE}}\nadd dx, 0x14\nin eax, dx\nret",
+      "returns": "Capacity in 512B sectors (low 32 bits)",
+      "params": ["IOBASE"]
+    },
+    "read_status_virtio": {
+      "desc": "Read VirtIO device status",
+      "tag": ["storage", "status", "probe"],
+      "asm": "BITS 32\nmov dx, {{IOBASE}}\nadd dx, 0x12\nxor eax, eax\nin al, dx\nret",
+      "returns": "Device status byte",
+      "params": ["IOBASE"]
+    }
+  },
+  "display": {
+    "read_fb_addr": {
+      "desc": "Read VGA framebuffer address from PCI BAR0",
+      "tag": ["display", "identify"],
+      "asm": "BITS 32\nmov eax, {{BAR0}}\nand eax, 0xFFFFFFF0\nret",
+      "returns": "Framebuffer physical address",
+      "params": ["BAR0"]
+    },
+    "read_vbe_version": {
+      "desc": "Read BochsVBE version via I/O ports",
+      "tag": ["display", "identify", "probe"],
+      "asm": "BITS 32\nmov dx, 0x01CE\nxor eax, eax\nout dx, ax\nmov dx, 0x01CF\nin ax, dx\nmovzx eax, ax\nret",
+      "returns": "VBE version (0xB0C0 = Bochs)",
+      "params": []
+    }
+  },
+  "rng": {
+    "read_random": {
+      "desc": "Read random number from VirtIO RNG",
+      "tag": ["rng", "probe", "read"],
+      "asm": "BITS 32\nmov dx, {{IOBASE}}\nadd dx, 0x12\nxor eax, eax\nin al, dx\nret",
+      "returns": "Device status byte",
+      "params": ["IOBASE"]
+    }
+  },
+  "generic": {
+    "read_bar0_first": {
+      "desc": "Read first 32-bit register at BAR0 (MMIO)",
+      "tag": ["generic", "probe"],
+      "asm": "BITS 32\nmov ebx, {{BAR0}}\nmov eax, [ebx]\nret",
+      "returns": "First register value",
+      "params": ["BAR0"]
+    },
+    "read_bar0_io": {
+      "desc": "Read first register at BAR0 (I/O port)",
+      "tag": ["generic", "probe"],
+      "asm": "BITS 32\nmov dx, {{IOBASE}}\nin eax, dx\nret",
+      "returns": "First register value",
+      "params": ["IOBASE"]
+    }
+  }
+}
