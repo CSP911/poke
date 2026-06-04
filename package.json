@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node src/hub.js",
-    "test": "node test/asm.test.js && node test/asm_arm.test.js && node test/hub.test.js"
+    "test": "node test/asm.test.js && node test/asm_arm.test.js && node test/hub.test.js",
+    "test:integration": "node test/integration.test.js"
   },
   "keywords": ["bare-metal", "os", "kernel", "hardware", "ai", "llm", "assembly", "iot", "edge-computing", "poke"],
   "author": "CSP911",
