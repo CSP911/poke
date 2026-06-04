@@ -11,6 +11,7 @@ const { compileAssembly } = require('./compiler')
 const { pokeNode, pokeNodeRaw } = require('./transport')
 const memory = require('./memory')
 const { incubate } = require('./incubate')
+const scenarioEnv = require('./scenario-env')
 const trace = require('./trace')
 
 // ── Security: Auth + Helpers ──
@@ -384,6 +385,64 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && url.pathname === '/devices') {
     res.setHeader('Content-Type', 'text/html')
     res.end(require('fs').readFileSync(__dirname + '/../web/devices/index.html', 'utf8'))
+    return
+  }
+
+  // GET /scenarios — list available scenarios
+  if (req.method === 'GET' && url.pathname === '/scenarios') {
+    res.end(JSON.stringify(scenarioEnv.listScenarios(), null, 2))
+    return
+  }
+
+  // POST /scenario/start/:id — ensure env + run scenario
+  if (req.method === 'POST' && url.pathname.startsWith('/scenario/start/')) {
+    const scenarioId = url.pathname.slice('/scenario/start/'.length)
+    log.info(`[scenario] starting "${scenarioId}"`)
+
+    try {
+      // Step 1: Ensure environment
+      const env = await scenarioEnv.ensureEnvironment(scenarioId)
+      if (!env.ready) {
+        res.end(JSON.stringify({ ok: false, phase: 'environment', env }))
+        return
+      }
+
+      // Step 2: Deploy monitors based on scenario type
+      const { compileAssembly: compile } = require('./compiler')
+      const { deployMonitor: deploy } = require('./transport')
+      const results = []
+
+      if (scenarioId === 'server-room') {
+        const edge = nodes.get('x86-qemu')
+        if (edge) {
+          const bin = await compile('BITS 32\nmov eax, [0x200000]\nret')
+          const r = await deploy(edge.endpoint, bin, 3000, 0, 35, '10.0.2.2', parseInt(process.env.PORT || '3333'))
+          results.push({ edge: 'x86-qemu', result: r.trim() })
+        }
+      } else if (scenarioId === 'factory') {
+        for (const eid of ['line-A', 'line-B', 'line-C']) {
+          const edge = nodes.get(eid)
+          if (!edge || edge.status !== 'alive') { results.push({ edge: eid, error: 'offline' }); continue }
+          try {
+            const bin = await compile('BITS 32\nmov eax, [0x200000]\nret')
+            const r = await deploy(edge.endpoint, bin, 3000, 0, 35, '10.0.2.2', parseInt(process.env.PORT || '3333'))
+            results.push({ edge: eid, result: r.trim() })
+          } catch(e) { results.push({ edge: eid, error: e.message }) }
+        }
+      }
+
+      res.end(JSON.stringify({ ok: true, phase: 'running', env, monitors: results }))
+    } catch (e) {
+      jsonError(res, 500, e.message)
+    }
+    return
+  }
+
+  // POST /scenario/teardown/:id — remove scenario containers
+  if (req.method === 'POST' && url.pathname.startsWith('/scenario/teardown/')) {
+    const scenarioId = url.pathname.slice('/scenario/teardown/'.length)
+    await scenarioEnv.teardownEnvironment(scenarioId)
+    res.end(JSON.stringify({ ok: true, tornDown: scenarioId }))
     return
   }
 
