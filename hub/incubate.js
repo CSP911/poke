@@ -81,13 +81,20 @@ const KNOWN = {
   '1AF4:1001': { name: 'VirtIO Block Device', type: 'storage' },
   '1AF4:1005': { name: 'VirtIO RNG', type: 'rng' },
   '1AF4:1002': { name: 'VirtIO Balloon', type: 'memory', skip: true },
+  // Virtual sensors (vendor=504B "POKE")
+  '504B:0001': { name: 'Temperature Sensor', type: 'sensor' },
+  '504B:0002': { name: 'CPU Load Monitor', type: 'sensor' },
+  '504B:0003': { name: 'Cooling Controller', type: 'actuator' },
+  '504B:0004': { name: 'Power Meter', type: 'sensor' },
+  '504B:0005': { name: 'Server Rack Controller', type: 'actuator' },
+  '504B:0006': { name: 'Alert System', type: 'sensor' },
 }
 
 const PCI_CLASSES = {
   '00': 'unclassified', '01': 'storage', '02': 'network', '03': 'display',
   '04': 'multimedia', '05': 'memory', '06': 'bridge', '07': 'communication',
   '08': 'system', '09': 'input', '0A': 'docking', '0B': 'processor',
-  '0C': 'serial', '0D': 'wireless',
+  '0C': 'serial', '0D': 'wireless', 'FF': 'virtual',
 }
 
 /**
@@ -165,6 +172,8 @@ async function incubate(nodeId, endpoint) {
     if (addr > 0) {
       if (isIO) sketchParams.IOBASE = '0x' + addr.toString(16)
       else sketchParams.BAR0 = '0x' + addr.toString(16)
+      // Virtual devices: ADDR = direct memory address
+      if (dev.virtual) sketchParams.ADDR = '0x' + addr.toString(16)
     }
 
     const sketchResults = await runSketchesForType(endpoint, devInfo.type, sketchParams)

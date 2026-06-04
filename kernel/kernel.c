@@ -1794,19 +1794,43 @@ static void __attribute__((noinline)) handle_pci(void) {
     #define PH(val,digits) { u32 vv=(val); for(int sh=(digits-1)*4;sh>=0;sh-=4){ \
         u8 nib=(vv>>sh)&0xF; r[l++]=nib<10?'0'+nib:'A'+nib-10; } }
 
-    /* Line 1: device count */
-    PN(pci_dev_count) r[l++]='\n';
+    /* Virtual sensors: vendor=POKE(504B), 6 devices */
+    #define VDEV_COUNT 6
+    int total = pci_dev_count + VDEV_COUNT;
 
-    /* Each device: slot,vendor:device,class:subclass,bar0 */
-    for (int i = 0; i < pci_dev_count && l < 1200; i++) {
+    /* Line 1: total device count */
+    PN(total) r[l++]='\n';
+
+    /* PCI devices */
+    for (int i = 0; i < pci_dev_count && l < 1000; i++) {
         struct pci_dev *d = &pci_devs[i];
         PN(d->slot) r[l++]=',';
         PH(d->vendor, 4) r[l++]=':'; PH(d->device, 4) r[l++]=',';
         PH(d->class, 2) r[l++]=':'; PH(d->subclass, 2) r[l++]=',';
         PH(d->bar0, 8) r[l++]='\n';
     }
+
+    /* Virtual sensors at 0x200000 (vendor=504B "PK", class=FF=virtual) */
+    /* slot=V0..V5, device=0001..0006, bar0=memory offset */
+    /* V0: temp, V1: cpu, V2: cooling, V3: power, V4: servers, V5: alert */
+    { const char *names[] = {"0001","0002","0003","0004","0005","0006"};
+      const char *subs[]  = {"01","02","03","04","05","06"};
+      u32 offsets[] = {0x200000,0x200004,0x200008,0x20000C,0x200010,0x200028};
+      for (int i = 0; i < VDEV_COUNT && l < 1300; i++) {
+        r[l++]='V'; r[l++]='0'+i; r[l++]=',';  /* slot: V0..V5 */
+        r[l++]='5';r[l++]='0';r[l++]='4';r[l++]='B';r[l++]=':'; /* vendor: 504B */
+        const char *n=names[i]; while(*n) r[l++]=*n++;
+        r[l++]=',';
+        r[l++]='F';r[l++]='F';r[l++]=':'; /* class: FF (virtual) */
+        const char *s=subs[i]; while(*s) r[l++]=*s++;
+        r[l++]=',';
+        PH(offsets[i], 8)
+        r[l++]='\n';
+      }
+    }
     #undef PN
     #undef PH
+    #undef VDEV_COUNT
     tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, r, l);
 }
 

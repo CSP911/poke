@@ -3,188 +3,253 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HEX — Assembly Library</title>
+<title>HEX — Incubation</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 .header{padding:12px 24px;background:#161b22;border-bottom:1px solid #30363d;display:flex;align-items:center;justify-content:space-between}
 .header h1{font-size:16px;color:#58a6ff}
 .header h1 span{color:#8b949e;font-weight:400;font-size:12px}
-.header a{color:#8b949e;text-decoration:none;font-size:12px;margin-left:16px}
-.header a:hover{color:#58a6ff}
+.header .links a{color:#8b949e;text-decoration:none;font-size:12px;margin-left:16px}
+.header .links a:hover{color:#58a6ff}
 
-.controls{padding:12px 24px;background:#161b22;border-bottom:1px solid #30363d;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:600}
-.btn-scan{background:#238636;color:#fff}
-.btn-scan:hover{background:#2ea043}
+.controls{padding:10px 24px;background:#161b22;border-bottom:1px solid #30363d;display:flex;gap:10px;align-items:center}
+.btn{padding:7px 16px;border-radius:8px;border:none;cursor:pointer;font-size:12px;font-weight:600}
+.btn-go{background:#238636;color:#fff}
+.btn-go:hover{background:#2ea043}
 .edge-sel{background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:6px 12px;border-radius:6px;font-size:12px}
-.tag-filter{display:flex;gap:6px;margin-left:auto}
-.tag-btn{padding:4px 10px;border-radius:12px;border:1px solid #30363d;background:none;color:#8b949e;font-size:10px;cursor:pointer}
-.tag-btn.active{background:#1f6feb20;color:#58a6ff;border-color:#58a6ff}
-.tag-btn:hover{border-color:#58a6ff}
+.status-msg{font-size:11px;color:#8b949e;margin-left:auto}
 
-.stats{padding:8px 24px;background:#0d1117;border-bottom:1px solid #21262d;font-size:11px;color:#8b949e;display:flex;gap:20px}
-.stat-val{color:#e6edf3;font-weight:600}
+.main{display:flex;height:calc(100vh - 97px)}
 
-.list{padding:16px 24px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 180px);overflow-y:auto}
-.list::-webkit-scrollbar{width:6px}
-.list::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+/* Left: Device List */
+.sidebar{width:260px;border-right:1px solid #30363d;overflow-y:auto;flex-shrink:0}
+.sidebar::-webkit-scrollbar{width:5px}
+.sidebar::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+.sidebar h2{font-size:10px;color:#484f58;text-transform:uppercase;letter-spacing:1px;padding:10px 14px;border-bottom:1px solid #21262d}
+.dev-item{padding:10px 14px;border-bottom:1px solid #21262d;cursor:pointer;transition:background 0.1s}
+.dev-item:hover{background:#161b22}
+.dev-item.active{background:#1f6feb10;border-left:2px solid #58a6ff}
+.dev-item.skip{opacity:0.4}
+.dev-name{font-size:12px;font-weight:600}
+.dev-id{font-size:10px;color:#8b949e;font-family:monospace;margin-top:2px}
+.dev-meta{display:flex;gap:6px;margin-top:4px}
+.dev-badge{font-size:9px;padding:1px 6px;border-radius:8px}
+.dev-badge.network{background:#1f6feb15;color:#58a6ff}
+.dev-badge.storage{background:#23863615;color:#3fb950}
+.dev-badge.display{background:#d2992215;color:#d29922}
+.dev-badge.rng{background:#a371f715;color:#a371f7}
+.dev-badge.bridge{background:#21262d;color:#484f58}
+.dev-badge.unknown{background:#21262d;color:#8b949e}
+.dev-ops{font-size:9px;color:#3fb950}
 
-.asm-card{background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:hidden;transition:border-color 0.15s}
-.asm-card:hover{border-color:#58a6ff}
-.asm-hdr{padding:10px 14px;display:flex;align-items:center;gap:10px;cursor:pointer}
-.asm-key{font-size:13px;font-weight:700;color:#58a6ff;font-family:monospace}
+.empty-sidebar{padding:30px 14px;text-align:center;color:#484f58;font-size:11px}
+
+/* Right: Assembly Panel */
+.panel{flex:1;overflow-y:auto;padding:16px 24px}
+.panel::-webkit-scrollbar{width:6px}
+.panel::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+
+.panel-empty{text-align:center;padding:60px;color:#484f58}
+.panel-empty h3{color:#8b949e;margin-bottom:6px}
+
+.dev-header{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #21262d}
+.dev-header .dh-name{font-size:18px;font-weight:700}
+.dev-header .dh-id{font-size:12px;color:#8b949e;font-family:monospace;margin-top:2px}
+.dev-header .dh-info{display:flex;gap:16px;margin-top:8px;font-size:11px;color:#8b949e}
+.dev-header .dh-val{color:#e6edf3;font-family:monospace}
+
+.asm-card{background:#161b22;border:1px solid #30363d;border-radius:8px;margin-bottom:10px;overflow:hidden}
+.asm-hdr{padding:10px 14px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.asm-hdr:hover{background:#1c2128}
+.asm-key{font-size:12px;font-weight:700;color:#58a6ff;font-family:monospace}
 .asm-desc{font-size:11px;color:#8b949e;flex:1}
-.asm-tags{display:flex;gap:4px}
-.asm-tag{font-size:9px;padding:2px 6px;border-radius:8px;background:#21262d;color:#8b949e}
-.asm-tag.network{background:#1f6feb15;color:#58a6ff}
-.asm-tag.storage{background:#23863615;color:#3fb950}
-.asm-tag.display{background:#d2992215;color:#d29922}
-.asm-tag.math{background:#a371f715;color:#a371f7}
-.asm-tag.probe{background:#f8514915;color:#f85149}
-.asm-tag.generic{background:#21262d;color:#8b949e}
-.asm-uses{font-size:10px;color:#484f58;min-width:50px;text-align:right}
+.asm-probe{font-size:11px;color:#3fb950;font-family:monospace}
 
 .asm-body{display:none;border-top:1px solid #21262d;padding:12px 14px}
 .asm-card.open .asm-body{display:block}
 
-.asm-section{margin-bottom:10px}
-.asm-section h4{font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
-.asm-code{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 12px;font-family:'SF Mono',Monaco,monospace;font-size:12px;line-height:1.6;color:#e6edf3;white-space:pre;overflow-x:auto}
+.asm-code{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px 12px;font-family:'SF Mono',Monaco,'Courier New',monospace;font-size:12px;line-height:1.7;color:#e6edf3;white-space:pre;overflow-x:auto}
 .asm-code .kw{color:#ff7b72}
 .asm-code .reg{color:#79c0ff}
 .asm-code .num{color:#a5d6ff}
 .asm-code .param{color:#ffa657;font-weight:700}
 .asm-code .cmt{color:#484f58}
 
-.asm-params{display:flex;gap:8px;flex-wrap:wrap}
-.asm-param{background:#0d1117;border:1px solid #21262d;border-radius:4px;padding:3px 8px;font-size:11px}
-.asm-param .pk{color:#ffa657;font-weight:600}
+.asm-info{margin-top:8px;font-size:10px;color:#484f58}
+.asm-info span{margin-right:16px}
 
-.asm-meta{display:flex;gap:16px;font-size:10px;color:#484f58}
+.no-ops{padding:30px;text-align:center;color:#484f58;font-size:12px}
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>HEX <span>Assembly Library</span></h1>
-  <div><a href="/ui">&larr; Dashboard</a><a href="/scenario">Scenario</a></div>
+  <h1>HEX <span>Incubation</span></h1>
+  <div class="links"><a href="/ui">&larr; Dashboard</a><a href="/scenario">Scenario</a></div>
 </div>
 
 <div class="controls">
-  <select class="edge-sel" id="edgeSel"><option value="">Select edge...</option></select>
-  <button class="btn btn-scan" onclick="incubateEdge()">Incubate Edge</button>
-  <div class="tag-filter" id="tagFilter"></div>
+  <select class="edge-sel" id="edgeSel" onchange="onEdgeSelect()">
+    <option value="">Select edge...</option>
+  </select>
+  <button class="btn btn-go" onclick="incubate()">Incubate</button>
+  <span class="status-msg" id="statusMsg"></span>
 </div>
 
-<div class="stats" id="stats">
-  <span>Templates: <span class="stat-val" id="statCount">-</span></span>
-  <span>Total uses: <span class="stat-val" id="statUses">-</span></span>
-  <span>Tags: <span class="stat-val" id="statTags">-</span></span>
+<div class="main">
+  <div class="sidebar" id="sidebar">
+    <div class="empty-sidebar">Select an edge to see devices.</div>
+  </div>
+  <div class="panel" id="panel">
+    <div class="panel-empty">
+      <h3>Assembly Library</h3>
+      Select a device to view its assembly sketches.
+    </div>
+  </div>
 </div>
-
-<div class="list" id="asmList"></div>
 
 <script>
 const HUB = location.origin
-let allTemplates = []
-let activeTag = null
+let incubationData = null
+let selectedDev = null
 
+// Load edges
 fetch(HUB+'/nodes').then(r=>r.json()).then(d=>{
   const sel=document.getElementById('edgeSel')
-  for(const n of d.nodes||[]){const o=document.createElement('option');o.value=n.node_id;o.textContent=n.node_id;sel.appendChild(o)}
+  for(const n of d.nodes||[]){
+    const o=document.createElement('option');o.value=n.node_id;o.textContent=`${n.node_id} (${n.arch})`;sel.appendChild(o)
+  }
 })
 
-function highlightAsm(code) {
-  return code
-    .replace(/\{\{(\w+)\}\}/g, '<span class="param">{{$1}}</span>')
-    .replace(/;(.*)$/gm, '<span class="cmt">;$1</span>')
-    .replace(/\b(mov|add|sub|imul|idiv|and|or|xor|shl|shr|in|out|push|pop|ret|call|nop|cmp|jmp|je|jne|jg|jl|jge|jle|movzx|lea)\b/g, '<span class="kw">$1</span>')
-    .replace(/\b(eax|ebx|ecx|edx|esi|edi|esp|ebp|ax|bx|cx|dx|al|bl|cl|dl|ah|bh|ch|dh)\b/g, '<span class="reg">$1</span>')
-    .replace(/\b(0x[0-9A-Fa-f]+|\d+)\b/g, '<span class="num">$1</span>')
-    .replace(/^(BITS \d+)/gm, '<span class="cmt">$1</span>')
-}
-
-function renderList(templates) {
-  const list = document.getElementById('asmList')
-  const filtered = activeTag ? templates.filter(t => t.tags?.includes(activeTag)) : templates
-  list.innerHTML = ''
-
-  if (filtered.length === 0) {
-    list.innerHTML = '<div style="text-align:center;padding:40px;color:#484f58">No templates found. Incubate an edge to discover devices.</div>'
+function onEdgeSelect(){
+  const id=document.getElementById('edgeSel').value
+  if(!id){
+    document.getElementById('sidebar').innerHTML='<div class="empty-sidebar">Select an edge to see devices.</div>'
+    document.getElementById('panel').innerHTML='<div class="panel-empty"><h3>Assembly Library</h3>Select a device to view its assembly sketches.</div>'
     return
   }
+  document.getElementById('statusMsg').textContent='Loading...'
+  fetch(HUB+'/incubate/'+id).then(r=>r.json()).then(data=>{
+    incubationData=data
+    renderSidebar(data)
+    document.getElementById('panel').innerHTML='<div class="panel-empty"><h3>'+data.devices.length+' devices found</h3>Click a device on the left to see assembly code.</div>'
+    document.getElementById('statusMsg').textContent=data.devices.length+' devices, '+( data.profiles?.length||0)+' profiles'
+  }).catch(e=>{document.getElementById('statusMsg').textContent='Error: '+e.message})
+}
 
-  for (const t of filtered) {
-    const card = document.createElement('div')
-    card.className = 'asm-card'
-    const tagColors = {'network':'network','storage':'storage','display':'display','math':'math','probe':'probe','generic':'generic','identify':'probe','stats':'network','read':'storage','compute':'math'}
-    const tagsHtml = (t.tags||[]).map(tag => `<span class="asm-tag ${tagColors[tag]||''}">${tag}</span>`).join('')
-    const paramsHtml = (t.params||[]).map(p => `<span class="asm-param"><span class="pk">{{${p}}}</span></span>`).join('')
+async function incubate(){
+  const id=document.getElementById('edgeSel').value
+  if(!id){alert('Select an edge');return}
+  document.getElementById('statusMsg').textContent='Incubating...'
+  document.getElementById('sidebar').innerHTML='<div class="empty-sidebar">Scanning PCI bus + running sketches...</div>'
+  // Delete existing profiles to force re-probe
+  try{
+    const data=await fetch(HUB+'/incubate/'+id).then(r=>r.json())
+    incubationData=data
+    renderSidebar(data)
+    document.getElementById('statusMsg').textContent=data.devices.length+' devices, '+(data.profiles?.length||0)+' new profiles'
+  }catch(e){document.getElementById('statusMsg').textContent='Error: '+e.message}
+}
 
-    card.innerHTML = `
-      <div class="asm-hdr" onclick="this.parentElement.classList.toggle('open')">
-        <span class="asm-key">${t.key}</span>
-        <span class="asm-desc">${t.desc||''}</span>
-        <span class="asm-tags">${tagsHtml}</span>
-        <span class="asm-uses">${t.uses||0} uses</span>
-      </div>
-      <div class="asm-body">
-        <div class="asm-section">
-          <h4>Assembly Template</h4>
-          <div class="asm-code">${highlightAsm(t.template||'')}</div>
-        </div>
-        ${t.params?.length ? `<div class="asm-section"><h4>Parameters</h4><div class="asm-params">${paramsHtml}</div></div>` : ''}
-        <div class="asm-meta">
-          <span>Created: ${t.created ? new Date(t.created).toLocaleDateString() : '-'}</span>
-          <span>Uses: ${t.uses||0}</span>
-        </div>
+const badgeClass={'network':'network','storage':'storage','display':'display','graphics':'display','rng':'rng','bridge':'bridge'}
+
+function renderSidebar(data){
+  const sb=document.getElementById('sidebar')
+  sb.innerHTML='<h2>PCI Devices</h2>'
+  for(const dev of data.devices||[]){
+    const el=document.createElement('div')
+    el.className='dev-item'+(dev.skip?' skip':'')
+    const bc=badgeClass[dev.type]||'unknown'
+    const opsCount=dev.skip?0:(getOpsForDevice(dev)?.length||0)
+    el.innerHTML=`
+      <div class="dev-name">${dev.name||dev.id}</div>
+      <div class="dev-id">Slot ${dev.slot} · ${dev.id}</div>
+      <div class="dev-meta">
+        <span class="dev-badge ${bc}">${dev.type}</span>
+        ${opsCount>0?'<span class="dev-ops">'+opsCount+' ops</span>':''}
       </div>`
-    list.appendChild(card)
+    if(!dev.skip){
+      el.onclick=()=>{
+        document.querySelectorAll('.dev-item').forEach(e=>e.classList.remove('active'))
+        el.classList.add('active')
+        selectedDev=dev
+        renderPanel(dev)
+      }
+    }
+    sb.appendChild(el)
   }
 }
 
-function renderTags(templates) {
-  const tags = {}
-  for (const t of templates) for (const tag of t.tags||[]) tags[tag] = (tags[tag]||0) + 1
-  const container = document.getElementById('tagFilter')
-  container.innerHTML = '<span class="tag-btn'+(activeTag?'':' active')+'" onclick="filterTag(null)">All</span>'
-  for (const [tag, count] of Object.entries(tags).sort((a,b)=>b[1]-a[1])) {
-    container.innerHTML += `<span class="tag-btn${activeTag===tag?' active':''}" onclick="filterTag('${tag}')">${tag} (${count})</span>`
+function getOpsForDevice(dev){
+  // Find matching profile
+  const key=dev.id?.replace(':','_')
+  // Look in incubation data or fetch from cache
+  // For now: match sketches by device type
+  const cache=window._asmCache||[]
+  return cache.filter(t=>{
+    if(!t.tags) return false
+    return t.tags.includes(dev.type)
+  })
+}
+
+function highlightAsm(code){
+  return code
+    .replace(/\{\{(\w+)\}\}/g,'<span class="param">{{$1}}</span>')
+    .replace(/;(.*)$/gm,'<span class="cmt">;$1</span>')
+    .replace(/\b(mov|add|sub|imul|idiv|and|or|xor|shl|shr|in|out|push|pop|ret|call|nop|cmp|jmp|je|jne|jg|jl|movzx|lea|BITS)\b/gi,'<span class="kw">$1</span>')
+    .replace(/\b(eax|ebx|ecx|edx|esi|edi|esp|ebp|ax|bx|cx|dx|al|bl|cl|dl)\b/g,'<span class="reg">$1</span>')
+    .replace(/\b(0x[0-9A-Fa-f]+)\b/g,'<span class="num">$1</span>')
+}
+
+function renderPanel(dev){
+  const panel=document.getElementById('panel')
+  const bc=badgeClass[dev.type]||'unknown'
+
+  // Find sketches for this device type from cache
+  const cache=window._asmCache||[]
+  const typeMatch=cache.filter(t=>t.tags?.includes(dev.type))
+  const genericMatch=cache.filter(t=>t.tags?.includes('generic'))
+  const ops=[...typeMatch,...genericMatch]
+
+  let html=`
+    <div class="dev-header">
+      <div class="dh-name">${dev.name||dev.id} <span class="dev-badge ${bc}" style="font-size:11px;vertical-align:middle">${dev.type}</span></div>
+      <div class="dh-id">${dev.id} · PCI Slot ${dev.slot}</div>
+      <div class="dh-info">
+        <span>BAR0: <span class="dh-val">0x${dev.bar0||'?'}</span></span>
+        <span>Class: <span class="dh-val">${dev.class||'?'}</span></span>
+      </div>
+    </div>`
+
+  if(ops.length===0){
+    html+='<div class="no-ops">No assembly sketches for this device type.<br>Run Incubate to generate probes.</div>'
+  } else {
+    for(const op of ops){
+      const probeVal=op.uses>0?'tested':'ready'
+      html+=`
+        <div class="asm-card" onclick="this.classList.toggle('open')">
+          <div class="asm-hdr">
+            <span class="asm-key">${op.key}</span>
+            <span class="asm-desc">${op.desc||''}</span>
+            <span class="asm-probe">${probeVal}</span>
+          </div>
+          <div class="asm-body">
+            <div class="asm-code">${highlightAsm(op.template||'')}</div>
+            <div class="asm-info">
+              <span>Params: ${(op.params||[]).map(p=>'{{'+p+'}}').join(', ')||'none'}</span>
+              <span>Uses: ${op.uses||0}</span>
+              <span>Tags: ${(op.tags||[]).join(', ')}</span>
+            </div>
+          </div>
+        </div>`
+    }
   }
+
+  panel.innerHTML=html
 }
 
-function filterTag(tag) {
-  activeTag = tag
-  renderTags(allTemplates)
-  renderList(allTemplates)
-}
-
-function updateStats(templates) {
-  document.getElementById('statCount').textContent = templates.length
-  document.getElementById('statUses').textContent = templates.reduce((s,t)=>s+(t.uses||0),0)
-  const tags = new Set(); templates.forEach(t=>(t.tags||[]).forEach(tag=>tags.add(tag)))
-  document.getElementById('statTags').textContent = tags.size
-}
-
-async function loadCache() {
-  const data = await fetch(HUB+'/asmcache').then(r=>r.json())
-  allTemplates = data
-  updateStats(data)
-  renderTags(data)
-  renderList(data)
-}
-
-async function incubateEdge() {
-  const id = document.getElementById('edgeSel').value
-  if (!id) { alert('Select an edge'); return }
-  document.getElementById('asmList').innerHTML = '<div style="text-align:center;padding:40px;color:#8b949e">Incubating... scanning PCI + running sketches...</div>'
-  try {
-    await fetch(HUB+'/incubate/'+id).then(r=>r.json())
-    await loadCache()
-  } catch(e) { alert('Error: '+e.message) }
-}
-
-loadCache()
+// Load assembly cache
+fetch(HUB+'/asmcache').then(r=>r.json()).then(data=>{window._asmCache=data})
 </script>
 </body>
 </html>

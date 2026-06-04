@@ -1,0 +1,53 @@
+{
+  "vendor_device": "504B:0001",
+  "name": "Temperature Sensor",
+  "type": "sensor",
+  "arch": "i386",
+  "bar0": {
+    "address": "0x200000",
+    "isIO": false
+  },
+  "pci_class": "FF:01",
+  "pci_slot": "V0",
+  "operations": [
+    {
+      "name": "read_value",
+      "desc": "Read sensor value from memory-mapped register",
+      "returns": "Current sensor value",
+      "asm": "BITS 32\nmov eax, [0x200000]\nret",
+      "probe_value": 80
+    },
+    {
+      "name": "read_bar0_first",
+      "desc": "Read first 32-bit register at BAR0 (MMIO)",
+      "returns": "First register value",
+      "asm": "BITS 32\nmov ebx, 0x200000\nmov eax, [ebx]\nret",
+      "probe_value": 80
+    }
+  ],
+  "incubated": "2026-06-04T08:46:19.844Z",
+  "edge": "x86-qemu",
+  "sketch_results": [
+    {
+      "name": "read_value",
+      "desc": "Read sensor value from memory-mapped register",
+      "tags": [
+        "sensor",
+        "read",
+        "probe"
+      ],
+      "value": 80,
+      "raw": "eax=80"
+    },
+    {
+      "name": "read_bar0_first",
+      "desc": "Read first 32-bit register at BAR0 (MMIO)",
+      "tags": [
+        "generic",
+        "probe"
+      ],
+      "value": 80,
+      "raw": "eax=80"
+    }
+  ]
+}

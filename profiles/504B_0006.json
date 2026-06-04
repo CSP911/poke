@@ -1,0 +1,53 @@
+{
+  "vendor_device": "504B:0006",
+  "name": "Alert System",
+  "type": "sensor",
+  "arch": "i386",
+  "bar0": {
+    "address": "0x200028",
+    "isIO": false
+  },
+  "pci_class": "FF:06",
+  "pci_slot": "V5",
+  "operations": [
+    {
+      "name": "read_value",
+      "desc": "Read sensor value from memory-mapped register",
+      "returns": "Current sensor value",
+      "asm": "BITS 32\nmov eax, [0x200020]\nret",
+      "probe_value": 1
+    },
+    {
+      "name": "read_bar0_first",
+      "desc": "Read first 32-bit register at BAR0 (MMIO)",
+      "returns": "First register value",
+      "asm": "BITS 32\nmov ebx, 0x200020\nmov eax, [ebx]\nret",
+      "probe_value": 1
+    }
+  ],
+  "incubated": "2026-06-04T08:46:19.878Z",
+  "edge": "x86-qemu",
+  "sketch_results": [
+    {
+      "name": "read_value",
+      "desc": "Read sensor value from memory-mapped register",
+      "tags": [
+        "sensor",
+        "read",
+        "probe"
+      ],
+      "value": 1,
+      "raw": "eax=1"
+    },
+    {
+      "name": "read_bar0_first",
+      "desc": "Read first 32-bit register at BAR0 (MMIO)",
+      "tags": [
+        "generic",
+        "probe"
+      ],
+      "value": 1,
+      "raw": "eax=1"
+    }
+  ]
+}

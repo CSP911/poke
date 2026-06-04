@@ -63,6 +63,38 @@
       "params": ["IOBASE"]
     }
   },
+  "sensor": {
+    "read_value": {
+      "desc": "Read sensor value from memory-mapped register",
+      "tag": ["sensor", "read", "probe"],
+      "asm": "BITS 32\nmov eax, [{{ADDR}}]\nret",
+      "returns": "Current sensor value",
+      "params": ["ADDR"]
+    },
+    "read_value_offset": {
+      "desc": "Read sensor value at base + offset",
+      "tag": ["sensor", "read"],
+      "asm": "BITS 32\nmov ebx, {{BASE}}\nmov eax, [ebx + {{OFFSET}}]\nret",
+      "returns": "Value at base+offset",
+      "params": ["BASE", "OFFSET"]
+    }
+  },
+  "actuator": {
+    "write_value": {
+      "desc": "Write value to actuator register",
+      "tag": ["actuator", "write", "control"],
+      "asm": "BITS 32\nmov dword [{{ADDR}}], {{VALUE}}\nmov eax, [{{ADDR}}]\nret",
+      "returns": "Written value read back",
+      "params": ["ADDR", "VALUE"]
+    },
+    "read_state": {
+      "desc": "Read current actuator state",
+      "tag": ["actuator", "read", "probe"],
+      "asm": "BITS 32\nmov eax, [{{ADDR}}]\nret",
+      "returns": "Current actuator state",
+      "params": ["ADDR"]
+    }
+  },
   "generic": {
     "read_bar0_first": {
       "desc": "Read first 32-bit register at BAR0 (MMIO)",

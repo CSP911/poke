@@ -292,15 +292,16 @@ function readEdgePCI(endpoint) {
           const count = parseInt(lines[0])
           const devices = []
           for (let i = 1; i < lines.length; i++) {
-            const m = lines[i].match(/^(\d+),([0-9A-F]{4}):([0-9A-F]{4}),([0-9A-F]{2}):([0-9A-F]{2}),([0-9A-F]+)$/)
+            const m = lines[i].match(/^([V\d]+),([0-9A-F]{4}):([0-9A-F]{4}),([0-9A-F]{2}):([0-9A-F]{2}),([0-9A-F]+)$/)
             if (m) {
               devices.push({
-                slot: parseInt(m[1]),
+                slot: m[1],
                 vendor: m[2],
                 device: m[3],
                 class: m[4],
                 subclass: m[5],
                 bar0: m[6],
+                virtual: m[1].startsWith('V'),
               })
             }
           }
