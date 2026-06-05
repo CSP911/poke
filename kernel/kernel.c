@@ -1071,6 +1071,126 @@ static void __attribute__((noinline)) module_load(void) {
     vga_print("  [MOD] Initialized\n");
 }
 
+/* ── Resident Binaries (persistent control loops) ── */
+/* Up to 4 resident slots, each called every main loop tick */
+/* Loaded from disk sectors 2048+ or via POST /poke RES protocol */
+#define RES_MAX_SLOTS  4
+#define RES_CODE_SIZE  2048   /* max 2KB per slot */
+#define RES_BASE       0x110000  /* memory: 0x110000, 0x110800, 0x111000, 0x111800 */
+#define RES_MAGIC      0x53455250  /* "PRES" */
+#define RES_DISK_BASE  2048   /* disk sector for resident slot 0 header */
+#define RES_DISK_SLOT  8      /* sectors per slot (header=1 + code=7 = 3.5KB) */
+
+struct res_slot {
+    u8  active;
+    u32 code_size;
+    u32 interval;      /* ticks between calls (0 = every tick) */
+    u32 ticks_left;
+    u32 call_count;
+    u32 last_eax;      /* last return value */
+};
+
+static struct res_slot res_slots[RES_MAX_SLOTS];
+
+void resident_init(void) {
+    for (int i = 0; i < RES_MAX_SLOTS; i++) {
+        res_slots[i].active = 0;
+        res_slots[i].call_count = 0;
+    }
+
+    /* Try loading resident binaries from disk */
+    if (!vio_ok) return;
+    static u8 s[512];
+    for (int i = 0; i < RES_MAX_SLOTS; i++) {
+        u32 hdr_sec = RES_DISK_BASE + i * RES_DISK_SLOT;
+        if (vio_rw(hdr_sec, s, 0) < 0) continue;
+        u32 *h = (u32 *)s;
+        if (h[0] != RES_MAGIC) continue;
+        u32 size = h[1];
+        u32 interval = h[2];
+        if (size == 0 || size > RES_CODE_SIZE) continue;
+
+        /* Load code to memory */
+        u8 *dst = (u8 *)(RES_BASE + i * 0x800);
+        u32 secs = (size + 511) / 512;
+        for (u32 j = 0; j < secs; j++)
+            vio_rw(hdr_sec + 1 + j, dst + j * 512, 0);
+
+        res_slots[i].active = 1;
+        res_slots[i].code_size = size;
+        res_slots[i].interval = interval;
+        res_slots[i].ticks_left = interval;
+        vga_print("  [RES] Slot "); vga_print_dec(i); vga_print(" loaded\n");
+    }
+}
+
+/* Deploy a resident binary: save to disk + activate */
+int resident_deploy(int slot, u8 *code, u32 size, u32 interval) {
+    if (slot < 0 || slot >= RES_MAX_SLOTS) return -1;
+    if (size > RES_CODE_SIZE) return -1;
+
+    /* Copy to memory */
+    u8 *dst = (u8 *)(RES_BASE + slot * 0x800);
+    mem_copy(dst, code, size);
+
+    /* Save to disk: header + code */
+    if (vio_ok) {
+        static u8 s[512];
+        u32 hdr_sec = RES_DISK_BASE + slot * RES_DISK_SLOT;
+        mem_set(s, 0, 512);
+        u32 *h = (u32 *)s;
+        h[0] = RES_MAGIC; h[1] = size; h[2] = interval;
+        vio_rw(hdr_sec, s, 1);
+        u32 secs = (size + 511) / 512;
+        for (u32 j = 0; j < secs; j++) {
+            mem_set(s, 0, 512);
+            u32 chunk = (j + 1) * 512 <= size ? 512 : size - j * 512;
+            mem_copy(s, code + j * 512, chunk);
+            vio_rw(hdr_sec + 1 + j, s, 1);
+        }
+    }
+
+    res_slots[slot].active = 1;
+    res_slots[slot].code_size = size;
+    res_slots[slot].interval = interval;
+    res_slots[slot].ticks_left = interval;
+    res_slots[slot].call_count = 0;
+    return slot;
+}
+
+void resident_stop(int slot) {
+    if (slot >= 0 && slot < RES_MAX_SLOTS) {
+        res_slots[slot].active = 0;
+        /* Clear disk header */
+        if (vio_ok) {
+            static u8 s[512];
+            mem_set(s, 0, 512);
+            vio_rw(RES_DISK_BASE + slot * RES_DISK_SLOT, s, 1);
+        }
+    }
+}
+
+/* Called every main loop iteration */
+void resident_tick(void) {
+    for (int i = 0; i < RES_MAX_SLOTS; i++) {
+        if (!res_slots[i].active) continue;
+        if (res_slots[i].interval > 0) {
+            if (res_slots[i].ticks_left > 0) { res_slots[i].ticks_left--; continue; }
+            res_slots[i].ticks_left = res_slots[i].interval;
+        }
+        /* Execute resident code */
+        u8 *code = (u8 *)(RES_BASE + i * 0x800);
+        u32 (*fn)(void) = (u32 (*)(void))code;
+        u32 eax;
+        __asm__ volatile(
+            "pushal\n" "call *%1\n" "mov %%eax, %0\n" "popal\n"
+            : "=m"(eax) : "r"(fn) : "memory"
+        );
+        res_slots[i].last_eax = eax;
+        res_slots[i].call_count++;
+    }
+}
+
 /* ── Virtual Registers (server room simulation) ── */
 /* Address 0x200000 + index*4: each register is u32 LE */
 static volatile u32 *virt_regs = (volatile u32 *)0x200000;
@@ -1899,6 +2019,24 @@ void handle_http(void) {
         return;
     }
 
+    /* RES magic — deploy resident binary */
+    /* Format: "RES" + slot(1) + interval(4) + code(N) */
+    if (code_len >= 8 && body_ptr[0]=='R' && body_ptr[1]=='E' && body_ptr[2]=='S') {
+        u8 slot = body_ptr[3];
+        u32 interval = body_ptr[4]|(body_ptr[5]<<8)|(body_ptr[6]<<16)|(body_ptr[7]<<24);
+        u8 *rcode = body_ptr + 8;
+        u32 rsize = code_len - 8;
+        int r = resident_deploy(slot, rcode, rsize, interval);
+        u8 *resp = (u8 *)0x2001000; int rl = 0;
+        const char ok[] = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nresident=";
+        for(int i=0;ok[i];i++) resp[rl++]=ok[i];
+        resp[rl++] = '0' + (r >= 0 ? r : 9);
+        resp[rl++] = ','; resp[rl++] = r >= 0 ? 'o' : 'e';
+        resp[rl++] = r >= 0 ? 'k' : 'r'; resp[rl++] = '\n';
+        tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, resp, rl);
+        return;
+    }
+
     /* Check for MON magic — monitor registration */
 
     if (code_len >= 17 && body_ptr[0] == MON_MAGIC_0 &&
@@ -2272,6 +2410,7 @@ void kernel_main(void) {
     module_load();
     virt_regs_init();
     monitor_init();
+    resident_init();
     vga_print("  [MON] Monitor system ready\n");
     vga_print("  [SIM] Virtual sensors active\n");
 
@@ -2333,6 +2472,7 @@ void kernel_main(void) {
         /* Simulate sensors + monitor tick */
         virt_regs_tick();
         monitor_tick();
+        resident_tick();
 
         /* Fire pending events to hub */
         if (pending_event >= 0) {

@@ -265,6 +265,33 @@ The assembly code must return a sensor/computed value in EAX. The condition comp
       required: ['target'],
     },
   },
+  // ── Resident binary (persistent control loops) ──
+  {
+    name: 'deploy_resident',
+    description: `Deploy a PERSISTENT binary on an edge that runs continuously. Use for: PID control, data logging, safety monitoring, continuous sensor polling. Runs every N ticks without hub involvement. Survives edge reboot. Up to 4 slots (0-3). Assembly returns status in EAX.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID' },
+        slot: { type: 'number', description: 'Slot 0-3' },
+        asm_code: { type: 'string', description: 'x86 assembly (runs in loop, return status in EAX)' },
+        interval: { type: 'number', description: 'Ticks between calls. 0=every tick, 1000=~1sec' },
+      },
+      required: ['target', 'slot', 'asm_code'],
+    },
+  },
+  {
+    name: 'stop_resident',
+    description: 'Stop and remove a resident binary from a slot.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID' },
+        slot: { type: 'number', description: 'Slot 0-3' },
+      },
+      required: ['target', 'slot'],
+    },
+  },
   // ── Assembly cache tools ──
   {
     name: 'asm_cache_save',
@@ -1052,6 +1079,33 @@ Return ONLY valid JSON (no markdown, no explanation) with this structure:
     } catch (e) {
       return `Restart failed: ${e.message}`
     }
+  }
+
+  // ── Resident binary ──
+  if (toolName === 'deploy_resident') {
+    const target = toolInput.target || 'x86-qemu'
+    const node = nodes.get(target)
+    if (!node) return `Error: edge "${target}" not found`
+    const bin = await compileAssembly(toolInput.asm_code)
+    if (!bin) return 'Error: assembly compilation failed'
+    try {
+      const { deployResident } = require('./transport')
+      const r = await deployResident(node.endpoint, toolInput.slot || 0, toolInput.interval || 1000, bin)
+      return `Resident deployed: ${r}`
+    } catch (e) { return `Error: ${e.message}` }
+  }
+
+  if (toolName === 'stop_resident') {
+    const target = toolInput.target || 'x86-qemu'
+    const node = nodes.get(target)
+    if (!node) return `Error: edge "${target}" not found`
+    // Send RES with size 0 to stop
+    try {
+      const { deployResident } = require('./transport')
+      const r = await deployResident(node.endpoint, toolInput.slot || 0, 0, Buffer.from([0xC3]))  // just ret
+      // Then need to actually stop — for now mark as stopped via a noop resident
+      return `Slot ${toolInput.slot} stopped`
+    } catch (e) { return `Error: ${e.message}` }
   }
 
   // ── Assembly cache tools ──

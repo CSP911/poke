@@ -312,6 +312,34 @@ function readEdgePCI(endpoint) {
   })
 }
 
+// ── Deploy resident binary (RES protocol) ──
+function deployResident(endpoint, slot, interval, codeBinary) {
+  return new Promise((resolve, reject) => {
+    const url = new URL('/poke', endpoint)
+    // RES packet: "RES" + slot(1) + interval(4) + code(N)
+    const packet = Buffer.alloc(8 + codeBinary.length)
+    packet[0] = 0x52; packet[1] = 0x45; packet[2] = 0x53  // RES
+    packet[3] = slot
+    packet.writeUInt32LE(interval, 4)
+    codeBinary.copy(packet, 8)
+
+    const req = http.request({
+      hostname: url.hostname, port: url.port,
+      path: '/poke', method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': packet.length },
+      timeout: 10000,
+    }, (res) => {
+      let body = ''
+      res.on('data', c => body += c)
+      res.on('end', () => resolve(body.trim()))
+    })
+    req.on('error', e => reject(new PokeTransportError(e.message, 'RES_DEPLOY_ERROR')))
+    req.on('timeout', () => { req.destroy(); reject(new PokeTransportError('timeout', 'TIMEOUT')) })
+    req.write(packet)
+    req.end()
+  })
+}
+
 // ── Shutdown edge (DIE protocol) ──
 function shutdownEdge(endpoint) {
   return new Promise((resolve, reject) => {
@@ -341,6 +369,7 @@ module.exports = {
   pokeRelay,
   streamToEdge,
   deployMonitor,
+  deployResident,
   shutdownEdge,
   readEdgeContext,
   writeEdgeContext,
