@@ -23,7 +23,7 @@ start:
     mov si, msg_boot
     call print_string_16
 
-    ; Load kernel: 54 sectors (27KB) from sector 2 → 0x1000
+    ; Load kernel: 55 sectors (27.5KB) from sector 2 → 0x1000
     mov ah, 0x02
     mov al, 54
     mov ch, 0

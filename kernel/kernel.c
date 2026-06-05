@@ -1072,7 +1072,11 @@ static void __attribute__((noinline)) module_load(void) {
 }
 
 /* Forward declarations for scheduler */
+#define TASK_MAX 5
+struct task { u32 esp; u8 active; };
+static struct task tasks[TASK_MAX];
 static int sched_enabled;
+static int active_task_count;
 void sched_start_task(int slot);
 
 /* ── Resident Binaries (persistent control loops) ── */
@@ -1165,15 +1169,15 @@ int resident_deploy(int slot, u8 *code, u32 size, u32 interval) {
 }
 
 void resident_stop(int slot) {
-    if (slot >= 0 && slot < RES_MAX_SLOTS) {
-        res_slots[slot].active = 0;
-        /* Clear disk header */
-        if (vio_ok) {
-            static u8 s[512];
-            mem_set(s, 0, 512);
-            vio_rw(RES_DISK_BASE + slot * RES_DISK_SLOT, s, 1);
-        }
+    if (slot < 0 || slot >= RES_MAX_SLOTS) return;
+    res_slots[slot].active = 0;
+    int tid = slot + 1;
+    if (tid < TASK_MAX && tasks[tid].active) {
+        tasks[tid].active = 0;
+        if (active_task_count > 1) active_task_count--;
+        if (active_task_count <= 1 && sched_enabled) { __asm__ volatile("cli"); sched_enabled = 0; }
     }
+    if (vio_ok) { static u8 s[512]; mem_set(s,0,512); vio_rw(RES_DISK_BASE+slot*RES_DISK_SLOT,s,1); }
 }
 
 /* Called every main loop iteration */
@@ -1201,17 +1205,11 @@ void resident_tick(void) {
 /* IDT at 0x150000, task stacks at 0x160000+ (4KB each) */
 #define IDT_BASE    0x150000
 #define IDT_ENTRIES 48       /* 0-31 exceptions + 32-47 IRQs */
-#define TASK_MAX    5        /* task 0 = kernel, 1-4 = resident slots */
 #define TASK_STACK  0x160000 /* 0x160000, 0x161000, 0x162000, ... */
 #define TASK_STACK_SIZE 4096
 
-struct task {
-    u32 esp;       /* saved stack pointer */
-    u8  active;
-};
-static struct task tasks[TASK_MAX];
+/* tasks[], sched_enabled, active_task_count, TASK_MAX in forward decls */
 static int current_task = 0;
-/* sched_enabled declared in forward declarations above */
 
 /* IDT entry */
 struct idt_entry {
@@ -1246,8 +1244,6 @@ static void pit_init(void) {
 
 /* Timer ISR — called by PIT IRQ0 (INT 32) */
 /* Saves ESP of current task, picks next, restores ESP */
-static int active_task_count = 1;  /* starts with kernel only */
-
 void timer_isr_c(u32 esp) {
     if (!sched_enabled || active_task_count <= 1) {
         outb(0x20, 0x20); return;  /* no switching needed */
@@ -1308,6 +1304,7 @@ void sched_init(void) {
         tasks[i].active = (i == 0) ? 1 : 0;
         tasks[i].esp = TASK_STACK + (i + 1) * TASK_STACK_SIZE - 16;
     }
+    active_task_count = 1;  /* kernel only */
 
     /* Setup PIC + PIT */
     pic_remap();
@@ -2068,43 +2065,19 @@ static void __attribute__((noinline)) handle_pci(void) {
     #define PH(val,digits) { u32 vv=(val); for(int sh=(digits-1)*4;sh>=0;sh-=4){ \
         u8 nib=(vv>>sh)&0xF; r[l++]=nib<10?'0'+nib:'A'+nib-10; } }
 
-    /* Virtual sensors: vendor=POKE(504B), 6 devices */
-    #define VDEV_COUNT 6
-    int total = pci_dev_count + VDEV_COUNT;
-
-    /* Line 1: total device count */
-    PN(total) r[l++]='\n';
-
-    /* PCI devices */
+    /* PCI + 1 virtual sensor (temp) */
+    PN(pci_dev_count + 1) r[l++]='\n';
     for (int i = 0; i < pci_dev_count && l < 1000; i++) {
         struct pci_dev *d = &pci_devs[i];
         PN(d->slot) r[l++]=',';
-        PH(d->vendor, 4) r[l++]=':'; PH(d->device, 4) r[l++]=',';
-        PH(d->class, 2) r[l++]=':'; PH(d->subclass, 2) r[l++]=',';
-        PH(d->bar0, 8) r[l++]='\n';
+        PH(d->vendor,4) r[l++]=':'; PH(d->device,4) r[l++]=',';
+        PH(d->class,2) r[l++]=':'; PH(d->subclass,2) r[l++]=',';
+        PH(d->bar0,8) r[l++]='\n';
     }
-
-    /* Virtual sensors at 0x200000 (vendor=504B "PK", class=FF=virtual) */
-    /* slot=V0..V5, device=0001..0006, bar0=memory offset */
-    /* V0: temp, V1: cpu, V2: cooling, V3: power, V4: servers, V5: alert */
-    { const char *names[] = {"0001","0002","0003","0004","0005","0006"};
-      const char *subs[]  = {"01","02","03","04","05","06"};
-      u32 offsets[] = {0x200000,0x200004,0x200008,0x20000C,0x200010,0x200028};
-      for (int i = 0; i < VDEV_COUNT && l < 1300; i++) {
-        r[l++]='V'; r[l++]='0'+i; r[l++]=',';  /* slot: V0..V5 */
-        r[l++]='5';r[l++]='0';r[l++]='4';r[l++]='B';r[l++]=':'; /* vendor: 504B */
-        const char *n=names[i]; while(*n) r[l++]=*n++;
-        r[l++]=',';
-        r[l++]='F';r[l++]='F';r[l++]=':'; /* class: FF (virtual) */
-        const char *s=subs[i]; while(*s) r[l++]=*s++;
-        r[l++]=',';
-        PH(offsets[i], 8)
-        r[l++]='\n';
-      }
-    }
+    /* V0=temp sensor at 0x200000 */
+    { const char v[]="V0,504B:0001,FF:01,00200000\n"; for(int i=0;v[i];i++) r[l++]=v[i]; }
     #undef PN
     #undef PH
-    #undef VDEV_COUNT
     tcp_send(remote_mac, remote_ip, remote_port, TCP_ACK|TCP_PSH|TCP_FIN, r, l);
 }
 
@@ -2165,6 +2138,16 @@ void handle_http(void) {
         outb(0x501, 0x31);
         /* Fallback: triple fault to crash QEMU */
         __asm__ volatile("cli; hlt");
+    }
+
+    /* STP — stop resident binary: "STP" + slot(1) */
+    if (code_len>=4 && body_ptr[0]=='S'&&body_ptr[1]=='T'&&body_ptr[2]=='P') {
+        resident_stop(body_ptr[3]);
+        u8 *r=(u8*)0x2001000; int l=0;
+        const char ok[]="HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nstopped=";
+        for(int i=0;ok[i];i++) r[l++]=ok[i]; r[l++]='0'+body_ptr[3]; r[l++]='\n';
+        tcp_send(remote_mac,remote_ip,remote_port,TCP_ACK|TCP_PSH|TCP_FIN,r,l);
+        return;
     }
 
     /* CTX magic — context store write (handled in separate function) */

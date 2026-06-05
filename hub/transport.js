@@ -340,6 +340,27 @@ function deployResident(endpoint, slot, interval, codeBinary) {
   })
 }
 
+// ── Stop resident binary (STP protocol) ──
+function stopResident(endpoint, slot) {
+  return new Promise((resolve, reject) => {
+    const url = new URL('/poke', endpoint)
+    const packet = Buffer.alloc(4)
+    packet[0] = 0x53; packet[1] = 0x54; packet[2] = 0x50  // STP
+    packet[3] = slot
+    const req = http.request({
+      hostname: url.hostname, port: url.port,
+      path: '/poke', method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': 4 },
+      timeout: 5000,
+    }, (res) => {
+      let body = ''; res.on('data', c => body += c); res.on('end', () => resolve(body.trim()))
+    })
+    req.on('error', e => reject(new PokeTransportError(e.message, 'STP_ERROR')))
+    req.on('timeout', () => { req.destroy(); reject(new PokeTransportError('timeout', 'TIMEOUT')) })
+    req.write(packet); req.end()
+  })
+}
+
 // ── Shutdown edge (DIE protocol) ──
 function shutdownEdge(endpoint) {
   return new Promise((resolve, reject) => {
@@ -370,6 +391,7 @@ module.exports = {
   streamToEdge,
   deployMonitor,
   deployResident,
+  stopResident,
   shutdownEdge,
   readEdgeContext,
   writeEdgeContext,

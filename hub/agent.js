@@ -1099,12 +1099,10 @@ Return ONLY valid JSON (no markdown, no explanation) with this structure:
     const target = toolInput.target || 'x86-qemu'
     const node = nodes.get(target)
     if (!node) return `Error: edge "${target}" not found`
-    // Send RES with size 0 to stop
     try {
-      const { deployResident } = require('./transport')
-      const r = await deployResident(node.endpoint, toolInput.slot || 0, 0, Buffer.from([0xC3]))  // just ret
-      // Then need to actually stop — for now mark as stopped via a noop resident
-      return `Slot ${toolInput.slot} stopped`
+      const { stopResident } = require('./transport')
+      const r = await stopResident(node.endpoint, toolInput.slot || 0)
+      return `Slot ${toolInput.slot} stopped: ${r}`
     } catch (e) { return `Error: ${e.message}` }
   }
 

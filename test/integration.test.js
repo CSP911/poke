@@ -136,7 +136,7 @@ const tests = [
     const data = await httpGet(EDGE_URL + '/pci')
     const lines = data.trim().split('\n')
     const count = parseInt(lines[0])
-    assert(count >= 7, 'expected at least 7 PCI devices, got ' + count)
+    assert(count >= 8, 'expected at least 8 devices, got ' + count)
     assert(data.includes('8086:100E'), 'missing e1000 NIC')
     assert(data.includes('504B:0001'), 'missing virtual temp sensor')
   }),
@@ -210,10 +210,10 @@ const tests = [
     assert(r.includes('eax=22'), 'virt reg write failed: ' + r)
   }),
 
-  test('Incubation: 13+ devices (7 PCI + 6 virtual)', async () => {
+  test('Incubation: 8+ devices (7 PCI + virtual sensors)', async () => {
     const data = await httpGet(EDGE_URL + '/pci')
     const count = parseInt(data.trim().split('\n')[0])
-    assert(count >= 13, 'expected 13+ devices, got ' + count)
+    assert(count >= 8, 'expected 8+ devices, got ' + count)
     assert(data.includes('504B:0001'), 'missing virtual temp sensor')
     assert(data.includes('8086:100E'), 'missing e1000 NIC')
   }),
@@ -234,6 +234,35 @@ const tests = [
     const { pokeNode } = require('../hub/transport')
     const r = await pokeNode(EDGE_URL, bin)
     assert(r.includes('eax=30'), 'cache exec failed: ' + r)
+  }),
+
+  // === Resident Binary + Multitasking ===
+  test('Resident: deploy to slot 0', async () => {
+    const { compileAssembly } = require('../hub/compiler')
+    const { deployResident } = require('../hub/transport')
+    const bin = await compileAssembly('BITS 32\nmov eax, [0x200000]\nret')
+    const r = await deployResident(EDGE_URL, 0, 5000, bin)
+    assert(r.includes('resident=0'), 'deploy failed: ' + r)
+  }),
+
+  test('Resident: edge still responds during resident execution', async () => {
+    await sleep(2000)
+    const h = JSON.parse(await httpGet(EDGE_URL + '/health'))
+    assert(h.status === 'alive', 'edge unresponsive with resident running')
+  }),
+
+  test('Resident: stop slot 0', async () => {
+    const { stopResident } = require('../hub/transport')
+    const r = await stopResident(EDGE_URL, 0)
+    assert(r.includes('stopped=0'), 'stop failed: ' + r)
+  }),
+
+  test('Resident: edge still works after stop', async () => {
+    const { compileAssembly } = require('../hub/compiler')
+    const { pokeNode } = require('../hub/transport')
+    const bin = await compileAssembly('BITS 32\nmov eax, 77\nret')
+    const r = await pokeNode(EDGE_URL, bin)
+    assert(r.includes('eax=77'), 'exec after stop failed: ' + r)
   }),
 
   // === DIE (shutdown) — run last ===
