@@ -1071,6 +1071,10 @@ static void __attribute__((noinline)) module_load(void) {
     vga_print("  [MOD] Initialized\n");
 }
 
+/* Forward declarations for scheduler */
+static int sched_enabled;
+void sched_start_task(int slot);
+
 /* ── Resident Binaries (persistent control loops) ── */
 /* Up to 4 resident slots, each called every main loop tick */
 /* Loaded from disk sectors 2048+ or via POST /poke RES protocol */
@@ -1155,6 +1159,8 @@ int resident_deploy(int slot, u8 *code, u32 size, u32 interval) {
     res_slots[slot].interval = interval;
     res_slots[slot].ticks_left = interval;
     res_slots[slot].call_count = 0;
+    /* Register as preemptive task if scheduler is running */
+    if (sched_enabled && interval == 0) sched_start_task(slot);
     return slot;
 }
 
@@ -1188,6 +1194,154 @@ void resident_tick(void) {
         );
         res_slots[i].last_eax = eax;
         res_slots[i].call_count++;
+    }
+}
+
+/* ── Preemptive Multitasking (PIT Timer + Context Switch) ── */
+/* IDT at 0x150000, task stacks at 0x160000+ (4KB each) */
+#define IDT_BASE    0x150000
+#define IDT_ENTRIES 48       /* 0-31 exceptions + 32-47 IRQs */
+#define TASK_MAX    5        /* task 0 = kernel, 1-4 = resident slots */
+#define TASK_STACK  0x160000 /* 0x160000, 0x161000, 0x162000, ... */
+#define TASK_STACK_SIZE 4096
+
+struct task {
+    u32 esp;       /* saved stack pointer */
+    u8  active;
+};
+static struct task tasks[TASK_MAX];
+static int current_task = 0;
+/* sched_enabled declared in forward declarations above */
+
+/* IDT entry */
+struct idt_entry {
+    u16 offset_lo;
+    u16 selector;
+    u8  zero;
+    u8  type_attr;  /* 0x8E = 32-bit interrupt gate */
+    u16 offset_hi;
+} __attribute__((packed));
+
+struct idt_ptr {
+    u16 limit;
+    u32 base;
+} __attribute__((packed));
+
+/* PIC (8259) remap: IRQ0-7 → INT 32-39 */
+static void pic_remap(void) {
+    outb(0x20, 0x11); outb(0xA0, 0x11);  /* init */
+    outb(0x21, 0x20); outb(0xA1, 0x28);  /* offset: IRQ0→32, IRQ8→40 */
+    outb(0x21, 0x04); outb(0xA1, 0x02);  /* cascade */
+    outb(0x21, 0x01); outb(0xA1, 0x01);  /* 8086 mode */
+    outb(0x21, 0xFE); outb(0xA1, 0xFF);  /* unmask IRQ0 only */
+}
+
+/* PIT: ~100Hz (10ms quantum) */
+static void pit_init(void) {
+    u16 div = 11932;  /* 1193182 / 100 ≈ 11932 */
+    outb(0x43, 0x36);
+    outb(0x40, div & 0xFF);
+    outb(0x40, (div >> 8) & 0xFF);
+}
+
+/* Timer ISR — called by PIT IRQ0 (INT 32) */
+/* Saves ESP of current task, picks next, restores ESP */
+static int active_task_count = 1;  /* starts with kernel only */
+
+void timer_isr_c(u32 esp) {
+    if (!sched_enabled || active_task_count <= 1) {
+        outb(0x20, 0x20); return;  /* no switching needed */
+    }
+    /* Save current ESP */
+    tasks[current_task].esp = esp;
+    /* Round-robin: find next active task */
+    for (int i = 0; i < TASK_MAX; i++) {
+        int next = (current_task + 1 + i) % TASK_MAX;
+        if (tasks[next].active) { current_task = next; break; }
+    }
+    outb(0x20, 0x20);  /* EOI */
+}
+
+/* Get new ESP for context restore (called from asm stub) */
+u32 get_task_esp(void) { return tasks[current_task].esp; }
+
+/* Assembly ISR stub — must be naked, saves/restores all regs */
+__asm__(
+    ".globl timer_isr_stub\n"
+    "timer_isr_stub:\n"
+    "  pusha\n"
+    "  push %esp\n"
+    "  call timer_isr_c\n"
+    "  add $4, %esp\n"
+    "  call get_task_esp\n"
+    "  mov %eax, %esp\n"
+    "  popa\n"
+    "  iret\n"
+);
+extern void timer_isr_stub(void);
+
+static void idt_set(int n, void (*handler)(void)) {
+    struct idt_entry *idt = (struct idt_entry *)IDT_BASE;
+    u32 addr = (u32)handler;
+    idt[n].offset_lo = addr & 0xFFFF;
+    idt[n].selector = 0x08;  /* kernel code segment */
+    idt[n].zero = 0;
+    idt[n].type_attr = 0x8E; /* present, ring 0, 32-bit interrupt gate */
+    idt[n].offset_hi = (addr >> 16) & 0xFFFF;
+}
+
+void sched_init(void) {
+    /* Clear IDT */
+    mem_set((void *)IDT_BASE, 0, IDT_ENTRIES * 8);
+
+    /* Set timer interrupt (INT 32 = IRQ0) */
+    idt_set(32, timer_isr_stub);
+
+    /* Load IDT */
+    struct idt_ptr idtp;
+    idtp.limit = IDT_ENTRIES * 8 - 1;
+    idtp.base = IDT_BASE;
+    __asm__ volatile("lidt %0" : : "m"(idtp));
+
+    /* Init tasks: task 0 = kernel (always active) */
+    for (int i = 0; i < TASK_MAX; i++) {
+        tasks[i].active = (i == 0) ? 1 : 0;
+        tasks[i].esp = TASK_STACK + (i + 1) * TASK_STACK_SIZE - 16;
+    }
+
+    /* Setup PIC + PIT */
+    pic_remap();
+    pit_init();
+
+    /* Don't enable interrupts yet — enable when first resident task starts */
+    sched_enabled = 0;
+    vga_print("  [SCHED] Ready (waiting for tasks)\n");
+}
+
+/* Start a resident binary as a preemptive task */
+void sched_start_task(int slot) {
+    if (slot < 0 || slot >= RES_MAX_SLOTS) return;
+    if (!res_slots[slot].active) return;
+    int tid = slot + 1;  /* task 0 = kernel */
+    if (tid >= TASK_MAX) return;
+
+    /* Setup task stack: push initial registers + return address */
+    u32 *stack = (u32 *)(TASK_STACK + (tid + 1) * TASK_STACK_SIZE);
+    u8 *code = (u8 *)(RES_BASE + slot * 0x800);
+
+    /* Build fake interrupt frame on stack */
+    *(--stack) = 0x202;       /* EFLAGS (IF=1) */
+    *(--stack) = 0x08;        /* CS */
+    *(--stack) = (u32)code;   /* EIP — entry point */
+    *(--stack) = 0; *(--stack) = 0; *(--stack) = 0; *(--stack) = 0;  /* EAX,ECX,EDX,EBX */
+    *(--stack) = 0; *(--stack) = 0; *(--stack) = 0; *(--stack) = 0;  /* ESP,EBP,ESI,EDI */
+
+    tasks[tid].esp = (u32)stack;
+    tasks[tid].active = 1;
+    active_task_count++;
+    if (!sched_enabled && active_task_count > 1) {
+        sched_enabled = 1;
+        __asm__ volatile("sti");
     }
 }
 
@@ -2416,6 +2570,9 @@ void kernel_main(void) {
 
     vga_print("\n");
     shell_prompt();
+
+    /* Enable preemptive scheduler LAST — after all init is done */
+    sched_init();
 
     /* Main loop: shell + network + monitors */
     u8 recv_buf[2048];
