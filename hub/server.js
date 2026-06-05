@@ -12,6 +12,7 @@ const { pokeNode, pokeNodeRaw } = require('./transport')
 const memory = require('./memory')
 const { incubate } = require('./incubate')
 const scenarioEnv = require('./scenario-env')
+const goalEngine = require('./goal')
 const trace = require('./trace')
 
 // ── Security: Auth + Helpers ──
@@ -385,6 +386,49 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && url.pathname === '/devices') {
     res.setHeader('Content-Type', 'text/html')
     res.end(require('fs').readFileSync(__dirname + '/../web/devices/index.html', 'utf8'))
+    return
+  }
+
+  // POST /goal — start goal-based autonomous control
+  if (req.method === 'POST' && url.pathname === '/goal') {
+    const data = safeJSON(body)
+    if (!data || !data.goal) { jsonError(res, 400, 'need goal + edge'); return }
+    const edgeId = data.edge || [...nodes.keys()].find(id => nodes.get(id).status === 'alive')
+    if (!edgeId) { jsonError(res, 404, 'no alive edge'); return }
+    try {
+      const goal = await goalEngine.startGoal(edgeId, data.goal, data.interval || 10000)
+      res.end(JSON.stringify({ ok: true, id: goal.id, edge: edgeId, status: goal.status }))
+    } catch (e) { jsonError(res, 500, e.message) }
+    return
+  }
+
+  // POST /goal/stop — stop a goal
+  if (req.method === 'POST' && url.pathname === '/goal/stop') {
+    const data = safeJSON(body)
+    const edgeId = data?.edge || [...nodes.keys()][0]
+    const goal = goalEngine.stopGoal(edgeId)
+    res.end(JSON.stringify({ ok: true, goal: goal ? { status: goal.status, cycles: goal.cycles } : null }))
+    return
+  }
+
+  // GET /goal — get current goal status
+  if (req.method === 'GET' && url.pathname === '/goal') {
+    const edgeId = url.searchParams.get('edge') || [...nodes.keys()][0]
+    const goal = goalEngine.getGoal(edgeId)
+    if (!goal) { res.end(JSON.stringify({ active: false })); return }
+    res.end(JSON.stringify({
+      active: goal.status === 'active',
+      goal: goal.text,
+      status: goal.status,
+      cycles: goal.cycles,
+      history: goal.history.slice(-5),
+    }, null, 2))
+    return
+  }
+
+  // GET /goals — list all active goals
+  if (req.method === 'GET' && url.pathname === '/goals') {
+    res.end(JSON.stringify(goalEngine.listGoals(), null, 2))
     return
   }
 
