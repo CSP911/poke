@@ -129,6 +129,11 @@ body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMac
       <div class="s-desc">3 production lines — LLM kills actual QEMU on overload, balances remaining lines</div>
       <span class="s-tag factory">3 Edges</span>
     </div>
+    <div class="scenario-item" data-id="goal" onclick="selectScenario('goal')">
+      <div class="s-name">Goal Mode</div>
+      <div class="s-desc">Set a goal in natural language — LLM autonomously plans, monitors, and adjusts</div>
+      <span class="s-tag normal">Autonomous</span>
+    </div>
   </div>
 
   <!-- Main panel -->
@@ -144,6 +149,31 @@ body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMac
       <button class="btn btn-restart" onclick="restartLine('C')">Restart C</button>
       <button class="btn btn-reset" onclick="resetFactory()">Reset All</button>
       <span class="status-badge idle" id="badgeFactory">Idle</span>
+    </div>
+
+    <div class="controls hidden" id="ctrlGoal">
+      <select class="edge-sel" id="goalEdge" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:5px 10px;border-radius:6px;font-size:12px">
+        <option value="">Select edge...</option>
+      </select>
+      <button class="btn btn-run" onclick="startGoal()" id="btnGoal">Start Goal</button>
+      <button class="btn btn-stop hidden" onclick="stopGoalUI()" id="btnGoalStop">Stop</button>
+      <span class="status-badge idle" id="badgeGoal">Idle</span>
+    </div>
+
+    <!-- Goal Mode View -->
+    <div id="viewGoal" class="hidden" style="padding:16px 24px">
+      <div style="margin-bottom:12px">
+        <textarea id="goalInput" rows="3" placeholder="Describe your goal in natural language...&#10;e.g. Maintain temperature below 30°C. Keep web and db servers running. Save energy."
+          style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:10px;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+      </div>
+      <div id="goalStatus" style="display:none;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:14px;font-weight:700" id="goalStatusText">Active</span>
+          <span style="font-size:11px;color:#8b949e" id="goalCycles">Cycle 0</span>
+        </div>
+        <div style="font-size:12px;color:#8b949e;margin-bottom:8px" id="goalDesc"></div>
+        <div id="goalHistory"></div>
+      </div>
     </div>
 
     <!-- Server Room View -->
@@ -237,10 +267,13 @@ function selectScenario(id) {
   document.querySelector(`[data-id="${id}"]`).classList.add('active')
   document.getElementById('ctrlServer').classList.toggle('hidden', id !== 'server')
   document.getElementById('ctrlFactory').classList.toggle('hidden', id !== 'factory')
+  document.getElementById('ctrlGoal').classList.toggle('hidden', id !== 'goal')
   document.getElementById('viewServer').classList.toggle('hidden', id !== 'server')
   document.getElementById('viewFactory').classList.toggle('hidden', id !== 'factory')
+  document.getElementById('viewGoal').classList.toggle('hidden', id !== 'goal')
   if (id === 'server') pollServer()
   if (id === 'factory') pollFactory()
+  if (id === 'goal') initGoalUI()
 }
 
 function gc(val, warn, danger) { return val >= danger ? 'danger' : val >= warn ? 'warning' : 'ok' }
@@ -428,6 +461,97 @@ function renderTraceEvent(evt) {
 }
 
 startTrace()
+
+// ── Goal Mode ──
+let goalPollTimer = null
+
+function initGoalUI() {
+  const sel = document.getElementById('goalEdge')
+  if (sel.options.length <= 1) {
+    fetch(HUB+'/nodes').then(r=>r.json()).then(d=>{
+      for(const n of d.nodes||[]) {
+        const o=document.createElement('option');o.value=n.node_id;o.textContent=n.node_id;sel.appendChild(o)
+      }
+    })
+  }
+  // Check if goal already active
+  pollGoalStatus()
+}
+
+async function startGoal() {
+  const edge = document.getElementById('goalEdge').value
+  const goal = document.getElementById('goalInput').value.trim()
+  if (!edge) { alert('Select an edge'); return }
+  if (!goal) { alert('Enter a goal'); return }
+
+  document.getElementById('btnGoal').disabled = true
+  document.getElementById('badgeGoal').textContent = 'Starting...'
+  document.getElementById('badgeGoal').className = 'status-badge running'
+  addEvent('action', `Goal: "${goal}" on ${edge}`)
+
+  try {
+    const r = await fetch(HUB+'/goal', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({edge, goal, interval: 15000})}).then(r=>r.json())
+    if (r.ok) {
+      document.getElementById('btnGoal').classList.add('hidden')
+      document.getElementById('btnGoalStop').classList.remove('hidden')
+      document.getElementById('goalStatus').style.display = 'block'
+      document.getElementById('goalDesc').textContent = goal
+      addEvent('result', 'Goal started: ' + r.id)
+      goalPollTimer = setInterval(pollGoalStatus, 5000)
+    }
+  } catch(e) { addEvent('trigger', 'Error: '+e.message) }
+}
+
+async function stopGoalUI() {
+  const edge = document.getElementById('goalEdge').value
+  try {
+    await fetch(HUB+'/goal/stop', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({edge})})
+    addEvent('result', 'Goal stopped')
+  } catch(e) {}
+  if (goalPollTimer) { clearInterval(goalPollTimer); goalPollTimer = null }
+  document.getElementById('btnGoal').classList.remove('hidden')
+  document.getElementById('btnGoal').disabled = false
+  document.getElementById('btnGoalStop').classList.add('hidden')
+  document.getElementById('badgeGoal').textContent = 'Stopped'
+  document.getElementById('badgeGoal').className = 'status-badge idle'
+}
+
+async function pollGoalStatus() {
+  const edge = document.getElementById('goalEdge').value || 'x86-qemu'
+  try {
+    const d = await fetch(HUB+'/goal?edge='+edge).then(r=>r.json())
+    if (!d.active && !d.goal) return
+
+    document.getElementById('goalStatus').style.display = 'block'
+    document.getElementById('goalStatusText').textContent = d.status === 'active' ? '🟢 Active' : '⚪ ' + d.status
+    document.getElementById('goalCycles').textContent = 'Cycle ' + d.cycles
+    if (d.goal) document.getElementById('goalDesc').textContent = d.goal
+    if (d.active) {
+      document.getElementById('badgeGoal').textContent = 'Cycle ' + d.cycles
+      document.getElementById('badgeGoal').className = 'status-badge running'
+      document.getElementById('btnGoal').classList.add('hidden')
+      document.getElementById('btnGoalStop').classList.remove('hidden')
+      if (!goalPollTimer) goalPollTimer = setInterval(pollGoalStatus, 5000)
+    }
+
+    // Render history
+    const hist = document.getElementById('goalHistory')
+    hist.innerHTML = ''
+    for (const h of (d.history||[]).reverse()) {
+      const el = document.createElement('div')
+      el.style.cssText = 'padding:6px 8px;background:#0d1117;border-radius:4px;margin-bottom:4px;font-size:11px'
+      const actions = (h.actions||[]).map(a => typeof a === 'string' ? a : a.tool).join(', ')
+      const met = h.goalMet ? ' <span style="color:#3fb950">✓ GOAL MET</span>' : ''
+      el.innerHTML = `<span style="color:#484f58">${h.time?.slice(11,19)||''} C${h.cycle}</span>${met}` +
+        (actions ? `<div style="color:#58a6ff;margin-top:2px">${actions}</div>` : '') +
+        (h.result ? `<div style="color:#8b949e;margin-top:2px">${h.result.slice(0,120)}</div>` : '') +
+        (h.state ? `<div style="color:#484f58;margin-top:2px;font-family:monospace;font-size:10px">${h.state}</div>` : '')
+      hist.appendChild(el)
+    }
+  } catch(e) {}
+}
 
 // Init
 fetch(HUB+'/nodes').then(r=>r.json()).then(d=>{
