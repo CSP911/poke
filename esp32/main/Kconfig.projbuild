@@ -1,0 +1,15 @@
+menu "POKE Edge Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "your_wifi"
+        help
+            WiFi network name.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "your_password"
+        help
+            WiFi password.
+
+endmenu
