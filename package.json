@@ -1,6 +1,6 @@
 {
   "name": "@orvian/poke",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Protocol for Open Kernel Execution — inject and execute machine code on bare-metal devices via natural language",
   "main": "src/hub.js",
   "bin": {
@@ -24,6 +24,12 @@
     "hub/",
     "web/",
     "profiles/",
+    "test/",
+    "kernel/",
+    "Dockerfile.edge",
+    "Dockerfile.hub",
+    "docker-compose.yml",
+    "docker-compose.factory.yml",
     "README.md",
     "LICENSE"
   ],
