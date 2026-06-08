@@ -127,6 +127,8 @@ That's it. Docker compiles the x86 kernel from source, boots it in QEMU, starts 
 | **Edge** | 8080 | Bare-metal x86 OS in QEMU (kernel built from source) |
 | **Hub** | 3333 | LLM agent server (connects to Claude API) |
 | **Dashboard** | 3333/ui | Web UI — manage edges, send commands, view results |
+| **Incubation** | 3333/devices | PCI device discovery + assembly sketch library |
+| **Scenarios** | 3333/scenario | Server Room / Factory / Goal Mode simulations |
 | **Setup** | — | Auto-registers edge with hub, then exits |
 
 > **Platform:** macOS, Linux x86_64, Windows (via WSL2 + Docker Desktop).
@@ -342,31 +344,44 @@ Layer 3: kernel.c (edge, bare metal)
 
 Full specification: [PROTOCOL.md](PROTOCOL.md)
 
-### Core Endpoints
+### Hub Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/enroll` | Register an edge device |
+| POST | `/enroll` | Register edge (auto-triggers incubation) |
 | GET | `/nodes` | List connected edges |
 | POST | `/relay` | Natural language → agent loop → execute |
 | POST | `/run` | Direct LLM → assembly → execute |
-| POST | `/draw` | Generate image → send to edge display |
-| POST | `/voice` | Audio → STT → relay pipeline |
-| POST | `/poke-raw` | Send raw hex bytes to edge |
-| GET | `/health` | Edge health check |
+| POST | `/goal` | Start goal-based autonomous control |
+| POST | `/goal/stop` | Stop active goal |
+| GET | `/goal` | Current goal status + cycle history |
+| POST | `/scenario/start/:id` | Auto-provision env + run scenario |
+| GET | `/incubate/:id` | Trigger device incubation |
+| GET | `/asmcache` | List cached assembly templates |
+| GET | `/edge/context` | Read context from edge disks |
 
-### Binary Protocols
+### Edge Endpoints (bare-metal kernel)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health + virtual registers + monitor status + context count |
+| GET | `/pci` | PCI device list (real + virtual sensors) |
+| GET | `/store` | Read context entries from disk |
+| GET | `/key` | Last keyboard scancode |
+| POST | `/poke` | Code injection (dispatches by magic bytes) |
+
+### Binary Protocols (POST /poke body)
 
 ```
-POKE (code injection):
-  POST /poke + raw bytes → edge executes → returns result
-
-IMG (image):
-  "IMG" (3B) + width (2B LE) + height (2B LE) + RGB pixels
-
-Serial (ARM):
-  "POKE" (4B) + length (4B LE) + payload
-  Commands: EXEC, PING, INFO, TONE
+Raw bytes     → code execution → returns eax value
+"CTX" + data  → context store write (persistent disk)
+"MON" + data  → deploy condition monitor (4 slots)
+"RES" + data  → deploy resident binary (persistent control loop, 4 slots)
+"STP" + slot  → stop resident binary
+"DIE"         → graceful QEMU shutdown
+"IMG" + data  → image display
+"STR" + data  → frame streaming
+"DRAW" + data → procedural drawing
 ```
 
 ---
@@ -375,46 +390,57 @@ Serial (ARM):
 
 ```
 poke/
-├── kernel/               x86 bare-metal kernel
-│   ├── kernel.c          TCP/IP + HTTP + code injection + keyboard ring buffer
-│   ├── boot.asm          Bootloader (Real Mode → Protected Mode)
-│   ├── kernel_entry.asm  BSS init + C entry point
-│   └── linker.ld         Linker script
+├── kernel/                   x86 bare-metal kernel (27KB)
+│   ├── kernel.c              TCP/IP + HTTP + VirtIO + PCI scan + scheduler
+│   ├── boot.asm              Bootloader (Real Mode → Protected Mode, 54 sectors)
+│   ├── kernel_entry.asm      BSS init + C entry point
+│   └── linker.ld             Linker script
 │
-├── arm/                  ARM64 bare-metal kernel
-│   ├── kernel.c          UART + serial protocol + audio
-│   ├── start.S           ARM64 entry
+├── arm/                      ARM64 bare-metal kernel
+│   ├── kernel.c              UART + serial protocol + audio
+│   ├── start.S               ARM64 entry
 │   └── Makefile
 │
-├── hub.js                Hub entry point
-├── hub/                  Hub modules
-│   ├── server.js         HTTP routing + auth + validation
-│   ├── agent.js          Agent loop + tool definitions
-│   ├── llm.js            LLM API calls
-│   ├── compiler.js       Assembly compilation + guard rail
-│   ├── transport.js      Edge communication (HTTP, TCP, MON protocol)
-│   ├── nodes.js          Node registry + device profiles + monitor triggers
-│   ├── memory.js         JARVIS memory (history, facts, patterns, search index)
-│   └── logger.js         Structured logging
+├── src/
+│   ├── hub.js                Hub entry point
+│   ├── asm.js                Built-in x86 assembler (zero deps)
+│   └── asm_arm.js            Built-in ARM64 assembler (zero deps)
 │
-├── asm.js                Built-in x86 assembler (zero deps)
-├── asm_arm.js            Built-in ARM64 assembler (zero deps)
-├── mobile.html           Browser edge (voice UI + canvas)
-├── profiles/             Device profile database (14 profiles)
+├── hub/                      Hub modules
+│   ├── server.js             HTTP routing + auth + scenario APIs
+│   ├── agent.js              Agent loop + 20+ tool definitions
+│   ├── llm.js                LLM API calls
+│   ├── compiler.js           Assembly compilation + guard rail
+│   ├── transport.js           Edge communication (HTTP, MON, RES, STP, DIE, CTX)
+│   ├── nodes.js              Node registry + profiles + monitor triggers
+│   ├── memory.js             JARVIS memory (monthly files, index, patterns)
+│   ├── incubate.js           Device incubation engine (PCI → sketches → profiles)
+│   ├── asmcache.js           Assembly template cache (reusable parameterized code)
+│   ├── goal.js               Goal-based autonomous control loops
+│   ├── scenario-env.js       Scenario environment auto-provisioning
+│   ├── trace.js              Real-time SSE event tracing
+│   ├── sketches.json         Assembly sketch library (14 templates)
+│   └── logger.js             Structured logging
 │
-├── test/                 Automated tests (npm test)
-├── examples/             Demo scripts (voice, parallel, sensors, etc.)
+├── web/
+│   ├── dashboard/index.html  Hub management dashboard
+│   ├── scenario/index.html   Scenario test UI (Server Room / Factory / Goal Mode)
+│   ├── devices/index.html    Device incubation + assembly library UI
+│   ├── mobile.html           Browser edge (voice UI + canvas)
+│   └── playground/           Browser bare-metal (v86 + NE2000)
 │
-├── Makefile              Build x86 kernel + QEMU launch
-├── Dockerfile.hub        Hub container
-├── Dockerfile.edge       Edge container (QEMU)
-├── docker-compose.yml    One-command startup
+├── profiles/                 Device profile database (26 profiles)
+├── test/                     59 automated tests
+│   ├── asm.test.js           x86 assembler (45 tests)
+│   ├── asm_arm.test.js       ARM64 assembler (49 tests)
+│   ├── hub.test.js           Hub endpoints (35 tests)
+│   └── integration.test.js   Full pipeline: QEMU boot → exec → persist → DIE (24 tests)
 │
-├── PROTOCOL.md           Protocol specification
-├── DEPLOY.md             Production deployment guide
-├── SECURITY.md           Security policy
-├── CONTRIBUTING.md       Contribution guide
-└── LICENSE               Apache 2.0
+├── Dockerfile.hub            Hub container (Node.js + nasm + docker CLI)
+├── Dockerfile.edge           Edge container (QEMU + VirtIO disk)
+├── docker-compose.yml        One-command startup
+├── docker-compose.factory.yml 3-line factory simulation
+└── LICENSE                   Apache 2.0
 ```
 
 ---
@@ -651,6 +677,115 @@ graph LR
 
 This is the difference between a remote control and an autonomous system. POKE edges don't wait for commands — they **react**.
 
+### Goal Mode — LLM as Autonomous Controller
+
+Goal Mode takes autonomy further. Instead of reacting to triggers, the LLM **proactively maintains a goal**:
+
+```
+User: "Maintain temperature below 30°C. Keep web/db servers running. Save energy."
+  │
+  ▼
+Hub (LLM) plans:
+  → Read current state (temp=80°C — critical!)
+  → Deploy resident binary for continuous monitoring
+  → Increase cooling to MAX
+  → Shut down low-priority servers
+  │
+  ▼ (every 15 seconds)
+Hub checks progress:
+  Cycle 1: temp=60, power=900W → "Still high, maintaining MAX cooling"
+  Cycle 2: temp=40, power=850W → "Improving. Keep current settings."
+  Cycle 3: temp=28, power=750W → "GOAL MET. Reducing cooling to save energy."
+```
+
+The LLM chooses between 4 execution modes based on what the goal needs:
+
+| Request | LLM Choice | Mode |
+|---------|-----------|------|
+| "Read temperature" | One-shot | `execute_x86` |
+| "Alert if temp > 30" | Conditional trigger | `deploy_monitor` |
+| "Run PID control loop" | Persistent loop | `deploy_resident` |
+| "Keep temp below 30" | Autonomous control | **Goal Mode** |
+
+### Device Incubation — Automatic Hardware Discovery
+
+When an edge connects, the hub automatically discovers and profiles all hardware:
+
+```mermaid
+sequenceDiagram
+    participant Edge as Edge (bare metal)
+    participant Hub as Hub (LLM)
+    participant Profiles as Profile DB
+
+    Edge->>Hub: POST /enroll
+    Hub->>Edge: GET /pci
+    Edge-->>Hub: 8 devices (7 PCI + virtual sensors)
+
+    loop For each device
+        Hub->>Hub: Identify (vendor:device → known DB)
+        Hub->>Hub: Select sketches for device type
+        Hub->>Edge: Execute probe assembly
+        Edge-->>Hub: Register values
+        Hub->>Profiles: Generate + save profile JSON
+    end
+
+    Hub->>Hub: Reload profiles → new agent tools available
+```
+
+Sketch library provides pre-built assembly templates:
+
+```json
+{
+  "network": {
+    "read_mac_mmio": {
+      "asm": "BITS 32\nmov ebx, {{BAR0}}\nmov eax, [ebx + 0x5400]\nret",
+      "params": ["BAR0"]
+    }
+  },
+  "sensor": {
+    "read_value": {
+      "asm": "BITS 32\nmov eax, [{{ADDR}}]\nret",
+      "params": ["ADDR"]
+    }
+  }
+}
+```
+
+### Resident Binaries — Persistent Control Loops
+
+Unlike ephemeral binaries, resident binaries run continuously on the edge:
+
+```
+Ephemeral:  generate → execute → discard (milliseconds)
+Resident:   generate → deploy → runs forever (survives reboot)
+
+┌─── Task 0: Kernel ─────────────────┐
+│ HTTP server + network polling       │
+│        ⚡ PIT interrupt (10ms)       │
+│        ↕ context switch              │
+├─── Task 1: PID Controller ─────────┤
+│ while(1) { read_sensor → adjust }   │
+├─── Task 2: Data Logger ────────────┤
+│ while(1) { collect → write_disk }   │
+├─── Task 3: Safety Monitor ─────────┤
+│ while(1) { check → alert if needed }│
+└─────────────────────────────────────┘
+```
+
+Preemptive multitasking via PIT timer + IDT ensures the kernel stays responsive while resident code runs.
+
+### Persistent Context — VirtIO Disk Storage
+
+Edge devices remember across reboots:
+
+```
+Hub writes context → CTX protocol → VirtIO-blk driver → disk sector
+Edge reboots → ctx_store_init() → reads header from disk → data restored
+Hub reads back → GET /store → entries from disk
+
+Tested: write 3 entries → reboot → all 3 entries survived ✅
+```
+
 ---
 
 ## Roadmap
@@ -659,19 +794,28 @@ This is the difference between a remote control and an autonomous system. POKE e
 - [x] ARM64 bare-metal OS (UART + serial protocol)
 - [x] Hub with LLM agent loop (tool use, multi-step reasoning)
 - [x] Built-in x86 assembler (`asm.js`) + ARM64 assembler (`asm_arm.js`)
-- [x] Device profiles → auto-generated agent tools (14 profiles, 22+ operations)
+- [x] Device profiles → auto-generated agent tools (26 profiles)
 - [x] Three-layer guard rail (asm.js + hub + kernel)
 - [x] Voice pipeline (STT → LLM → execute → TTS)
 - [x] Multi-edge orchestration + parallel execution (1.99x speedup)
 - [x] Distributed computing (parallel_execute + load balancing)
-- [x] Virtual sensors (PIT-based, temperature/humidity/light/pressure)
 - [x] Docker one-command setup
-- [x] 126 automated tests + CI
 - [x] Autonomous event loop (edge monitors → LLM auto-decision → corrective action)
-- [x] JARVIS memory system (conversation history, facts, patterns, keyword index)
+- [x] JARVIS memory system (monthly files, keyword index, edge sync)
+- [x] VirtIO-blk disk driver + persistent context store (survives reboot)
+- [x] Preemptive multitasking (IDT + PIT timer + context switching)
+- [x] Resident binaries (persistent control loops, 4 slots, disk-backed)
+- [x] PCI device discovery + auto-incubation (sketches → probe → profile)
+- [x] Assembly cache (reusable parameterized templates, 14 sketches)
+- [x] Goal Mode (LLM-driven autonomous control: plan → monitor → adjust)
+- [x] Factory simulation (3 QEMU edges, real shutdown/restart)
+- [x] Scenario auto-provisioning (0 → N edges on demand)
+- [x] Live trace system (SSE streaming of all hub events)
+- [x] Self-extending kernel (module loader from disk)
+- [x] 59 automated tests (35 unit + 24 integration)
 - [ ] Real hardware deployment (Raspberry Pi, ESP32)
 - [ ] Device profile marketplace
-- [ ] Edge-side log store (bare-metal ring buffer filesystem)
+- [ ] CR3 page table isolation for resident tasks
 
 ---
 
