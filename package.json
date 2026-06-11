@@ -1,6 +1,6 @@
 {
   "name": "@orvian/poke",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Protocol for Open Kernel Execution — inject and execute machine code on bare-metal devices via natural language",
   "main": "src/hub.js",
   "bin": {
