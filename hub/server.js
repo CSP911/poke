@@ -421,6 +421,8 @@ async function handleRequest(req, res) {
       goal: goal.text,
       status: goal.status,
       cycles: goal.cycles,
+      consecutiveMet: goal.consecutiveMet,
+      metrics: goal.metrics.slice(-10),
       history: goal.history.slice(-5),
     }, null, 2))
     return

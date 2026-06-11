@@ -11,6 +11,7 @@ const { agentLoop } = require('./agent')
 const trace = require('./trace')
 
 const activeGoals = new Map()  // edgeId → goal state
+const MAX_CONSECUTIVE_MET = 3  // goal met N times in a row → auto-complete
 
 /**
  * Start a goal-based control loop.
@@ -29,6 +30,8 @@ async function startGoal(edgeId, goalText, checkInterval = 10000) {
     status: 'initializing',
     startTime: new Date().toISOString(),
     cycles: 0,
+    consecutiveMet: 0,
+    metrics: [],     // {cycle, temp, cpu, power, ...}
     history: [],
     interval: checkInterval,
     timer: null,
@@ -106,8 +109,24 @@ async function startGoal(edgeId, goalText, checkInterval = 10000) {
       // Store goal cycle as structured context
       try { require('./context').storeGoal(edgeId, `C${goal.cycles}: ${entry.goalMet ? 'MET' : state}`).catch(() => {}) } catch(e) {}
 
+      // Track metrics
+      if (vr) {
+        goal.metrics.push({ cycle: goal.cycles, t: vr.t, c: vr.c, p: vr.p, co: vr.co })
+        if (goal.metrics.length > 100) goal.metrics = goal.metrics.slice(-100)
+      }
+
+      // Track consecutive goal met
       if (entry.goalMet) {
-        log.info(`[goal] met at cycle ${goal.cycles}`)
+        goal.consecutiveMet++
+        log.info(`[goal] met at cycle ${goal.cycles} (${goal.consecutiveMet}/${MAX_CONSECUTIVE_MET})`)
+        if (goal.consecutiveMet >= MAX_CONSECUTIVE_MET) {
+          goal.status = 'completed'
+          if (goal.timer) clearInterval(goal.timer)
+          log.info(`[goal] AUTO-COMPLETED after ${goal.cycles} cycles`)
+          trace.emit('goal_complete', { edge: edgeId, cycles: goal.cycles })
+        }
+      } else {
+        goal.consecutiveMet = 0
       }
     } catch (e) {
       log.warn(`[goal] check failed cycle ${goal.cycles}: ${e.message}`)
