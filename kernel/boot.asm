@@ -23,16 +23,37 @@ start:
     mov si, msg_boot
     call print_string_16
 
-    ; Load kernel: 55 sectors (27.5KB) from sector 2 → 0x1000
+    ; Load kernel in 2 chunks to 0x10000 (64KB mark)
+    ; Avoids overwriting bootloader at 0x7C00
+    ; Chunk 1: 54 sectors (27KB) → 0x10000
+    mov ax, 0x1000      ; segment 0x1000 → linear 0x10000
+    mov es, ax
     mov ah, 0x02
     mov al, 54
     mov ch, 0
     mov cl, 2
     mov dh, 0
     mov dl, [boot_drive]
-    mov bx, 0x1000
+    mov bx, 0x0000      ; offset 0 within segment
     int 0x13
     jc disk_error
+
+    ; Chunk 2: 26 sectors (13KB) → 0x16C00 (right after chunk 1)
+    mov ax, 0x16C0      ; segment 0x16C0 → linear 0x16C00
+    mov es, ax
+    mov ah, 0x02
+    mov al, 26
+    mov ch, 0
+    mov cl, 56          ; sector 56 (continuing from chunk 1)
+    mov dh, 0
+    mov dl, [boot_drive]
+    mov bx, 0x0000
+    int 0x13
+    ; ignore error (kernel might be < 40KB)
+
+    ; Restore ES
+    xor ax, ax
+    mov es, ax
 
     ; Enable A20 line
     call enable_a20
@@ -121,8 +142,8 @@ protected_mode_entry:
     mov ss, ax
     mov esp, 0x90000    ; stack at 576KB
 
-    ; Jump to kernel at 0x1000
-    jmp 0x1000
+    ; Jump to kernel at 0x10000
+    jmp 0x10000
 
 ; ── Boot Sector Padding ──
 

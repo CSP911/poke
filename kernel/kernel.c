@@ -835,6 +835,151 @@ struct tcp_header {
 #define TCP_PSH 0x08
 #define TCP_ACK 0x10
 
+/* ── UDP ── */
+struct udp_header {
+    u16 src_port;
+    u16 dst_port;
+    u16 length;
+    u16 checksum;
+} __attribute__((packed));
+
+void udp_send(u8 *dst_mac, u8 *dst_ip, u16 src_port, u16 dst_port, u8 *data, int data_len) {
+    static u8 pkt[1500];
+    mem_set(pkt, 0, 1500);
+
+    /* Ethernet */
+    struct eth_header *eth = (struct eth_header *)pkt;
+    mem_copy(eth->dst, dst_mac, 6);
+    mem_copy(eth->src, my_mac, 6);
+    eth->type = ETH_IP;
+
+    /* IP */
+    struct ip_header *ip = (struct ip_header *)(pkt + 14);
+    int udp_total = 8 + data_len;
+    int ip_total = 20 + udp_total;
+    ip->ver_ihl = 0x45;
+    ip->ttl = 64;
+    ip->protocol = 17;  /* UDP */
+    ip->total_len = ((ip_total & 0xFF) << 8) | ((ip_total >> 8) & 0xFF);
+    mem_copy(ip->src, my_ip, 4);
+    mem_copy(ip->dst, dst_ip, 4);
+    ip->checksum = ip_checksum(ip, 20);
+
+    /* UDP */
+    struct udp_header *udp = (struct udp_header *)(pkt + 34);
+    udp->src_port = ((src_port & 0xFF) << 8) | ((src_port >> 8) & 0xFF);
+    udp->dst_port = ((dst_port & 0xFF) << 8) | ((dst_port >> 8) & 0xFF);
+    udp->length = ((udp_total & 0xFF) << 8) | ((udp_total >> 8) & 0xFF);
+    udp->checksum = 0;  /* optional for IPv4 */
+
+    /* Data */
+    if (data_len > 0) mem_copy(pkt + 42, data, data_len);
+
+    nic_send(pkt, 14 + ip_total);
+}
+
+/* UDP receive callback — set by DHCP/DNS */
+static void (*udp_recv_handler)(u8 *data, int len, u8 *src_ip, u16 src_port, u16 dst_port) = 0;
+
+/* ── DHCP Client ── */
+#define DHCP_SERVER_PORT 67
+#define DHCP_CLIENT_PORT 68
+
+static int dhcp_done = 0;
+static u8 dhcp_server_ip[4] = {0};
+
+static void __attribute__((noinline)) dhcp_discover(void) {
+    /* DHCP Discover: broadcast UDP */
+    u8 pkt[300];
+    mem_set(pkt, 0, 300);
+
+    /* BOOTP header */
+    pkt[0] = 1;     /* op: BOOTREQUEST */
+    pkt[1] = 1;     /* htype: Ethernet */
+    pkt[2] = 6;     /* hlen: MAC length */
+    pkt[3] = 0;     /* hops */
+    pkt[4] = 0x39; pkt[5] = 0x03; pkt[6] = 0xF3; pkt[7] = 0x26; /* xid */
+    /* chaddr: our MAC */
+    mem_copy(pkt + 28, my_mac, 6);
+    /* magic cookie: 99.130.83.99 */
+    pkt[236] = 99; pkt[237] = 130; pkt[238] = 83; pkt[239] = 99;
+    /* Option 53: DHCP Message Type = Discover (1) */
+    pkt[240] = 53; pkt[241] = 1; pkt[242] = 1;
+    /* Option 255: End */
+    pkt[243] = 255;
+
+    u8 bcast_mac[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+    u8 bcast_ip[4] = {255,255,255,255};
+    udp_send(bcast_mac, bcast_ip, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, pkt, 244);
+    serial_print("[DHCP] Discover sent\n");
+}
+
+static void __attribute__((noinline)) dhcp_handle(u8 *data, int len) {
+    if (len < 240) return;
+    /* Check magic cookie */
+    if (data[236] != 99 || data[237] != 130 || data[238] != 83 || data[239] != 99) return;
+
+    /* Extract offered IP (yiaddr at offset 16) */
+    u8 *offered_ip = data + 16;
+    if (offered_ip[0] == 0) return;
+
+    /* Find message type in options */
+    int i = 240;
+    u8 msg_type = 0;
+    while (i < len && data[i] != 255) {
+        u8 opt = data[i], olen = data[i+1];
+        if (opt == 53) msg_type = data[i+2];  /* DHCP Message Type */
+        if (opt == 54) mem_copy(dhcp_server_ip, data+i+2, 4);  /* Server ID */
+        i += 2 + olen;
+    }
+
+    if (msg_type == 2) {
+        /* DHCP Offer → send Request */
+        serial_print("[DHCP] Offer: ");
+        serial_hex(offered_ip[0]); serial_putc('.');
+        serial_hex(offered_ip[1]); serial_putc('.');
+        serial_hex(offered_ip[2]); serial_putc('.');
+        serial_hex(offered_ip[3]); serial_print("\n");
+
+        /* Build DHCP Request */
+        u8 req[300]; mem_set(req, 0, 300);
+        req[0] = 1; req[1] = 1; req[2] = 6;
+        req[4] = 0x39; req[5] = 0x03; req[6] = 0xF3; req[7] = 0x26;
+        mem_copy(req + 28, my_mac, 6);
+        req[236] = 99; req[237] = 130; req[238] = 83; req[239] = 99;
+        /* Option 53: Request (3) */
+        req[240] = 53; req[241] = 1; req[242] = 3;
+        /* Option 50: Requested IP */
+        req[243] = 50; req[244] = 4;
+        mem_copy(req + 245, offered_ip, 4);
+        /* Option 54: Server ID */
+        req[249] = 54; req[250] = 4;
+        mem_copy(req + 251, dhcp_server_ip, 4);
+        req[255] = 255;
+
+        u8 bcast_mac[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+        u8 bcast_ip[4] = {255,255,255,255};
+        udp_send(bcast_mac, bcast_ip, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, req, 256);
+        serial_print("[DHCP] Request sent\n");
+
+    } else if (msg_type == 5) {
+        /* DHCP ACK → we have an IP! */
+        mem_copy(my_ip, offered_ip, 4);
+        dhcp_done = 1;
+        serial_print("[DHCP] ACK! IP: ");
+        serial_hex(my_ip[0]); serial_putc('.');
+        serial_hex(my_ip[1]); serial_putc('.');
+        serial_hex(my_ip[2]); serial_putc('.');
+        serial_hex(my_ip[3]); serial_print("\n");
+
+        vga_print("  [DHCP] IP: ");
+        vga_print_dec(my_ip[0]); vga_putchar('.');
+        vga_print_dec(my_ip[1]); vga_putchar('.');
+        vga_print_dec(my_ip[2]); vga_putchar('.');
+        vga_print_dec(my_ip[3]); vga_putchar('\n');
+    }
+}
+
 /* TCP state */
 static u32 tcp_local_seq = 1000;
 static u32 tcp_remote_seq = 0;
@@ -2394,6 +2539,21 @@ void handle_packet(u8 *pkt, int len) {
         struct ip_header *ip = (struct ip_header *)(pkt + 14);
         if (ip->protocol == 6) { /* TCP */
             handle_tcp(pkt, len);
+        } else if (ip->protocol == 17) { /* UDP */
+            struct udp_header *udp = (struct udp_header *)(pkt + 34);
+            int udp_len = ((udp->length & 0xFF) << 8) | ((udp->length >> 8) & 0xFF);
+            u16 dst_port = ((udp->dst_port & 0xFF) << 8) | ((udp->dst_port >> 8) & 0xFF);
+            u16 src_port = ((udp->src_port & 0xFF) << 8) | ((udp->src_port >> 8) & 0xFF);
+            u8 *data = pkt + 42;
+            int data_len = udp_len - 8;
+            /* DHCP response */
+            if (dst_port == DHCP_CLIENT_PORT) {
+                dhcp_handle(data, data_len);
+            }
+            /* Generic UDP callback */
+            if (udp_recv_handler) {
+                udp_recv_handler(data, data_len, ip->src, src_port, dst_port);
+            }
         }
     }
 }
@@ -2542,7 +2702,23 @@ void kernel_main(void) {
         vga_print("  [NET] ARP announce sent\n");
     }
 
-    /* Init context store (disk) — disabled until ATA driver stabilized */
+    /* DHCP: try to get IP dynamically */
+    vga_print("  [DHCP] Requesting IP...\n");
+    dhcp_discover();
+    /* Poll for DHCP response (max 3 seconds) */
+    {
+        u8 dbuf[2048];
+        for (int t = 0; t < 300 && !dhcp_done; t++) {
+            int dlen = nic_recv(dbuf);
+            if (dlen > 0) handle_packet(dbuf, dlen);
+            for (volatile int d = 0; d < 100000; d++);  /* ~10ms delay */
+        }
+        if (!dhcp_done) {
+            vga_print("  [DHCP] Timeout, using static 10.0.2.15\n");
+        }
+    }
+
+    /* Init context store (disk) */
     ctx_store_init();
     module_load();
     virt_regs_init();
