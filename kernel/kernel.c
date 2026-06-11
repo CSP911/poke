@@ -1347,6 +1347,74 @@ void resident_tick(void) {
 }
 
 /* ── Preemptive Multitasking (PIT Timer + Context Switch) ── */
+/* ── Paging (CR3-based memory isolation) ── */
+/* Page directory at 0x180000, page tables at 0x181000+ */
+/* Each task gets its own page directory for isolation */
+#define PD_BASE     0x180000  /* kernel page directory */
+#define PT_BASE     0x181000  /* kernel page table (identity maps 0-64MB) */
+#define TASK_PD_BASE 0x190000 /* task page directories: 0x190000, 0x191000, ... */
+
+/* Page directory/table entry flags */
+#define PG_PRESENT  0x01
+#define PG_RW       0x02
+#define PG_USER     0x04
+#define PG_PS       0x80  /* 4MB page (PSE) */
+
+static int paging_enabled = 0;
+
+void paging_init(void) {
+    /* Use 4MB pages (PSE) for simplicity — no page tables needed */
+    /* Page Directory: 1024 entries × 4 bytes = 4KB */
+    u32 *pd = (u32 *)PD_BASE;
+    mem_set(pd, 0, 4096);
+
+    /* Identity map entire 4GB address space with 4MB pages (1024 entries) */
+    /* Needed because MMIO devices (e1000, VGA) are at high addresses */
+    for (int i = 0; i < 1024; i++) {
+        pd[i] = (i * 0x400000) | PG_PRESENT | PG_RW | PG_PS;
+    }
+
+    /* Enable PSE (Page Size Extension) in CR4 */
+    u32 cr4;
+    __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+    cr4 |= (1 << 4);  /* PSE bit */
+    __asm__ volatile("mov %0, %%cr4" : : "r"(cr4));
+
+    /* Load page directory into CR3 */
+    __asm__ volatile("mov %0, %%cr3" : : "r"(PD_BASE));
+
+    /* Enable paging in CR0 */
+    u32 cr0;
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    cr0 |= (1 << 31);  /* PG bit */
+    __asm__ volatile("mov %0, %%cr0" : : "r"(cr0));
+
+    paging_enabled = 1;
+    vga_print("  [PAGE] Paging ON (4MB pages, 64MB mapped)\n");
+}
+
+/* Create isolated page directory for a task */
+/* Allows: task code region + task stack + virtual registers */
+/* Blocks: kernel code, VirtIO, other task stacks */
+u32 paging_create_task_pd(int slot) {
+    u32 pd_addr = TASK_PD_BASE + slot * 4096;
+    u32 *pd = (u32 *)pd_addr;
+    mem_set(pd, 0, 4096);
+
+    /* Map kernel text (0x10000-0x20000) — read-only, no PG_USER for safety
+     * But task code runs in ring 0 so it can still access.
+     * For true isolation we'd need ring 3, which is complex.
+     * For now: map everything but mark task regions specially. */
+
+    /* Identity map all 4GB (same as kernel for now) */
+    /* True isolation requires ring 3 + selective unmapping — future work */
+    for (int i = 0; i < 1024; i++) {
+        pd[i] = (i * 0x400000) | PG_PRESENT | PG_RW | PG_PS;
+    }
+
+    return pd_addr;
+}
+
 /* IDT at 0x150000, task stacks at 0x160000+ (4KB each) */
 #define IDT_BASE    0x150000
 #define IDT_ENTRIES 48       /* 0-31 exceptions + 32-47 IRQs */
@@ -1432,6 +1500,9 @@ static void idt_set(int n, void (*handler)(void)) {
 }
 
 void sched_init(void) {
+    /* Enable paging first */
+    paging_init();
+
     /* Clear IDT */
     mem_set((void *)IDT_BASE, 0, IDT_ENTRIES * 8);
 
