@@ -103,6 +103,8 @@ async function startGoal(edgeId, goalText, checkInterval = 10000) {
       }
       goal.history.push(entry)
       trace.emit('goal_check', { edge: edgeId, cycle: goal.cycles, goalMet: entry.goalMet, actions: entry.actions.length })
+      // Store goal cycle as structured context
+      try { require('./context').storeGoal(edgeId, `C${goal.cycles}: ${entry.goalMet ? 'MET' : state}`).catch(() => {}) } catch(e) {}
 
       if (entry.goalMet) {
         log.info(`[goal] met at cycle ${goal.cycles}`)

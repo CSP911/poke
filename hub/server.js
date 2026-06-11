@@ -432,6 +432,26 @@ async function handleRequest(req, res) {
     return
   }
 
+  // GET /context/:edge — read structured context from edge
+  if (req.method === 'GET' && url.pathname.startsWith('/context/')) {
+    const edgeId = url.pathname.slice('/context/'.length)
+    const ctx = require('./context')
+    const type = url.searchParams.get('type') ? parseInt(url.searchParams.get('type')) : undefined
+    const search = url.searchParams.get('q') || undefined
+    const limit = parseInt(url.searchParams.get('limit')) || 10
+    const result = await ctx.read(edgeId, { type, search, limit })
+    res.end(JSON.stringify(result, null, 2))
+    return
+  }
+
+  // GET /context-index/:edge — local index (no network)
+  if (req.method === 'GET' && url.pathname.startsWith('/context-index/')) {
+    const edgeId = url.pathname.slice('/context-index/'.length)
+    const ctx = require('./context')
+    res.end(JSON.stringify(ctx.getIndex(edgeId), null, 2))
+    return
+  }
+
   // GET /scenarios — list available scenarios
   if (req.method === 'GET' && url.pathname === '/scenarios') {
     res.end(JSON.stringify(scenarioEnv.listScenarios(), null, 2))

@@ -1337,10 +1337,14 @@ Auto-profiling rules:
     }
   }
 
-  // ── Save to persistent memory + sync to edges ──
+  // ── Save to persistent memory + structured context on edges ──
   try {
     const entry = memory.addHistory(command, steps, finalResult)
-    memory.syncToEdge(entry).catch(() => {})  // fire-and-forget
+    memory.syncToEdge(entry).catch(() => {})
+    // Structured context: store command on target edge
+    const ctx = require('./context')
+    const target = targetHint || fromId
+    if (target) ctx.storeCommand(target, command, finalResult).catch(() => {})
   } catch (e) {
     log.warn(`[memory] failed to save history: ${e.message}`)
   }
