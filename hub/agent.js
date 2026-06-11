@@ -43,6 +43,15 @@ const BASE_TOOLS = [
     },
   },
   {
+    name: 'execute_rv',
+    description: 'Compile and execute RISC-V (RV32IM) assembly on a target edge (ESP32-C3). Returns a0 value. Return in a0, end with ret. Use standard RISC-V register names (a0-a7, s0-s11, t0-t6, sp, ra, zero).',
+    input_schema: {
+      type: 'object',
+      properties: { target: { type: 'string' }, asm_code: { type: 'string' } },
+      required: ['target', 'asm_code'],
+    },
+  },
+  {
     name: 'draw_image',
     description: 'Generate pixel art image using Node.js code and send to a target edge. Code must define W, H, pixels Buffer, setPixel(x,y,r,g,b), and end with module.exports={W,H,pixels}.',
     input_schema: {
@@ -465,6 +474,19 @@ async function executeAgentTool(toolName, toolInput) {
       const bin = await compileAssemblyARM(toolInput.asm_code)
       if (!bin) return 'Error: ARM assembly compilation failed'
       return await pokeNodeARM(node.endpoint, bin)
+    } catch (err) {
+      return `Error: ${err.message}`
+    }
+  }
+
+  if (toolName === 'execute_rv') {
+    const node = nodes.get(toolInput.target)
+    if (!node) return `Error: edge "${toolInput.target}" not found`
+    try {
+      const { compileAssemblyRV } = require('./compiler')
+      const bin = await compileAssemblyRV(toolInput.asm_code)
+      if (!bin) return 'Error: RISC-V assembly compilation failed'
+      return await pokeNode(node.endpoint, bin)
     } catch (err) {
       return `Error: ${err.message}`
     }
@@ -1217,6 +1239,7 @@ Rules:
 - For math/computation: use execute_x86 or execute_arm based on target architecture.
 - x86 assembly: MUST start with "BITS 32" on first line. Return result in EAX. End with RET. No sections, no labels. Example: "BITS 32\\nmov eax, 2\\nadd eax, 3\\nret"
 - ARM64 assembly: return in X0, end with RET. No .global, .text directives. Just instructions.
+- RISC-V assembly: return in a0, end with ret. Registers: a0-a7, s0-s11, t0-t6, sp, ra, zero. For ESP32-C3 edges.
 - If code fails (compile error, wrong result), read the error, fix the code, and retry.
 - For questions/conversation: use reply_text.
 - For images: use draw_image with Node.js code.

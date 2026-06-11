@@ -142,8 +142,28 @@ function runImageCode(code) {
   }
 }
 
+// ── RISC-V assembly compile ──
+let _rvModule = null
+function getRVModule() {
+  if (!_rvModule) _rvModule = require(path.join(__dirname, '..', 'src', 'asm_rv.js'))
+  return _rvModule
+}
+
+async function compileAssemblyRV(asm) {
+  try {
+    const { assembleRV } = getRVModule()
+    const binary = assembleRV(asm)
+    log.info(`[asm_rv.js] assembled ${binary.length} bytes`)
+    return binary
+  } catch (e) {
+    log.warn(`[asm_rv.js] failed: ${e.message}`)
+    return null
+  }
+}
+
 module.exports = {
   compileAssembly,
   compileAssemblyARM,
+  compileAssemblyRV,
   runImageCode,
 }
