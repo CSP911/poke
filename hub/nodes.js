@@ -82,7 +82,9 @@ let onMonitorTrigger = null  // callback: (edgeId, monitorData) => {}
 function startHealthCheck() {
   healthInterval = setInterval(() => {
     for (const [id, node] of nodes) {
-      if (node.endpoint.startsWith('polling:') || node.endpoint.startsWith('tcp:')) {
+      if (node.endpoint.startsWith('polling:') || node.endpoint.startsWith('tcp:') || node.endpoint.startsWith('serial://')) {
+        // Serial/polling/tcp edges: keep alive, don't probe periodically
+        // Serial edges are probed on-demand via /serial/health/:id
         node.status = 'alive'
         node.last_seen = new Date().toISOString()
         continue

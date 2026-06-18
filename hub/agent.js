@@ -52,6 +52,18 @@ const BASE_TOOLS = [
     },
   },
   {
+    name: 'read_sensor',
+    description: 'Read a calibrated sensor value from a serial edge. Supported sensors: "temp" (internal temperature in celsius). This uses the firmware\'s built-in driver with proper calibration — prefer this over raw register access via execute_rv for sensor readings.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID' },
+        sensor: { type: 'string', enum: ['temp'], description: 'Sensor type to read' },
+      },
+      required: ['target', 'sensor'],
+    },
+  },
+  {
     name: 'draw_image',
     description: 'Generate pixel art image using Node.js code and send to a target edge. Code must define W, H, pixels Buffer, setPixel(x,y,r,g,b), and end with module.exports={W,H,pixels}.',
     input_schema: {
@@ -486,7 +498,27 @@ async function executeAgentTool(toolName, toolInput) {
       const { compileAssemblyRV } = require('./compiler')
       const bin = await compileAssemblyRV(toolInput.asm_code)
       if (!bin) return 'Error: RISC-V assembly compilation failed'
+      if (node.endpoint.startsWith('serial://')) {
+        const { pokeNodeSerial } = require('./serial')
+        return await pokeNodeSerial(node.endpoint, bin)
+      }
       return await pokeNode(node.endpoint, bin)
+    } catch (err) {
+      return `Error: ${err.message}`
+    }
+  }
+
+  if (toolName === 'read_sensor') {
+    const node = nodes.get(toolInput.target)
+    if (!node) return `Error: edge "${toolInput.target}" not found`
+    if (!node.endpoint.startsWith('serial://')) return 'Error: read_sensor only works with serial edges'
+    try {
+      const serial = require('./serial')
+      if (toolInput.sensor === 'temp') {
+        const data = await serial.serialTemp(node.endpoint)
+        return data  // JSON: {"celsius":38.1,"raw_api":true}
+      }
+      return `Error: unknown sensor "${toolInput.sensor}"`
     } catch (err) {
       return `Error: ${err.message}`
     }
@@ -1204,6 +1236,42 @@ Return ONLY valid JSON (no markdown, no explanation) with this structure:
   return `Unknown tool: ${toolName}`
 }
 
+// ── Result validation: detect anomalous tool results ──
+function validateToolResult(toolName, input, resultStr) {
+  const warnings = []
+
+  // Temperature sanity check
+  if (resultStr.match(/celsius|temperature|temp/i)) {
+    const celsiusMatch = resultStr.match(/-?\d+\.?\d*/g)
+    if (celsiusMatch) {
+      for (const val of celsiusMatch) {
+        const c = parseFloat(val)
+        if (c < -40 || c > 125) {
+          warnings.push(`Temperature ${c}°C is outside ESP32-C3 operating range (-40 to 125°C). The value may be uncalibrated. Use read_sensor tool for calibrated readings instead of raw register access.`)
+          break
+        }
+      }
+    }
+  }
+
+  // Raw register temperature interpretation
+  if (toolName === 'execute_rv' || toolName === 'execute_x86') {
+    const asmCode = input?.asm_code || ''
+    const isTemperature = asmCode.match(/tsens|0x60040|temperature|temp_sensor/i)
+    if (isTemperature) {
+      const a0Match = resultStr.match(/a0=(\d+)/)
+      if (a0Match) {
+        const raw = parseInt(a0Match[1])
+        if (raw < 20) {
+          warnings.push(`Raw sensor value ${raw} is suspiciously low. ESP32-C3 temperature sensor requires ESP-IDF driver initialization (REGI2C SAR ADC calibration) for accurate readings. Use the read_sensor tool with sensor="temp" for calibrated celsius values.`)
+        }
+      }
+    }
+  }
+
+  return warnings
+}
+
 async function agentLoop(command, fromId, targetHint) {
   const Anthropic = require('@anthropic-ai/sdk')
   const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -1240,6 +1308,9 @@ Rules:
 - x86 assembly: MUST start with "BITS 32" on first line. Return result in EAX. End with RET. No sections, no labels. Example: "BITS 32\\nmov eax, 2\\nadd eax, 3\\nret"
 - ARM64 assembly: return in X0, end with RET. No .global, .text directives. Just instructions.
 - RISC-V assembly: return in a0, end with ret. Registers: a0-a7, s0-s11, t0-t6, sp, ra, zero. For ESP32-C3 edges.
+- RISC-V IMPORTANT: ori/andi only support 12-bit signed immediates (-2048 to 2047). For larger values, use li+or/and (R-type).
+- For sensor readings (temperature, etc.): use read_sensor tool first — it returns calibrated values from the firmware driver. Only fall back to raw register access (execute_rv) if read_sensor is unavailable.
+- If a result seems physically unreasonable (e.g. -25°C at room temperature), DO NOT accept it. Question the result, try an alternative approach, or use a higher-level tool.
 - If code fails (compile error, wrong result), read the error, fix the code, and retry.
 - For questions/conversation: use reply_text.
 - For images: use draw_image with Node.js code.
@@ -1316,7 +1387,15 @@ Auto-profiling rules:
       trace.emit('llm_tool', { turn, tool: tu.name, input: tu.input })
 
       const result = await executeAgentTool(tu.name, tu.input)
-      const resultStr = typeof result === 'string' ? result : JSON.stringify(result)
+      let resultStr = typeof result === 'string' ? result : JSON.stringify(result)
+
+      // ── Result validation: annotate anomalies so LLM can self-correct ──
+      const warnings = validateToolResult(tu.name, tu.input, resultStr)
+      if (warnings.length > 0) {
+        resultStr += '\n\n⚠️ VALIDATION WARNINGS:\n' + warnings.join('\n')
+        log.warn(`[agent] validation: ${warnings.join('; ')}`)
+      }
+
       log.debug(`[agent] ${tu.name} -> ${resultStr.slice(0, 80)}`)
 
       trace.emit('tool_result', { tool: tu.name, target: tu.input?.target, result: resultStr.slice(0, 200) })

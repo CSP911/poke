@@ -146,9 +146,9 @@ Frame-based streaming over raw TCP.
 Per frame: "FRM" (3) + width (2 LE) + height (2 LE) + RGB pixels (w*h*3)
 ```
 
-## 9. Serial Protocol (ARM)
+## 9. Serial Protocol (UART)
 
-For edges connected via UART/serial-TCP bridge.
+For edges connected via USB serial (UART). Supports both TCP bridge and direct serial port.
 
 ```
 Request:  "POKE" (4) + payload_len (4 LE) + payload
@@ -158,7 +158,36 @@ Payload commands:
   "PING"                      → "PONG"
   "INFO"                      → JSON device info
   "EXEC" + code_bytes         → execution result
+  "GPIO"                      → JSON GPIO states
   "TONE" + freq(2) + dur(2)   → play audio tone
+```
+
+### Serial Enrollment
+
+```
+POST /enroll
+
+{
+  "node_id": "esp32-c3",
+  "arch": "riscv32",
+  "memory_mb": 4,
+  "endpoint": "serial:///dev/ttyUSB0"
+}
+```
+
+Baud rate defaults to 115200. Override with query parameter:
+```
+"endpoint": "serial:///dev/cu.usbserial-110?baud=9600"
+```
+
+### Serial Port Discovery
+
+```
+GET /serial/ports
+
+→ [
+  { "path": "/dev/ttyUSB0", "manufacturer": "Silicon Labs", "vendorId": "10C4" }
+]
 ```
 
 ---

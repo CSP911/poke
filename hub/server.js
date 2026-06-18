@@ -8,7 +8,7 @@ const { nodes, edgeHistory, enrollNode, profiles, setMonitorTriggerCallback } = 
 const { agentLoop } = require('./agent')
 const { generateAssembly, generateImageCode, planCommand } = require('./llm')
 const { compileAssembly } = require('./compiler')
-const { pokeNode, pokeNodeRaw } = require('./transport')
+const { pokeNode, pokeNodeRaw, pokeNodeSerial, listSerialPorts } = require('./transport')
 const memory = require('./memory')
 const { incubate } = require('./incubate')
 const scenarioEnv = require('./scenario-env')
@@ -153,7 +153,8 @@ async function handleRequest(req, res) {
     }
     log.info(`[compiled] ${machineCode.length} bytes`)
 
-    const result = await pokeNode(target.endpoint, machineCode)
+    const pokeFn = target.endpoint.startsWith('serial://') ? pokeNodeSerial : pokeNode
+    const result = await pokeFn(target.endpoint, machineCode)
     log.info(`[result] ${result}`)
 
     res.end(JSON.stringify({
@@ -232,7 +233,8 @@ async function handleRequest(req, res) {
     if (!target) { jsonError(res, 404, 'no node'); return }
 
     const buf = Buffer.from(hex, 'hex')
-    const result = await pokeNode(target.endpoint, buf)
+    const pokeFn = target.endpoint.startsWith('serial://') ? pokeNodeSerial : pokeNode
+    const result = await pokeFn(target.endpoint, buf)
     res.end(JSON.stringify({ node: target.node_id, result }))
     return
   }
@@ -338,6 +340,50 @@ async function handleRequest(req, res) {
       }
     }
     res.end(JSON.stringify(results, null, 2))
+    return
+  }
+
+  // GET /serial/ports — list available USB serial ports
+  if (req.method === 'GET' && url.pathname === '/serial/ports') {
+    const portList = await listSerialPorts()
+    res.end(JSON.stringify(portList, null, 2))
+    return
+  }
+
+  // GET /serial/health/:id — on-demand serial edge health probe
+  if (req.method === 'GET' && url.pathname.startsWith('/serial/health/')) {
+    const nodeId = url.pathname.slice('/serial/health/'.length)
+    const node = nodes.get(nodeId)
+    if (!node) { jsonError(res, 404, 'edge not found'); return }
+    if (!node.endpoint.startsWith('serial://')) { jsonError(res, 400, 'not a serial edge'); return }
+    try {
+      const { serialInfo } = require('./serial')
+      const info = await serialInfo(node.endpoint)
+      const health = JSON.parse(info)
+      node.status = health.status || 'alive'
+      node.last_seen = new Date().toISOString()
+      node.health = health
+      res.end(JSON.stringify(health, null, 2))
+    } catch (e) {
+      node.status = 'dead'
+      jsonError(res, 502, 'serial probe failed: ' + e.message)
+    }
+    return
+  }
+
+  // GET /serial/temp/:id — read temperature from serial edge
+  if (req.method === 'GET' && url.pathname.startsWith('/serial/temp/')) {
+    const nodeId = url.pathname.slice('/serial/temp/'.length)
+    const node = nodes.get(nodeId)
+    if (!node) { jsonError(res, 404, 'edge not found'); return }
+    if (!node.endpoint.startsWith('serial://')) { jsonError(res, 400, 'not a serial edge'); return }
+    try {
+      const { serialTemp } = require('./serial')
+      const data = await serialTemp(node.endpoint)
+      res.end(data)
+    } catch (e) {
+      jsonError(res, 502, 'serial temp failed: ' + e.message)
+    }
     return
   }
 

@@ -122,6 +122,14 @@ open http://localhost:3333/ui
 
 That's it. Docker compiles the x86 kernel from source, boots it in QEMU, starts the hub, and registers the edge automatically.
 
+### ESP32-C3 Serial Demo
+
+Real hardware (ESP32-C3 RISC-V) connected via USB serial — hub compiles RISC-V assembly, sends binary over serial, ESP32 executes bare-metal and returns the result:
+
+<p align="center">
+  <img src="demo/serial-pipeline.gif" alt="ESP32-C3 Serial Pipeline Demo" width="720">
+</p>
+
 | Service | Port | What it does |
 |---------|------|-------------|
 | **Edge** | 8080 | Bare-metal x86 OS in QEMU (kernel built from source) |
@@ -190,15 +198,18 @@ graph TB
     subgraph Edges["Edge Devices (bare metal)"]
         X86["x86 Edge<br/>QEMU / Real HW<br/>TCP/IP + HTTP"]
         ARM["ARM64 Edge<br/>QEMU / RPi<br/>UART Serial"]
+        RV["RISC-V Edge<br/>ESP32-C3<br/>USB Serial"]
         Mobile["Mobile Edge<br/>Browser<br/>Web Speech API"]
     end
 
     User -->|natural language| Hub
     Guard -->|raw bytes| X86
     Guard -->|raw bytes| ARM
+    Guard -->|raw bytes| RV
     Guard -->|image data| Mobile
     X86 -->|eax=result| Hub
     ARM -->|x0=result| Hub
+    RV -->|a0=result| Hub
     Mobile -->|voice input| Hub
 ```
 
@@ -401,9 +412,16 @@ poke/
 │   ├── start.S               ARM64 entry
 │   └── Makefile
 │
+├── esp32/                     ESP32-C3 RISC-V edge (USB serial)
+│   ├── main/poke_edge_uart.c  USB-Serial/JTAG + POKE protocol + temp sensor
+│   ├── main/poke_edge.c       WiFi HTTP mode (alternative)
+│   ├── Dockerfile             ESP-IDF v5.4 Docker build
+│   └── main/Kconfig.projbuild UART/WiFi mode selection
+│
 ├── src/
 │   ├── hub.js                Hub entry point
 │   ├── asm.js                Built-in x86 assembler (zero deps)
+│   ├── asm_rv.js             Built-in RISC-V assembler (RV32IM, zero deps)
 │   └── asm_arm.js            Built-in ARM64 assembler (zero deps)
 │
 ├── hub/                      Hub modules
@@ -412,6 +430,7 @@ poke/
 │   ├── llm.js                LLM API calls
 │   ├── compiler.js           Assembly compilation + guard rail
 │   ├── transport.js           Edge communication (HTTP, MON, RES, STP, DIE, CTX)
+│   ├── serial.js             USB serial transport (POKE frame protocol)
 │   ├── nodes.js              Node registry + profiles + monitor triggers
 │   ├── memory.js             JARVIS memory (monthly files, index, patterns)
 │   ├── incubate.js           Device incubation engine (PCI → sketches → profiles)
@@ -430,11 +449,18 @@ poke/
 │   └── playground/           Browser bare-metal (v86 + NE2000)
 │
 ├── profiles/                 Device profile database (26 profiles)
-├── test/                     59 automated tests
+├── test/                     75+ automated tests
 │   ├── asm.test.js           x86 assembler (45 tests)
 │   ├── asm_arm.test.js       ARM64 assembler (49 tests)
+│   ├── asm_rv.test.js        RISC-V assembler (58 tests)
 │   ├── hub.test.js           Hub endpoints (35 tests)
+│   ├── serial.test.js        ESP32 serial pipeline (16 tests)
 │   └── integration.test.js   Full pipeline: QEMU boot → exec → persist → DIE (24 tests)
+│
+├── demo/
+│   ├── serial-demo.sh        ESP32 serial pipeline demo script
+│   ├── serial-pipeline.cast  asciinema recording
+│   └── serial-pipeline.gif   Demo GIF for README
 │
 ├── Dockerfile.hub            Hub container (Node.js + nasm + docker CLI)
 ├── Dockerfile.edge           Edge container (QEMU + VirtIO disk)
@@ -813,7 +839,11 @@ Tested: write 3 entries → reboot → all 3 entries survived ✅
 - [x] Live trace system (SSE streaming of all hub events)
 - [x] Self-extending kernel (module loader from disk)
 - [x] 59 automated tests (35 unit + 24 integration)
-- [ ] Real hardware deployment (Raspberry Pi, ESP32)
+- [x] ESP32-C3 RISC-V edge (USB serial, POKE frame protocol, bare-metal code exec)
+- [x] Internal temperature sensor (ESP-IDF calibrated, LLM-driven read)
+- [x] Result validation layer (sanity check + LLM self-correction loop)
+- [x] Serial integration tests (16 tests: PING/INFO/GPIO/TEMP + arithmetic + hub API)
+- [ ] Real hardware deployment (Raspberry Pi, more ESP32 variants)
 - [ ] Device profile marketplace
 - [ ] CR3 page table isolation for resident tasks
 

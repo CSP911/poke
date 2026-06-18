@@ -1,14 +1,33 @@
 menu "POKE Edge Configuration"
 
+    choice POKE_TRANSPORT
+        prompt "Transport mode"
+        default POKE_TRANSPORT_UART
+        help
+            Select how the edge connects to the hub.
+
+        config POKE_TRANSPORT_UART
+            bool "UART (USB serial)"
+            help
+                Direct USB serial connection. No WiFi needed.
+
+        config POKE_TRANSPORT_WIFI
+            bool "WiFi (HTTP server)"
+            help
+                WiFi HTTP server mode. Requires SSID/password.
+    endchoice
+
     config WIFI_SSID
         string "WiFi SSID"
         default "your_wifi"
+        depends on POKE_TRANSPORT_WIFI
         help
             WiFi network name.
 
     config WIFI_PASSWORD
         string "WiFi Password"
         default "your_password"
+        depends on POKE_TRANSPORT_WIFI
         help
             WiFi password.
 

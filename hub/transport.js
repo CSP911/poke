@@ -8,6 +8,13 @@
 const http = require('http')
 const { log } = require('./logger')
 
+// Lazy-load serial to avoid circular dependency
+let _serial = null
+function serial() {
+  if (!_serial) _serial = require('./serial')
+  return _serial
+}
+
 class PokeTransportError extends Error {
   constructor(message, code) {
     super(message)
@@ -131,6 +138,9 @@ function pokeNodeARM(endpoint, machineCode) {
 // Hub compiles and sends on behalf of the source edge
 function pokeRelay(fromEndpoint, toEndpoint, machineCode, arch) {
   log.info(`[p2p] relaying ${machineCode.length}B: ${fromEndpoint} → ${toEndpoint}`)
+  if (toEndpoint.startsWith('serial://')) {
+    return serial().pokeNodeSerial(toEndpoint, machineCode)
+  }
   if (arch === 'aarch64') {
     return pokeNodeARM(toEndpoint, machineCode)
   }
@@ -397,4 +407,10 @@ module.exports = {
   writeEdgeContext,
   readEdgePCI,
   PokeTransportError,
+  // Serial transport (lazy-loaded)
+  get pokeNodeSerial() { return serial().pokeNodeSerial },
+  get serialPing() { return serial().serialPing },
+  get serialInfo() { return serial().serialInfo },
+  get serialGpio() { return serial().serialGpio },
+  get listSerialPorts() { return serial().listSerialPorts },
 }

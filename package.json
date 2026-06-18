@@ -11,7 +11,18 @@
     "test": "node test/asm.test.js && node test/asm_arm.test.js && node test/asm_rv.test.js && node test/hub.test.js",
     "test:integration": "node test/integration.test.js"
   },
-  "keywords": ["bare-metal", "os", "kernel", "hardware", "ai", "llm", "assembly", "iot", "edge-computing", "poke"],
+  "keywords": [
+    "bare-metal",
+    "os",
+    "kernel",
+    "hardware",
+    "ai",
+    "llm",
+    "assembly",
+    "iot",
+    "edge-computing",
+    "poke"
+  ],
   "author": "CSP911",
   "license": "Apache-2.0",
   "repository": {
@@ -35,6 +46,7 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.99.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "serialport": "^13.0.0"
   }
 }
