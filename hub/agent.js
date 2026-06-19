@@ -64,6 +64,51 @@ const BASE_TOOLS = [
     },
   },
   {
+    name: 'deploy_serial_monitor',
+    description: `Deploy an autonomous event monitor on a serial edge (ESP32-C3). The edge will watch for a condition and fire an EVNT frame back to the hub when triggered — no polling needed.
+
+Monitor types:
+- gpio: Watch a GPIO pin for state change. Params: pin (0-21), edge ("falling"=0, "rising"=1, "both"=2). ESP32-C3 has a built-in BOOT button on GPIO 9.
+- temp: Watch internal temperature threshold. Params: op ("above"=0, "below"=1), threshold (celsius), interval_ms (min 1000).
+
+When the condition triggers, the edge sends an EVNT frame. The hub automatically runs agentLoop to decide what to do.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID' },
+        monitor_type: { type: 'string', enum: ['gpio', 'temp'], description: 'What to monitor' },
+        pin: { type: 'number', description: 'GPIO pin number (for gpio type)' },
+        edge_trigger: { type: 'number', enum: [0, 1, 2], description: '0=falling, 1=rising, 2=both (for gpio type)' },
+        op: { type: 'number', enum: [0, 1], description: '0=above threshold, 1=below threshold (for temp type)' },
+        threshold: { type: 'number', description: 'Temperature threshold in celsius (for temp type)' },
+        interval_ms: { type: 'number', description: 'Check interval in ms, min 1000 (for temp type)' },
+      },
+      required: ['target', 'monitor_type'],
+    },
+  },
+  {
+    name: 'stop_serial_monitor',
+    description: 'Stop all active event monitors on a serial edge.',
+    input_schema: {
+      type: 'object',
+      properties: { target: { type: 'string', description: 'Edge node ID' } },
+      required: ['target'],
+    },
+  },
+  {
+    name: 'set_gpio',
+    description: 'Set a GPIO pin output on a serial edge. Use for controlling LEDs, relays, motors, etc.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'Edge node ID' },
+        pin: { type: 'number', description: 'GPIO pin number (0-21)' },
+        value: { type: 'number', enum: [0, 1], description: '0=LOW, 1=HIGH' },
+      },
+      required: ['target', 'pin', 'value'],
+    },
+  },
+  {
     name: 'draw_image',
     description: 'Generate pixel art image using Node.js code and send to a target edge. Code must define W, H, pixels Buffer, setPixel(x,y,r,g,b), and end with module.exports={W,H,pixels}.',
     input_schema: {
@@ -503,6 +548,59 @@ async function executeAgentTool(toolName, toolInput) {
         return await pokeNodeSerial(node.endpoint, bin)
       }
       return await pokeNode(node.endpoint, bin)
+    } catch (err) {
+      return `Error: ${err.message}`
+    }
+  }
+
+  if (toolName === 'deploy_serial_monitor') {
+    const node = nodes.get(toolInput.target)
+    if (!node) return `Error: edge "${toolInput.target}" not found`
+    if (!node.endpoint.startsWith('serial://')) return 'Error: only works with serial edges'
+    try {
+      const serial = require('./serial')
+      let config
+      if (toolInput.monitor_type === 'gpio') {
+        const pin = toolInput.pin ?? 9
+        const edge = toolInput.edge_trigger ?? 0
+        config = Buffer.from([0x01, pin, edge])
+      } else if (toolInput.monitor_type === 'temp') {
+        const op = toolInput.op ?? 0
+        const threshX10 = Math.round((toolInput.threshold ?? 40) * 10)
+        const interval = toolInput.interval_ms ?? 5000
+        config = Buffer.alloc(6)
+        config[0] = 0x02
+        config[1] = op
+        config.writeUInt16LE(threshX10, 2)
+        config.writeUInt16LE(interval, 4)
+      } else {
+        return `Error: unknown monitor type "${toolInput.monitor_type}"`
+      }
+      return await serial.serialEventMonitor(node.endpoint, config)
+    } catch (err) {
+      return `Error: ${err.message}`
+    }
+  }
+
+  if (toolName === 'stop_serial_monitor') {
+    const node = nodes.get(toolInput.target)
+    if (!node) return `Error: edge "${toolInput.target}" not found`
+    if (!node.endpoint.startsWith('serial://')) return 'Error: only works with serial edges'
+    try {
+      const serial = require('./serial')
+      return await serial.serialEventStop(node.endpoint)
+    } catch (err) {
+      return `Error: ${err.message}`
+    }
+  }
+
+  if (toolName === 'set_gpio') {
+    const node = nodes.get(toolInput.target)
+    if (!node) return `Error: edge "${toolInput.target}" not found`
+    if (!node.endpoint.startsWith('serial://')) return 'Error: only works with serial edges'
+    try {
+      const serial = require('./serial')
+      return await serial.serialGpioSet(node.endpoint, toolInput.pin, toolInput.value)
     } catch (err) {
       return `Error: ${err.message}`
     }
@@ -1310,6 +1408,8 @@ Rules:
 - RISC-V assembly: return in a0, end with ret. Registers: a0-a7, s0-s11, t0-t6, sp, ra, zero. For ESP32-C3 edges.
 - RISC-V IMPORTANT: ori/andi only support 12-bit signed immediates (-2048 to 2047). For larger values, use li+or/and (R-type).
 - For sensor readings (temperature, etc.): use read_sensor tool first — it returns calibrated values from the firmware driver. Only fall back to raw register access (execute_rv) if read_sensor is unavailable.
+- For autonomous monitoring: use deploy_serial_monitor to set up event-driven watches on serial edges. The edge fires EVNT frames autonomously — no polling needed. Use stop_serial_monitor to disable.
+- For GPIO control (LED, relay, etc.): use set_gpio tool on serial edges.
 - If a result seems physically unreasonable (e.g. -25°C at room temperature), DO NOT accept it. Question the result, try an alternative approach, or use a higher-level tool.
 - If code fails (compile error, wrong result), read the error, fix the code, and retry.
 - For questions/conversation: use reply_text.

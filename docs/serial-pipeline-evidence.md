@@ -219,7 +219,142 @@ Hub port: 3335
 
 ---
 
-## 8. Files Changed
+## 8. Autonomous Event Loop (Edge → Hub)
+
+### Design
+
+```
+사용자: "36도 이상이면 알려줘"
+  │
+  ▼
+LLM agentLoop
+  │ deploy_serial_monitor(temp, above, 36°C, 5s interval)
+  ▼
+Hub → POKE + "EMON" + config → ESP32
+  │
+  ▼
+ESP32 (autonomous monitoring)
+  │ FreeRTOS task: check temp every 5s
+  │ 37.1°C > 36°C threshold → fire!
+  ▼
+ESP32 → EVNT + JSON → Hub
+  │
+  ▼
+Hub serial.js: parse EVNT frame → onSerialEvent callback
+  │
+  ▼
+agentLoop (automatic, no human)
+  │ LLM decides: "threshold exceeded"
+  ▼
+Response logged
+```
+
+### Protocol
+
+```
+Edge → Hub (unsolicited):
+  "EVNT" (4) + payload_len (4 LE) + JSON payload
+
+Payload examples:
+  {"type":"gpio","pin":9,"value":0,"edge":"falling"}
+  {"type":"temp","celsius":37.1,"threshold":36.0,"op":"above"}
+```
+
+### LLM Agent — Monitor Deployment
+
+Request:
+```
+POST /relay
+{ "command": "ESP32-C3 칩 온도가 36도 이상이면 알려줘." }
+```
+
+Agent steps:
+```
+Step 1: deploy_serial_monitor
+  → {"ok":true,"monitor":"temp","op":"above","threshold":36.0,"interval_ms":5000}
+```
+
+LLM response:
+```
+✅ 온도 모니터 배포 완료!
+- 감지 조건: 온도가 36°C 이상일 때
+- 확인 간격: 5초마다 체크
+```
+
+### Event Trigger — Hub Log
+
+```
+[INFO] [serial] EVNT from /dev/cu.usbmodem101: {"type":"temp","celsius":37.1,"threshold":36.0,"op":"above"}
+[INFO] [serial-event] esp32-c3: temp → agentLoop
+[INFO] [serial-event] handled: The ESP32-C3 internal temperature has exceeded the 36°C threshold.
+```
+
+### Full Flow Verified
+
+| Step | Actor | Action |
+|------|-------|--------|
+| 1 | 사용자 | "36도 이상이면 알려줘" |
+| 2 | LLM | `deploy_serial_monitor(temp, above, 36°C)` 결정 |
+| 3 | Hub | EMON config → ESP32 시리얼 전송 |
+| 4 | ESP32 | FreeRTOS 태스크에서 5초마다 온도 체크 |
+| 5 | ESP32 | 37.1°C > 36°C → EVNT 프레임 자발 전송 |
+| 6 | Hub | EVNT 수신 → agentLoop 자동 실행 |
+| 7 | LLM | "임계값 초과 확인" 자율 판단 |
+
+No human intervention between steps 3-7.
+
+---
+
+## 9. GPIO Output + New Commands
+
+### GPOS (GPIO Set)
+```
+POKE + "GPOS" + pin(1) + val(1)
+→ RESP + {"pin":3,"value":1}
+```
+
+### EMON (Event Monitor)
+```
+POKE + "EMON" + type(1) + config(N)
+  type=0x01: GPIO — pin(1) + edge(1: 0=falling,1=rising,2=both)
+  type=0x02: Temp — op(1) + threshold_x10(2 LE) + interval_ms(2 LE)
+→ RESP + {"ok":true,"monitor":"gpio"|"temp",...}
+```
+
+### ESTOP (Stop Monitors)
+```
+POKE + "ESTO"
+→ RESP + {"ok":true,"stopped":"all"}
+```
+
+### INFO (updated — now includes capabilities)
+```json
+{
+  "status": "alive",
+  "arch": "riscv32",
+  "chip": "esp32c3",
+  "commands": ["PING","INFO","EXEC","GPIO","TEMP","GPOS","EMON","ESTOP"],
+  "sensors": ["temp_internal"],
+  "events": true,
+  "free_heap": 310336,
+  "uptime": 1791
+}
+```
+
+---
+
+## 10. New Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| `read_sensor` | Calibrated sensor read (temp) |
+| `set_gpio` | GPIO output control (LED, relay) |
+| `deploy_serial_monitor` | Deploy autonomous event monitor (gpio/temp) |
+| `stop_serial_monitor` | Stop all monitors |
+
+---
+
+## 11. Files Changed
 
 | File | Description |
 |------|-------------|

@@ -10,9 +10,16 @@
  * Protocol:
  *   Request:  "POKE" (4) + payload_len (4 LE) + payload
  *   Response: "RESP" (4) + payload_len (4 LE) + payload
+ *   Event:    "EVNT" (4) + payload_len (4 LE) + JSON  (edge → hub, unsolicited)
  */
 
 const { log } = require('./logger')
+
+// ── Event callback: set by hub to handle edge-initiated events ──
+let _onEvent = null
+function onSerialEvent(callback) {
+  _onEvent = callback
+}
 
 class PokeTransportError extends Error {
   constructor(message, code) {
@@ -78,20 +85,27 @@ function getOrOpenPort(portPath, baud) {
     ports.delete(portPath)
   })
 
-  // Frame parser: accumulate data and extract RESP frames
+  // Frame parser: accumulate data and extract RESP + EVNT frames
   let rxBuf = Buffer.alloc(0)
   port.on('data', (data) => {
     rxBuf = Buffer.concat([rxBuf, data])
 
     while (rxBuf.length >= 4) {
-      // Find "RESP" magic — skip any ESP log output mixed in
+      // Find "RESP" or "EVNT" magic — skip any ESP log output mixed in
       const respIdx = rxBuf.indexOf('RESP')
-      if (respIdx < 0) {
-        // Keep last 3 bytes (might be partial "RES")
+      const evntIdx = rxBuf.indexOf('EVNT')
+
+      // Pick whichever comes first
+      let frameIdx = -1
+      let frameType = null
+      if (respIdx >= 0 && (evntIdx < 0 || respIdx <= evntIdx)) { frameIdx = respIdx; frameType = 'RESP' }
+      else if (evntIdx >= 0) { frameIdx = evntIdx; frameType = 'EVNT' }
+
+      if (frameIdx < 0) {
         if (rxBuf.length > 3) rxBuf = rxBuf.slice(-3)
         break
       }
-      if (respIdx > 0) rxBuf = rxBuf.slice(respIdx)
+      if (frameIdx > 0) rxBuf = rxBuf.slice(frameIdx)
       if (rxBuf.length < 8) break
 
       const payloadLen = rxBuf.readUInt32LE(4)
@@ -101,17 +115,31 @@ function getOrOpenPort(portPath, baud) {
       }
 
       const frameSize = 8 + payloadLen
-      if (rxBuf.length < frameSize) break  // wait for more data
+      if (rxBuf.length < frameSize) break
 
       const payload = rxBuf.slice(8, frameSize).toString()
       rxBuf = rxBuf.slice(frameSize)
 
-      // Resolve the in-flight request
-      if (entry.onResp) {
-        const cb = entry.onResp
-        entry.onResp = null
-        clearTimeout(cb.timer)
-        cb.resolve(payload)
+      if (frameType === 'RESP') {
+        // Resolve the in-flight request
+        if (entry.onResp) {
+          const cb = entry.onResp
+          entry.onResp = null
+          clearTimeout(cb.timer)
+          cb.resolve(payload)
+        }
+      } else if (frameType === 'EVNT') {
+        // Edge-initiated event — fire callback
+        log.info(`[serial] EVNT from ${portPath}: ${payload.slice(0, 100)}`)
+        if (_onEvent) {
+          try {
+            const evt = JSON.parse(payload)
+            evt._endpoint = `serial://${portPath}`
+            _onEvent(evt)
+          } catch (e) {
+            log.warn(`[serial] EVNT parse error: ${e.message}`)
+          }
+        }
       }
     }
   })
@@ -209,6 +237,18 @@ function serialTemp(endpoint) {
   return serialCommand(endpoint, 'TEMP', null, 5000)
 }
 
+function serialGpioSet(endpoint, pin, value) {
+  return serialCommand(endpoint, 'GPOS', Buffer.from([pin, value ? 1 : 0]), 5000)
+}
+
+function serialEventMonitor(endpoint, config) {
+  return serialCommand(endpoint, 'EMON', config, 5000)
+}
+
+function serialEventStop(endpoint) {
+  return serialCommand(endpoint, 'ESTO', null, 5000)  // ESTOP = first 4 bytes "ESTO"
+}
+
 // ── List available serial ports ──
 async function listSerialPorts() {
   try {
@@ -242,8 +282,12 @@ module.exports = {
   serialInfo,
   serialGpio,
   serialTemp,
+  serialGpioSet,
+  serialEventMonitor,
+  serialEventStop,
   serialCommand,
   listSerialPorts,
   parseSerialEndpoint,
+  onSerialEvent,
   closeAll,
 }

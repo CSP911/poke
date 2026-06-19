@@ -22,6 +22,31 @@ loadProfiles()
 // ── Start health check ──
 startHealthCheck()
 
+// ── Serial event listener: edge-initiated events → agentLoop ──
+const { onSerialEvent } = require('../hub/serial')
+const { agentLoop } = require('../hub/agent')
+const { nodes } = require('../hub/nodes')
+
+onSerialEvent((evt) => {
+  // Find which edge sent the event by matching endpoint
+  let edgeId = null
+  for (const [id, node] of nodes) {
+    if (node.endpoint === evt._endpoint) { edgeId = id; break }
+  }
+  if (!edgeId) { log.warn(`[serial-event] unknown endpoint: ${evt._endpoint}`); return }
+
+  const command = `EDGE EVENT from "${edgeId}": ${JSON.stringify(evt)}. ` +
+    `Analyze this event and respond appropriately. ` +
+    `You can use read_sensor to check current state, execute_rv to take action, or reply_text to inform the user.`
+
+  log.info(`[serial-event] ${edgeId}: ${evt.type} → agentLoop`)
+  agentLoop(command, edgeId, edgeId).then(result => {
+    log.info(`[serial-event] handled: ${result.result?.slice(0, 100)}`)
+  }).catch(err => {
+    log.warn(`[serial-event] agentLoop failed: ${err.message}`)
+  })
+})
+
 // ── HTTP server ──
 const server = createServer()
 const PORT = process.env.PORT || 3333
