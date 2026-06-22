@@ -1,0 +1,41 @@
+{
+  "_comment": "POKE Device Library Index — maps device IDs to library entries",
+  "_version": "1.0",
+  "by_chip": {
+    "esp32c3": [
+      "esp32c3_internal"
+    ],
+    "esp32s3": [
+      "esp32s3_internal"
+    ],
+    "esp32": [
+      "esp32_internal"
+    ]
+  },
+  "by_vendor_device": {
+    "8086:100E": [
+      "intel_e1000"
+    ],
+    "1AF4:1001": [
+      "virtio_blk"
+    ],
+    "1234:1111": [
+      "qemu_vga"
+    ]
+  },
+  "by_sensor": {
+    "temp_internal": [
+      "esp32c3_temp",
+      "esp32c3_temp_internal_sensor"
+    ],
+    "dht22": [
+      "dht22_temp_humidity"
+    ],
+    "bh1750": [
+      "bh1750_light"
+    ],
+    "hcsr501": [
+      "hcsr501_motion"
+    ]
+  }
+}

@@ -16,8 +16,10 @@ const { createServer } = require('../hub/server')
 process.on('uncaughtException', (err) => { log.error('[FATAL]', err.message) })
 process.on('unhandledRejection', (err) => { log.error('[REJECT]', err.message || err) })
 
-// ── Load device profiles ──
+// ── Load device profiles + library ──
 loadProfiles()
+const { loadLibrary } = require('../hub/library')
+loadLibrary()
 
 // ── Start health check ──
 startHealthCheck()

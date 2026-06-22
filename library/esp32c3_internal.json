@@ -1,0 +1,81 @@
+{
+  "id": "esp32c3_internal",
+  "name": "ESP32-C3 Internal Peripherals",
+  "chip": "esp32c3",
+  "arch": "riscv32",
+  "match": {
+    "chip": "esp32c3"
+  },
+  "operations": [
+    {
+      "name": "read_temp",
+      "desc": "Read internal temperature sensor (calibrated, celsius)",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "TEMP",
+      "returns": "JSON with celsius value",
+      "example_result": "{\"celsius\":38.1,\"raw_api\":true}",
+      "tags": ["temperature", "sensor", "internal", "calibrated"]
+    },
+    {
+      "name": "read_gpio",
+      "desc": "Read all GPIO pin states (GPIO 0-10)",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "GPIO",
+      "returns": "JSON with pin states",
+      "tags": ["gpio", "input", "digital"]
+    },
+    {
+      "name": "set_gpio",
+      "desc": "Set a GPIO pin output (for LED, relay, motor control)",
+      "type": "actuator",
+      "protocol": "command",
+      "command": "GPOS",
+      "params": ["pin", "value"],
+      "returns": "JSON with pin and value set",
+      "tags": ["gpio", "output", "digital", "led", "relay"]
+    },
+    {
+      "name": "monitor_gpio",
+      "desc": "Deploy autonomous GPIO interrupt monitor (e.g. button press). Fires EVNT when triggered.",
+      "type": "monitor",
+      "protocol": "command",
+      "command": "EMON",
+      "config": { "type": 1 },
+      "params": ["pin", "edge_trigger"],
+      "returns": "Confirmation of monitor deployment",
+      "tags": ["gpio", "interrupt", "monitor", "event", "button"]
+    },
+    {
+      "name": "monitor_temp",
+      "desc": "Deploy autonomous temperature threshold monitor. Fires EVNT when temperature exceeds/drops below threshold.",
+      "type": "monitor",
+      "protocol": "command",
+      "command": "EMON",
+      "config": { "type": 2 },
+      "params": ["op", "threshold", "interval_ms"],
+      "returns": "Confirmation of monitor deployment",
+      "tags": ["temperature", "threshold", "monitor", "event", "autonomous"]
+    },
+    {
+      "name": "stop_monitors",
+      "desc": "Stop all active event monitors on this edge",
+      "type": "control",
+      "protocol": "command",
+      "command": "ESTOP",
+      "returns": "Confirmation",
+      "tags": ["monitor", "stop"]
+    },
+    {
+      "name": "execute_code",
+      "desc": "Execute arbitrary RISC-V (RV32IM) machine code on bare metal. Returns a0 register value.",
+      "type": "compute",
+      "protocol": "command",
+      "command": "EXEC",
+      "params": ["machine_code"],
+      "returns": "a0 register value",
+      "tags": ["compute", "risc-v", "bare-metal", "execute"]
+    }
+  ]
+}

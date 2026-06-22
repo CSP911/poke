@@ -456,21 +456,59 @@ function generateDeviceTools() {
   return tools
 }
 
+// ── Library tools (from device library, matched per edge) ──
+let _cachedLibraryTools = []
+
+function refreshLibraryTools() {
+  const { entries, matchEdge, generateLibraryTools } = require('./library')
+  const tools = []
+  for (const [nodeId, node] of nodes) {
+    // Use cached health info for matching
+    const info = node.health || { chip: node._chip, sensors: node._sensors }
+    const matched = matchEdge(node, info)
+    if (matched.length > 0) {
+      tools.push(...generateLibraryTools(nodeId, matched))
+      log.debug(`[library] ${nodeId}: matched ${matched.length} entries, ${tools.length} tools`)
+    }
+  }
+  _cachedLibraryTools = tools
+  return tools
+}
+
+function getLibraryToolsForAgent() {
+  return _cachedLibraryTools
+}
+
 function getAgentTools() {
-  return [...BASE_TOOLS, ...generateDeviceTools()]
+  return [...BASE_TOOLS, ...generateDeviceTools(), ...getLibraryToolsForAgent()]
 }
 
 function getDeviceToolsSummary() {
   const devTools = generateDeviceTools()
-  if (devTools.length === 0) return ''
+  const libTools = getLibraryToolsForAgent()
+  const all = [...devTools, ...libTools]
+  if (all.length === 0) return ''
   return '\nAuto-generated device tools (call directly, no assembly needed):\n' +
-    devTools.map(t => `- ${t.name}: ${t.description}`).join('\n')
+    all.map(t => `- ${t.name}: ${t.description}`).join('\n')
 }
 
 async function executeAgentTool(toolName, toolInput) {
   log.info(`[agent] tool: ${toolName}(${JSON.stringify(toolInput).slice(0, 100)})`)
 
-  // ── Auto-generated device tools ──
+  // ── Library tools (matched from device library) ──
+  const libTools = getLibraryToolsForAgent()
+  const libTool = libTools.find(t => t.name === toolName)
+  if (libTool) {
+    log.info(`[agent] library-op: ${toolName} on ${toolInput.target || libTool._defaultTarget}`)
+    try {
+      const { executeLibraryTool } = require('./library')
+      return await executeLibraryTool(libTool, toolInput)
+    } catch (err) {
+      return `Error: ${err.message}`
+    }
+  }
+
+  // ── Auto-generated device tools (legacy profiles) ──
   const devTools = generateDeviceTools()
   const devTool = devTools.find(t => t.name === toolName)
   if (devTool) {
@@ -1583,6 +1621,7 @@ module.exports = {
   agentLoop,
   executeAgentTool,
   getAgentTools,
+  refreshLibraryTools,
   BASE_TOOLS,
   activeMonitors,
   fetchImageAsBase64,

@@ -1,0 +1,46 @@
+{
+  "id": "esp32c3_temp_internal_sensor",
+  "name": "ESP32-C3 Internal Temperature Sensor",
+  "chip": "esp32c3",
+  "arch": "riscv32",
+  "match": {
+    "sensor": "temp_internal"
+  },
+  "operations": [
+    {
+      "name": "read_internal_temp",
+      "desc": "Read internal temperature sensor of ESP32-C3",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "TEMP",
+      "params": [],
+      "returns": "Temperature in Celsius as float",
+      "tags": [
+        "temperature",
+        "internal",
+        "sensor",
+        "thermal",
+        "esp32c3"
+      ]
+    },
+    {
+      "name": "monitor_internal_temp",
+      "desc": "Continuously monitor internal temperature sensor with event notifications",
+      "type": "monitor",
+      "protocol": "command",
+      "command": "TEMP",
+      "params": [
+        "interval_ms",
+        "threshold_celsius"
+      ],
+      "returns": "Temperature samples and threshold crossing events",
+      "tags": [
+        "temperature",
+        "internal",
+        "monitor",
+        "events",
+        "thermal"
+      ]
+    }
+  ]
+}

@@ -81,7 +81,16 @@ async function handleRequest(req, res) {
     if (!node || !node.node_id || !node.endpoint) { jsonError(res, 400, 'invalid body: need node_id, endpoint'); return }
     enrollNode(node)
     res.end(JSON.stringify({ ok: true, enrolled: node.node_id }))
-    // Auto-incubate after enrollment (non-blocking)
+    // Auto-incubate via library (probe → match → LLM generate if unknown)
+    if (node.endpoint && !node.endpoint.startsWith('polling:')) {
+      setTimeout(() => {
+        const { incubateEdge } = require('./library')
+        incubateEdge(node.node_id).then(report => {
+          log.info(`[enroll] incubation: matched=${report.matched?.length || 0}, incubation=${report.incubation?.status}, tools=${report.totalTools}`)
+        }).catch(e => log.warn(`[enroll] incubation failed: ${e.message}`))
+      }, 2000)
+    }
+    // Legacy PCI incubation for HTTP edges (non-blocking)
     if (node.endpoint && !node.endpoint.startsWith('polling:')) {
       setTimeout(() => {
         incubate(node.node_id, node.endpoint).then(report => {
@@ -340,6 +349,34 @@ async function handleRequest(req, res) {
       }
     }
     res.end(JSON.stringify(results, null, 2))
+    return
+  }
+
+  // POST /library/incubate/:id — manually trigger library incubation for an edge
+  if (req.method === 'POST' && url.pathname.startsWith('/library/incubate/')) {
+    const nodeId = url.pathname.slice('/library/incubate/'.length)
+    try {
+      const { incubateEdge } = require('./library')
+      const report = await incubateEdge(nodeId)
+      res.end(JSON.stringify(report, null, 2))
+    } catch (e) { jsonError(res, 500, e.message) }
+    return
+  }
+
+  // GET /library — list all library entries and matched tools
+  if (req.method === 'GET' && url.pathname === '/library') {
+    const { entries } = require('./library')
+    const result = []
+    for (const [id, entry] of entries) {
+      result.push({
+        id: entry.id,
+        name: entry.name,
+        arch: entry.arch,
+        chip: entry.chip,
+        operations: (entry.operations || []).map(o => ({ name: o.name, type: o.type, desc: o.desc })),
+      })
+    }
+    res.end(JSON.stringify(result, null, 2))
     return
   }
 
