@@ -1,41 +1,25 @@
 {
-  "_comment": "POKE Device Library Index — maps device IDs to library entries",
-  "_version": "1.0",
+  "_comment": "POKE Device Library Index — modular: chip base + sensor/actuator modules",
+  "_version": "2.0",
+
   "by_chip": {
-    "esp32c3": [
-      "esp32c3_internal"
-    ],
-    "esp32s3": [
-      "esp32s3_internal"
-    ],
-    "esp32": [
-      "esp32_internal"
-    ]
+    "esp32c3": ["esp32c3_base"],
+    "esp32s3": ["esp32s3_base"],
+    "esp32":   ["esp32_base"]
   },
+
   "by_vendor_device": {
-    "8086:100E": [
-      "intel_e1000"
-    ],
-    "1AF4:1001": [
-      "virtio_blk"
-    ],
-    "1234:1111": [
-      "qemu_vga"
-    ]
+    "8086:100E": ["intel_e1000"],
+    "1AF4:1001": ["virtio_blk"],
+    "1234:1111": ["qemu_vga"]
   },
+
   "by_sensor": {
-    "temp_internal": [
-      "esp32c3_temp",
-      "esp32c3_temp_internal_sensor"
-    ],
-    "dht22": [
-      "dht22_temp_humidity"
-    ],
-    "bh1750": [
-      "bh1750_light"
-    ],
-    "hcsr501": [
-      "hcsr501_motion"
-    ]
+    "dht22":     ["dht22"],
+    "bmp280":    ["bmp280"],
+    "bh1750":    ["bh1750"],
+    "hcsr501":   ["hcsr501"],
+    "relay_2ch": ["relay_2ch"],
+    "mpu6050":   ["mpu6050"]
   }
 }

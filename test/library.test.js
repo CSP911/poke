@@ -1,8 +1,8 @@
 /**
- * POKE Library — unit tests
+ * POKE Library — unit tests (modular architecture)
  *
- * Tests device library loading, matching, tool generation, and incubation.
- * No external hardware required.
+ * Tests device library loading, matching, tool generation.
+ * Modular: chip base + sensor/actuator modules matched independently.
  *
  * Usage: node test/library.test.js
  */
@@ -38,179 +38,178 @@ function assertEq(actual, expected, name) {
   assert(actual === expected, `${name} (got ${actual}, expected ${expected})`)
 }
 
-// ── Tests ──
-
 async function runTests() {
-  // === 1. Library loading ===
+  // === 1. Loading ===
   loadLibrary()
 
-  assert(entries.size >= 2, 'loadLibrary loads at least 2 entries')
-  assert(entries.has('esp32c3_internal'), 'esp32c3_internal entry exists')
-  assert(entries.has('dht22_temp_humidity'), 'dht22_temp_humidity entry exists')
+  assert(entries.size >= 5, `loaded at least 5 entries (got ${entries.size})`)
+  assert(entries.has('esp32c3_base'), 'esp32c3_base exists')
+  assert(entries.has('dht22'), 'dht22 exists')
+  assert(entries.has('bmp280'), 'bmp280 exists')
+  assert(entries.has('hcsr501'), 'hcsr501 exists')
+  assert(entries.has('relay_2ch'), 'relay_2ch exists')
 
-  // === 2. Entry structure validation ===
-  const esp32 = entries.get('esp32c3_internal')
-  assertEq(esp32.arch, 'riscv32', 'esp32c3 arch is riscv32')
-  assertEq(esp32.chip, 'esp32c3', 'esp32c3 chip field')
-  assert(esp32.match?.chip === 'esp32c3', 'esp32c3 match.chip')
-  assert(Array.isArray(esp32.operations), 'esp32c3 has operations array')
-  assert(esp32.operations.length >= 5, 'esp32c3 has at least 5 operations')
+  // === 2. Chip base entry ===
+  const base = entries.get('esp32c3_base')
+  assertEq(base.arch, 'riscv32', 'base arch')
+  assertEq(base.chip, 'esp32c3', 'base chip')
+  assert(base.match?.chip === 'esp32c3', 'base match.chip')
+  assert(base.operations.length >= 7, `base has >= 7 ops (got ${base.operations.length})`)
 
-  // Check required operation fields
-  for (const op of esp32.operations) {
-    assert(op.name, `operation has name: ${op.name}`)
-    assert(op.type, `operation ${op.name} has type`)
-    assert(op.protocol, `operation ${op.name} has protocol`)
-    assert(Array.isArray(op.tags), `operation ${op.name} has tags`)
-  }
+  const baseOps = base.operations.map(o => o.name)
+  assert(baseOps.includes('read_temp'), 'base has read_temp')
+  assert(baseOps.includes('read_gpio'), 'base has read_gpio')
+  assert(baseOps.includes('set_gpio'), 'base has set_gpio')
+  assert(baseOps.includes('execute_code'), 'base has execute_code')
+  assert(baseOps.includes('monitor_gpio'), 'base has monitor_gpio')
+  assert(baseOps.includes('monitor_temp'), 'base has monitor_temp')
 
-  // Check specific operations exist
-  const opNames = esp32.operations.map(o => o.name)
-  assert(opNames.includes('read_temp'), 'has read_temp operation')
-  assert(opNames.includes('read_gpio'), 'has read_gpio operation')
-  assert(opNames.includes('set_gpio'), 'has set_gpio operation')
-  assert(opNames.includes('monitor_gpio'), 'has monitor_gpio operation')
-  assert(opNames.includes('monitor_temp'), 'has monitor_temp operation')
-  assert(opNames.includes('stop_monitors'), 'has stop_monitors operation')
-  assert(opNames.includes('execute_code'), 'has execute_code operation')
-
-  // === 3. DHT22 entry ===
-  const dht = entries.get('dht22_temp_humidity')
-  assertEq(dht.arch, 'riscv32', 'dht22 arch is riscv32')
+  // === 3. Sensor modules — chip-independent ===
+  const dht = entries.get('dht22')
+  assertEq(dht.chip, null, 'dht22 chip is null (chip-independent)')
+  assertEq(dht.arch, null, 'dht22 arch is null')
   assert(dht.match?.sensor === 'dht22', 'dht22 match.sensor')
-  assert(dht.wiring, 'dht22 has wiring info')
+  assert(dht.wiring, 'dht22 has wiring')
+  assert(dht.operations.length >= 1, 'dht22 has operations')
 
-  // === 4. Matching — by chip ===
+  const bmp = entries.get('bmp280')
+  assertEq(bmp.chip, null, 'bmp280 chip is null')
+  assert(bmp.match?.sensor === 'bmp280', 'bmp280 match.sensor')
+  assert(bmp.operations.length >= 2, 'bmp280 has >= 2 operations')
+
+  const pir = entries.get('hcsr501')
+  assert(pir.match?.sensor === 'hcsr501', 'hcsr501 match.sensor')
+  assert(pir.operations.some(o => o.name === 'read_motion'), 'hcsr501 has read_motion')
+  assert(pir.operations.some(o => o.name === 'monitor_motion'), 'hcsr501 has monitor_motion')
+
+  const relay = entries.get('relay_2ch')
+  assert(relay.match?.sensor === 'relay_2ch', 'relay match.sensor')
+  assert(relay.operations.some(o => o.name === 'relay_on'), 'relay has relay_on')
+  assert(relay.operations.some(o => o.name === 'relay_off'), 'relay has relay_off')
+
+  // === 4. Matching — chip only ===
   {
-    const node = { endpoint: 'serial:///dev/ttyUSB0' }
-    const info = { chip: 'esp32c3', status: 'alive' }
-    const matched = matchEdge(node, info)
-    assert(matched.length >= 1, 'matchEdge by chip returns at least 1 entry')
-    assert(matched.some(e => e.id === 'esp32c3_internal'), 'matched esp32c3_internal by chip')
+    const matched = matchEdge({}, { chip: 'esp32c3' })
+    assert(matched.length === 1, `chip-only match returns 1 (got ${matched.length})`)
+    assertEq(matched[0].id, 'esp32c3_base', 'matched esp32c3_base')
   }
 
-  // === 5. Matching — by sensor ===
+  // === 5. Matching — chip + sensors (modular composition) ===
   {
-    const node = { endpoint: 'serial:///dev/ttyUSB0' }
-    const info = { sensors: ['dht22'] }
-    const matched = matchEdge(node, info)
-    assert(matched.length >= 1, 'matchEdge by sensor returns at least 1 entry')
-    assert(matched.some(e => e.id === 'dht22_temp_humidity'), 'matched dht22 by sensor')
+    const matched = matchEdge({}, { chip: 'esp32c3', sensors: ['dht22', 'hcsr501'] })
+    assert(matched.length === 3, `chip + 2 sensors = 3 matches (got ${matched.length})`)
+    const ids = matched.map(e => e.id)
+    assert(ids.includes('esp32c3_base'), 'includes base')
+    assert(ids.includes('dht22'), 'includes dht22')
+    assert(ids.includes('hcsr501'), 'includes hcsr501')
   }
 
-  // === 6. Matching — no match ===
+  // === 6. Matching — sensors only (no chip) ===
   {
-    const node = { endpoint: 'http://localhost:8080' }
-    const info = { chip: 'stm32f401', status: 'alive' }
-    const matched = matchEdge(node, info)
-    assertEq(matched.length, 0, 'no match for unknown chip')
+    const matched = matchEdge({}, { sensors: ['bmp280', 'relay_2ch'] })
+    assertEq(matched.length, 2, 'sensor-only match returns 2')
+    const ids = matched.map(e => e.id)
+    assert(ids.includes('bmp280'), 'includes bmp280')
+    assert(ids.includes('relay_2ch'), 'includes relay_2ch')
   }
 
-  // === 7. Matching — multiple matches ===
+  // === 7. Matching — unknown chip, no match ===
   {
-    const node = { endpoint: 'serial:///dev/ttyUSB0' }
-    const info = { chip: 'esp32c3', sensors: ['temp_internal', 'dht22'] }
-    const matched = matchEdge(node, info)
-    assert(matched.length >= 2, 'multiple matches for chip + sensors')
+    const matched = matchEdge({}, { chip: 'stm32f401' })
+    assertEq(matched.length, 0, 'unknown chip = no match')
   }
 
-  // === 8. Tool generation ===
+  // === 8. Tool generation — chip only ===
   {
-    const node = { endpoint: 'serial:///dev/ttyUSB0' }
-    const info = { chip: 'esp32c3' }
-    const matched = matchEdge(node, info)
-    const tools = generateLibraryTools('test-esp32', matched)
-    assert(tools.length >= 5, `generates at least 5 tools (got ${tools.length})`)
+    const matched = matchEdge({}, { chip: 'esp32c3' })
+    const tools = generateLibraryTools('edge-1', matched)
+    assert(tools.length >= 7, `base generates >= 7 tools (got ${tools.length})`)
+    assert(tools.every(t => t.name.startsWith('esp32c3_base__')), 'all tools prefixed with esp32c3_base__')
+  }
 
-    // Check tool structure
+  // === 9. Tool generation — composite (chip + sensors) ===
+  {
+    const matched = matchEdge({}, { chip: 'esp32c3', sensors: ['dht22', 'relay_2ch'] })
+    const tools = generateLibraryTools('edge-2', matched)
+    const names = tools.map(t => t.name)
+    assert(names.some(n => n.startsWith('esp32c3_base__')), 'has base tools')
+    assert(names.some(n => n.startsWith('dht22__')), 'has dht22 tools')
+    assert(names.some(n => n.startsWith('relay_2ch__')), 'has relay tools')
+    assert(tools.length >= 10, `composite generates >= 10 tools (got ${tools.length})`)
+  }
+
+  // === 10. Same sensor on different edges ===
+  {
+    const matched1 = matchEdge({}, { chip: 'esp32c3', sensors: ['dht22'] })
+    const matched2 = matchEdge({}, { chip: 'stm32f401', sensors: ['dht22'] })  // unknown chip
+    const tools1 = generateLibraryTools('esp32-1', matched1)
+    const tools2 = generateLibraryTools('stm32-1', matched2)
+
+    // Both should have dht22 tools
+    assert(tools1.some(t => t.name.startsWith('dht22__')), 'esp32 has dht22 tools')
+    assert(tools2.some(t => t.name.startsWith('dht22__')), 'stm32 has dht22 tools (reuse)')
+    // But only esp32 has base tools
+    assert(tools1.some(t => t.name.startsWith('esp32c3_base__')), 'esp32 has base tools')
+    assert(!tools2.some(t => t.name.startsWith('esp32c3_base__')), 'stm32 does NOT have esp32 base tools')
+  }
+
+  // === 11. Tool structure ===
+  {
+    const matched = matchEdge({}, { chip: 'esp32c3', sensors: ['hcsr501'] })
+    const tools = generateLibraryTools('edge-3', matched)
     for (const t of tools) {
       assert(t.name, `tool has name: ${t.name}`)
-      assert(t.description, `tool ${t.name} has description`)
-      assert(t.input_schema, `tool ${t.name} has input_schema`)
-      assert(t._library, `tool ${t.name} has _library ref`)
-      assert(t._op, `tool ${t.name} has _op ref`)
-      assert(t._arch, `tool ${t.name} has _arch`)
+      assert(t.description, `${t.name} has description`)
+      assert(t.input_schema, `${t.name} has input_schema`)
+      assert(t._library, `${t.name} has _library`)
+      assert(t._op, `${t.name} has _op`)
     }
-
-    // Check naming convention: {entry_id}__{op_name}
-    const tempTool = tools.find(t => t.name === 'esp32c3_internal__read_temp')
-    assert(tempTool, 'tool esp32c3_internal__read_temp exists')
-    assert(tempTool._op.command === 'TEMP', 'read_temp uses TEMP command')
-    assert(tempTool._defaultTarget === 'test-esp32', 'default target is node ID')
   }
 
-  // === 9. Tool generation — actuator with params ===
+  // === 12. Default target ===
   {
     const matched = matchEdge({}, { chip: 'esp32c3' })
-    const tools = generateLibraryTools('esp32', matched)
-    const gpioTool = tools.find(t => t.name === 'esp32c3_internal__set_gpio')
-    assert(gpioTool, 'set_gpio tool exists')
-    assert(gpioTool.input_schema.properties.pin, 'set_gpio has pin param')
-    assert(gpioTool.input_schema.properties.value, 'set_gpio has value param')
+    const tools = generateLibraryTools('my-esp', matched)
+    assert(tools.every(t => t._defaultTarget === 'my-esp'), 'all tools have correct default target')
   }
 
-  // === 10. Tool generation — monitor with params ===
-  {
-    const matched = matchEdge({}, { chip: 'esp32c3' })
-    const tools = generateLibraryTools('esp32', matched)
-    const monTool = tools.find(t => t.name === 'esp32c3_internal__monitor_temp')
-    assert(monTool, 'monitor_temp tool exists')
-    assert(monTool.input_schema.properties.threshold, 'monitor_temp has threshold param')
-    assert(monTool.input_schema.properties.interval_ms, 'monitor_temp has interval_ms param')
-  }
-
-  // === 11. Library summary ===
-  {
-    const summary = getLibrarySummary()
-    assert(summary.length > 0, 'getLibrarySummary returns non-empty string')
-    assert(summary.includes('esp32c3_internal'), 'summary includes esp32c3_internal')
-    assert(summary.includes('riscv32'), 'summary includes architecture')
-  }
-
-  // === 12. Index structure ===
+  // === 13. Index structure ===
   {
     const indexPath = path.join(__dirname, '..', 'library', 'index.json')
     const index = JSON.parse(fs.readFileSync(indexPath, 'utf8'))
+    assertEq(index._version, '2.0', 'index version is 2.0')
     assert(index.by_chip, 'index has by_chip')
     assert(index.by_sensor, 'index has by_sensor')
     assert(index.by_vendor_device, 'index has by_vendor_device')
-    assert(index.by_chip.esp32c3, 'index.by_chip has esp32c3')
-    assert(index.by_sensor.dht22, 'index.by_sensor has dht22')
-    assert(index.by_vendor_device['8086:100E'], 'index.by_vendor_device has 8086:100E')
+
+    // Chip entries should point to base
+    assert(index.by_chip.esp32c3.includes('esp32c3_base'), 'chip index points to base')
+    // Sensor entries should point to modules
+    assert(index.by_sensor.dht22.includes('dht22'), 'sensor index points to module')
+    assert(index.by_sensor.hcsr501.includes('hcsr501'), 'sensor index points to module')
   }
 
-  // === 13. Empty/null edge matching ===
+  // === 14. Edge cases ===
   {
-    assertEq(matchEdge({}, null).length, 0, 'matchEdge with null info returns empty')
-    assertEq(matchEdge({}, {}).length, 0, 'matchEdge with empty info returns empty')
-    assertEq(matchEdge(null, { chip: 'esp32c3' }).length >= 1, true, 'matchEdge with null node still matches by chip')
+    assertEq(matchEdge({}, null).length, 0, 'null info = no match')
+    assertEq(matchEdge({}, {}).length, 0, 'empty info = no match')
+    assertEq(matchEdge(null, { chip: 'esp32c3' }).length, 1, 'null node still matches by chip')
+    assertEq(generateLibraryTools('x', []).length, 0, 'empty match = no tools')
   }
 
-  // === 14. Tool generation — empty match ===
+  // === 15. Summary ===
   {
-    const tools = generateLibraryTools('nobody', [])
-    assertEq(tools.length, 0, 'generateLibraryTools with empty match returns empty')
+    const summary = getLibrarySummary()
+    assert(summary.includes('esp32c3_base'), 'summary has base')
+    assert(summary.includes('dht22'), 'summary has dht22')
+    assert(summary.includes('riscv32'), 'summary has arch')
   }
 
-  // === 15. Protocol types ===
-  {
-    const matched = matchEdge({}, { chip: 'esp32c3' })
-    const tools = generateLibraryTools('esp32', matched)
-    const commandTools = tools.filter(t => t._op.protocol === 'command')
-    assert(commandTools.length >= 5, 'at least 5 command-protocol tools')
-
-    const dhtMatched = matchEdge({}, { sensors: ['dht22'] })
-    const dhtTools = generateLibraryTools('sensor-node', dhtMatched)
-    const execTools = dhtTools.filter(t => t._op.protocol === 'exec')
-    assert(execTools.length >= 1, 'dht22 has at least 1 exec-protocol tool')
-  }
-
-  // ── Print results ──
+  // ── Print ──
   console.log('')
   results.forEach(r => console.log(r))
   console.log('')
   console.log(`${pass} passed, ${fail} failed, ${pass + fail} total`)
-
   process.exit(fail > 0 ? 1 : 0)
 }
 

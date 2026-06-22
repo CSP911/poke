@@ -1,0 +1,25 @@
+{
+  "id": "dht22",
+  "name": "DHT22 Temperature & Humidity Sensor",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "dht22" },
+  "description": "Single-wire digital temperature and humidity sensor. Works with any chip that has GPIO.",
+  "wiring": {
+    "vcc": "3.3V",
+    "data": "GPIO (with 10K pullup)",
+    "gnd": "GND"
+  },
+  "operations": [
+    {
+      "name": "read_temp_humidity",
+      "desc": "Read temperature (celsius) and humidity (%) from DHT22",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "DHT",
+      "params": ["gpio_pin"],
+      "returns": "JSON with temperature and humidity",
+      "tags": ["temperature", "humidity", "sensor", "external"]
+    }
+  ]
+}

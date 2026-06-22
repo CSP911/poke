@@ -1,0 +1,36 @@
+{
+  "id": "relay_2ch",
+  "name": "2-Channel Relay Module",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "relay_2ch" },
+  "description": "GPIO-controlled relay module for switching AC/DC loads. Active LOW.",
+  "wiring": {
+    "vcc": "5V (or 3.3V)",
+    "in1": "GPIO (channel 1)",
+    "in2": "GPIO (channel 2)",
+    "gnd": "GND"
+  },
+  "operations": [
+    {
+      "name": "relay_on",
+      "desc": "Turn on a relay channel (active LOW — set GPIO to 0)",
+      "type": "actuator",
+      "protocol": "command",
+      "command": "GPOS",
+      "params": ["pin", "value"],
+      "returns": "JSON with pin and value set",
+      "tags": ["relay", "switch", "actuator", "power"]
+    },
+    {
+      "name": "relay_off",
+      "desc": "Turn off a relay channel (set GPIO to 1)",
+      "type": "actuator",
+      "protocol": "command",
+      "command": "GPOS",
+      "params": ["pin", "value"],
+      "returns": "JSON with pin and value set",
+      "tags": ["relay", "switch", "actuator", "power"]
+    }
+  ]
+}

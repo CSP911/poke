@@ -1,11 +1,10 @@
 {
-  "id": "esp32c3_internal",
-  "name": "ESP32-C3 Internal Peripherals",
+  "id": "esp32c3_base",
+  "name": "ESP32-C3 Base",
   "chip": "esp32c3",
   "arch": "riscv32",
-  "match": {
-    "chip": "esp32c3"
-  },
+  "match": { "chip": "esp32c3" },
+  "description": "ESP32-C3 chip-level capabilities: GPIO, code execution, internal temperature sensor",
   "operations": [
     {
       "name": "read_temp",
@@ -14,7 +13,6 @@
       "protocol": "command",
       "command": "TEMP",
       "returns": "JSON with celsius value",
-      "example_result": "{\"celsius\":38.1,\"raw_api\":true}",
       "tags": ["temperature", "sensor", "internal", "calibrated"]
     },
     {
@@ -34,29 +32,29 @@
       "command": "GPOS",
       "params": ["pin", "value"],
       "returns": "JSON with pin and value set",
-      "tags": ["gpio", "output", "digital", "led", "relay"]
+      "tags": ["gpio", "output", "digital"]
     },
     {
       "name": "monitor_gpio",
-      "desc": "Deploy autonomous GPIO interrupt monitor (e.g. button press). Fires EVNT when triggered.",
+      "desc": "Deploy autonomous GPIO interrupt monitor. Fires EVNT when triggered.",
       "type": "monitor",
       "protocol": "command",
       "command": "EMON",
       "config": { "type": 1 },
       "params": ["pin", "edge_trigger"],
       "returns": "Confirmation of monitor deployment",
-      "tags": ["gpio", "interrupt", "monitor", "event", "button"]
+      "tags": ["gpio", "interrupt", "monitor", "event"]
     },
     {
       "name": "monitor_temp",
-      "desc": "Deploy autonomous temperature threshold monitor. Fires EVNT when temperature exceeds/drops below threshold.",
+      "desc": "Deploy autonomous temperature threshold monitor. Fires EVNT when threshold crossed.",
       "type": "monitor",
       "protocol": "command",
       "command": "EMON",
       "config": { "type": 2 },
       "params": ["op", "threshold", "interval_ms"],
       "returns": "Confirmation of monitor deployment",
-      "tags": ["temperature", "threshold", "monitor", "event", "autonomous"]
+      "tags": ["temperature", "threshold", "monitor", "event"]
     },
     {
       "name": "stop_monitors",
@@ -69,13 +67,13 @@
     },
     {
       "name": "execute_code",
-      "desc": "Execute arbitrary RISC-V (RV32IM) machine code on bare metal. Returns a0 register value.",
+      "desc": "Execute arbitrary RISC-V (RV32IM) machine code on bare metal",
       "type": "compute",
       "protocol": "command",
       "command": "EXEC",
       "params": ["machine_code"],
       "returns": "a0 register value",
-      "tags": ["compute", "risc-v", "bare-metal", "execute"]
+      "tags": ["compute", "risc-v", "bare-metal"]
     }
   ]
 }

@@ -1,0 +1,36 @@
+{
+  "id": "hcsr501",
+  "name": "HC-SR501 PIR Motion Sensor",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "hcsr501" },
+  "description": "Passive infrared motion detector. Digital output — HIGH when motion detected.",
+  "wiring": {
+    "vcc": "5V",
+    "out": "GPIO (digital input)",
+    "gnd": "GND"
+  },
+  "operations": [
+    {
+      "name": "read_motion",
+      "desc": "Check if motion is currently detected (1=motion, 0=no motion)",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "GPIO",
+      "params": ["pin"],
+      "returns": "GPIO pin state (1=motion detected)",
+      "tags": ["motion", "pir", "presence", "sensor"]
+    },
+    {
+      "name": "monitor_motion",
+      "desc": "Deploy autonomous motion detection monitor. Fires EVNT on rising edge (motion start).",
+      "type": "monitor",
+      "protocol": "command",
+      "command": "EMON",
+      "config": { "type": 1 },
+      "params": ["pin", "edge_trigger"],
+      "returns": "Confirmation of monitor deployment",
+      "tags": ["motion", "pir", "monitor", "event", "presence"]
+    }
+  ]
+}

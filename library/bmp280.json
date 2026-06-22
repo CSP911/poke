@@ -1,0 +1,36 @@
+{
+  "id": "bmp280",
+  "name": "BMP280 Barometric Pressure & Temperature Sensor",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "bmp280" },
+  "description": "I2C digital pressure and temperature sensor. Default address 0x76.",
+  "wiring": {
+    "vcc": "3.3V",
+    "sda": "I2C SDA",
+    "scl": "I2C SCL",
+    "gnd": "GND"
+  },
+  "operations": [
+    {
+      "name": "read_pressure",
+      "desc": "Read atmospheric pressure (hPa) from BMP280",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "I2CR",
+      "params": ["i2c_addr"],
+      "returns": "JSON with pressure in hPa",
+      "tags": ["pressure", "barometric", "sensor", "i2c"]
+    },
+    {
+      "name": "read_altitude",
+      "desc": "Read estimated altitude (meters) based on pressure",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "I2CR",
+      "params": ["i2c_addr"],
+      "returns": "JSON with altitude in meters",
+      "tags": ["altitude", "sensor", "i2c"]
+    }
+  ]
+}
