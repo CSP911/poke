@@ -327,14 +327,22 @@ Rules:
     })
 
     const text = response.content[0]?.text || ''
-    // Extract JSON from response
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
+    // Extract JSON: find balanced braces
+    let jsonStr = null
+    const start = text.indexOf('{')
+    if (start >= 0) {
+      let depth = 0
+      for (let i = start; i < text.length; i++) {
+        if (text[i] === '{') depth++
+        else if (text[i] === '}') { depth--; if (depth === 0) { jsonStr = text.slice(start, i + 1); break } }
+      }
+    }
+    if (!jsonStr) {
       log.warn(`[incubate] LLM returned no JSON for ${nodeId}`)
       return { status: 'llm_failed', error: 'no JSON in response' }
     }
 
-    const entry = JSON.parse(jsonMatch[0])
+    const entry = JSON.parse(jsonStr)
     if (!entry.id || !entry.operations) {
       log.warn(`[incubate] LLM returned invalid entry for ${nodeId}`)
       return { status: 'llm_failed', error: 'missing id or operations' }
