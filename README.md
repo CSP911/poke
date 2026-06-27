@@ -407,9 +407,15 @@ poke/
 │   ├── kernel_entry.asm      BSS init + C entry point
 │   └── linker.ld             Linker script
 │
-├── arm/                      ARM64 bare-metal kernel
-│   ├── kernel.c              UART + serial protocol + audio
+├── arm/                      ARM64 bare-metal kernel (QEMU virt)
+│   ├── kernel.c              UART + serial protocol + GPIO + TEMP + EVNT + audio
 │   ├── start.S               ARM64 entry
+│   └── Makefile
+│
+├── rv32/                     RV32 bare-metal kernel (QEMU virt, no FreeRTOS)
+│   ├── kernel.c              NS16550 UART + POKE protocol + GPIO + TEMP + EVNT
+│   ├── start.S               RISC-V entry
+│   ├── linker.ld             Linker script (0x80000000)
 │   └── Makefile
 │
 ├── esp32/                     ESP32-C3 RISC-V edge (USB serial)
@@ -433,6 +439,7 @@ poke/
 │   ├── serial.js             USB serial transport (POKE frame protocol)
 │   ├── nodes.js              Node registry + profiles + monitor triggers
 │   ├── memory.js             JARVIS memory (monthly files, index, patterns)
+│   ├── library.js            Device library — modular matching + auto-incubation
 │   ├── incubate.js           Device incubation engine (PCI → sketches → profiles)
 │   ├── asmcache.js           Assembly template cache (reusable parameterized code)
 │   ├── goal.js               Goal-based autonomous control loops
@@ -448,13 +455,22 @@ poke/
 │   ├── mobile.html           Browser edge (voice UI + canvas)
 │   └── playground/           Browser bare-metal (v86 + NE2000)
 │
-├── profiles/                 Device profile database (26 profiles)
-├── test/                     75+ automated tests
+├── library/                 Modular device library (chip base + sensor modules)
+│   ├── index.json           Device ID → entry mapping
+│   ├── esp32c3_base.json    ESP32-C3 chip (GPIO, TEMP, EXEC, monitors)
+│   ├── dht22.json           DHT22 sensor (chip-independent)
+│   ├── bmp280.json          BMP280 sensor (chip-independent)
+│   ├── hcsr501.json         PIR motion sensor (chip-independent)
+│   └── relay_2ch.json       2-channel relay (chip-independent)
+│
+├── profiles/                 Device profile database (26 profiles, x86 legacy)
+├── test/                     327+ automated tests
 │   ├── asm.test.js           x86 assembler (45 tests)
 │   ├── asm_arm.test.js       ARM64 assembler (49 tests)
 │   ├── asm_rv.test.js        RISC-V assembler (58 tests)
 │   ├── hub.test.js           Hub endpoints (35 tests)
 │   ├── serial.test.js        ESP32 serial pipeline (16 tests)
+│   ├── library.test.js       Device library matching + tools (110 tests)
 │   └── integration.test.js   Full pipeline: QEMU boot → exec → persist → DIE (24 tests)
 │
 ├── demo/
@@ -843,8 +859,13 @@ Tested: write 3 entries → reboot → all 3 entries survived ✅
 - [x] Internal temperature sensor (ESP-IDF calibrated, LLM-driven read)
 - [x] Result validation layer (sanity check + LLM self-correction loop)
 - [x] Serial integration tests (16 tests: PING/INFO/GPIO/TEMP + arithmetic + hub API)
-- [ ] Real hardware deployment (Raspberry Pi, more ESP32 variants)
-- [ ] Device profile marketplace
+- [x] Autonomous event loop — edge-initiated EVNT frames + LLM-driven monitor deploy
+- [x] Modular device library — chip base + sensor modules, auto-incubation via LLM
+- [x] POKE OS on 3 architectures — x86 + ARM64 + RV32 bare-metal (all QEMU verified)
+- [x] RV32 bare-metal kernel (no FreeRTOS) — pure POKE OS for RISC-V
+- [x] 327+ automated tests across all modules
+- [ ] POKE OS on real hardware (Pi 4 ARM, ESP32 bare-metal without FreeRTOS)
+- [ ] Device library marketplace
 - [ ] CR3 page table isolation for resident tasks
 
 ---
