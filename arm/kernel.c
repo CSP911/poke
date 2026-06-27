@@ -500,10 +500,10 @@ void handle_net_packet(u8 *payload, int len) {
     }
 
     /* GPOS — set GPIO pin value */
-    /* Format: "GPOS" + pin(1) + value(4 LE) = 9 bytes */
-    if (len >= 9 && payload[0]=='G' && payload[1]=='P' && payload[2]=='O' && payload[3]=='S') {
+    /* Format: "GPOS" + pin(1) + value(1) = 6 bytes */
+    if (len >= 6 && payload[0]=='G' && payload[1]=='P' && payload[2]=='O' && payload[3]=='S') {
         u8 pin = payload[4];
-        u32 value = payload[5] | (payload[6] << 8) | (payload[7] << 16) | (payload[8] << 24);
+        u32 value = payload[5];
         if (pin < GPIO_PINS) {
             gpio_set(pin, value);
             uart_print("[GPIO] pin ");
