@@ -123,18 +123,8 @@ static void usb_putc(char c) {
     USB_EP1_REG = (u32)(u8)c;
 }
 
-static int usb_available(void) {
-    return USB_INT_ST_REG & USB_SERIAL_OUT_RECV_PKT;
-}
-
-static u8 usb_getc(void) {
-    u8 c = (u8)(USB_EP1_REG & 0xFF);
-    /* Clear interrupt if no more data */
-    if (!(USB_INT_RAW_REG & USB_SERIAL_OUT_RECV_PKT)) {
-        USB_INT_CLR_REG = USB_SERIAL_OUT_RECV_PKT;
-    }
-    return c;
-}
+/* USB RX is defined after rx_buf declaration (forward reference) */
+#define USB_SERIAL_OUT_EP_DATA_AVAIL (1 << 2)
 
 /* ── Print functions ── */
 static void print(const char *s) {
@@ -213,6 +203,22 @@ static u8 vgpio_pins[VGPIO_COUNT];
 #define RX_BUF_SIZE 4096
 static u8 rx_buf[RX_BUF_SIZE];
 static int rx_pos = 0;
+
+/* USB RX: read all available bytes from EP1 into rx_buf */
+static int usb_rx_to_buf(void) {
+    int count = 0;
+    if (!(USB_INT_ST_REG & USB_SERIAL_OUT_RECV_PKT)) return 0;
+    while (USB_EP1_CONF_REG & USB_SERIAL_OUT_EP_DATA_AVAIL) {
+        if (rx_pos < RX_BUF_SIZE) {
+            rx_buf[rx_pos++] = (u8)(USB_EP1_REG & 0xFF);
+            count++;
+        } else {
+            (void)(USB_EP1_REG);
+        }
+    }
+    USB_INT_CLR_REG = USB_SERIAL_OUT_RECV_PKT;
+    return count;
+}
 
 static void send_frame(const char *magic, const u8 *payload, u32 len) {
     for (int i = 0; i < 4; i++) usb_putc(magic[i]);
@@ -444,10 +450,8 @@ void kernel_main(void) {
 
     /* Main loop: read USB → parse POKE frames */
     while (1) {
-        /* Read available bytes */
-        while (usb_available() && rx_pos < RX_BUF_SIZE) {
-            rx_buf[rx_pos++] = usb_getc();
-        }
+        /* Read all available bytes from USB FIFO */
+        usb_rx_to_buf();
 
         /* Parse POKE frames */
         poll_protocol();
