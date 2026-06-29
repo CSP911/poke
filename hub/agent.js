@@ -1376,32 +1376,22 @@ Return ONLY valid JSON (no markdown, no explanation) with this structure:
 function validateToolResult(toolName, input, resultStr) {
   const warnings = []
 
-  // Temperature sanity check
-  if (resultStr.match(/celsius|temperature|temp/i)) {
-    const celsiusMatch = resultStr.match(/-?\d+\.?\d*/g)
-    if (celsiusMatch) {
-      for (const val of celsiusMatch) {
-        const c = parseFloat(val)
-        if (c < -40 || c > 125) {
-          warnings.push(`Temperature ${c}°C is outside ESP32-C3 operating range (-40 to 125°C). The value may be uncalibrated. Use read_sensor tool for calibrated readings instead of raw register access.`)
-          break
-        }
-      }
-    }
-  }
-
-  // Raw register temperature interpretation
+  // Raw value interpretation hints (help LLM, don't redirect to firmware)
   if (toolName === 'execute_rv' || toolName === 'execute_x86') {
     const asmCode = input?.asm_code || ''
-    const isTemperature = asmCode.match(/tsens|0x60040|temperature|temp_sensor/i)
-    if (isTemperature) {
-      const a0Match = resultStr.match(/a0=(\d+)/)
-      if (a0Match) {
-        const raw = parseInt(a0Match[1])
-        if (raw < 20) {
-          warnings.push(`Raw sensor value ${raw} is suspiciously low. ESP32-C3 temperature sensor requires ESP-IDF driver initialization (REGI2C SAR ADC calibration) for accurate readings. Use the read_sensor tool with sensor="temp" for calibrated celsius values.`)
-        }
-      }
+    const a0Match = resultStr.match(/a0=(\d+)/)
+
+    // Temperature register hint
+    if (asmCode.match(/tsens|0x60040/i) && a0Match) {
+      const raw = parseInt(a0Match[1])
+      const approxC = (raw * 0.44 - 28).toFixed(1)
+      warnings.push(`Raw TSENS value ${raw}. Approximate conversion: ${approxC}°C (formula: raw*0.44-28, chip-dependent). If value seems wrong, try enabling TSENS first: set bit22 of TSENS_CTRL (0x60040000+88), wait, then read bits[21:14].`)
+    }
+
+    // GPIO register hint
+    if (asmCode.match(/0x60004/i) && a0Match) {
+      const val = parseInt(a0Match[1])
+      warnings.push(`GPIO register value 0x${val.toString(16)}. Each bit represents a pin state (bit0=GPIO0, bit1=GPIO1, ...).`)
     }
   }
 
@@ -1445,11 +1435,18 @@ Rules:
 - ARM64 assembly: return in X0, end with RET. No .global, .text directives. Just instructions.
 - RISC-V assembly: return in a0, end with ret. Registers: a0-a7, s0-s11, t0-t6, sp, ra, zero. For ESP32-C3 edges.
 - RISC-V IMPORTANT: ori/andi only support 12-bit signed immediates (-2048 to 2047). For larger values, use li+or/and (R-type).
-- For sensor readings (temperature, etc.): use read_sensor tool first — it returns calibrated values from the firmware driver. Only fall back to raw register access (execute_rv) if read_sensor is unavailable.
-- For autonomous monitoring: use deploy_serial_monitor to set up event-driven watches on serial edges. The edge fires EVNT frames autonomously — no polling needed. Use stop_serial_monitor to disable.
-- For GPIO control (LED, relay, etc.): use set_gpio tool on serial edges.
-- If a result seems physically unreasonable (e.g. -25°C at room temperature), DO NOT accept it. Question the result, try an alternative approach, or use a higher-level tool.
 - If code fails (compile error, wrong result), read the error, fix the code, and retry.
+- If a raw sensor value seems off, generate different asm to try another register or approach. You are the intelligence — the edge is just a dumb executor.
+- For autonomous monitoring: use deploy_serial_monitor to set up event-driven watches on serial edges.
+- For GPIO control (LED, relay, etc.): use set_gpio tool on serial edges.
+
+POKE Philosophy — Edge is dumb, Hub is smart:
+- The edge only executes raw machine code and returns register values. No drivers, no OS, no interpretation.
+- YOU (the LLM) are the driver. YOU interpret raw values. YOU know the calibration formulas. YOU retry with different asm if needed.
+- For sensor readings: generate asm to read the raw register (lw), get the raw value, then YOU convert/interpret it.
+- If the raw value seems wrong, try reading a different register, or read the register multiple times for averaging.
+- NEVER say "the edge needs a driver" or "this requires firmware support." YOU are the driver.
+- Register maps and calibration data come from the device library/profiles — check them before generating asm.
 - For questions/conversation: use reply_text.
 - For images: use draw_image with Node.js code.
 - For device interaction: check profiles first with list_devices, then call auto-generated tools.

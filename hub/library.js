@@ -423,6 +423,17 @@ function getLibrarySummary() {
   for (const [id, entry] of entries) {
     const ops = (entry.operations || []).map(o => o.name).join(', ')
     lines.push(`  ${id}: ${entry.name} [${entry.arch}] — ${ops}`)
+    // Include register map for LLM to generate asm
+    if (entry.registers) {
+      for (const [name, reg] of Object.entries(entry.registers)) {
+        lines.push(`    REG ${name}: ${reg.addr} — ${reg.desc}`)
+      }
+    }
+    if (entry.calibration) {
+      for (const [name, formula] of Object.entries(entry.calibration)) {
+        lines.push(`    CAL ${name}: ${formula}`)
+      }
+    }
   }
   return lines.join('\n')
 }

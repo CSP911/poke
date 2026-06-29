@@ -5,6 +5,18 @@
   "arch": "riscv32",
   "match": { "chip": "esp32c3" },
   "description": "ESP32-C3 chip-level capabilities: GPIO, code execution, internal temperature sensor",
+  "registers": {
+    "GPIO_IN":      { "addr": "0x6000403C", "desc": "Read GPIO pin states (bit per pin)" },
+    "GPIO_OUT":     { "addr": "0x60004004", "desc": "Set GPIO output levels" },
+    "GPIO_ENABLE":  { "addr": "0x60004020", "desc": "Set GPIO pin direction (1=output)" },
+    "TSENS_CTRL":   { "addr": "0x60040058", "desc": "Temperature sensor: bit22=PU, bits[21:14]=raw 8-bit value" },
+    "TSENS_CTRL2":  { "addr": "0x6004005C", "desc": "Temperature sensor ctrl2: bit14=XPD_FORCE" },
+    "EFUSE_MAC":    { "addr": "0x6000882C", "desc": "eFuse MAC address (low 32 bits)" },
+    "TIMG0_LO":     { "addr": "0x6001F004", "desc": "Timer Group 0 counter low" }
+  },
+  "calibration": {
+    "temp_raw_to_celsius": "celsius ≈ raw * 0.44 - 28 (approximate, chip-dependent)"
+  },
   "operations": [
     {
       "name": "read_temp",
