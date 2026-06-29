@@ -354,7 +354,43 @@ POKE + "ESTO"
 
 ---
 
-## 11. Files Changed
+## 11. ESP32-C3 Bare-Metal POKE Kernel (2026-06-29)
+
+FreeRTOS/ESP-IDF completely removed. Pure POKE OS on real hardware.
+
+### Key Technical Achievements
+- **Direct Boot**: ROM detects magic `0xaedb041d`, maps flash, jumps to our code
+- **USB-Serial/JTAG**: Direct register access at `0x60043000` (no ROM functions)
+- **DRAM→IRAM mapping**: `code_buf` at DRAM `0x3FC8xxxx` → execute from IRAM `0x4038xxxx`
+- **PMS disabled**: Permission Management System cleared for code injection
+- **Binary size**: 3,577 bytes total
+
+### Test Results (26/26 PASS)
+```
+PING → PONG
+INFO → bare_metal:true, freertos:false, kernel:poke-os
+TEMP → celsius:25.1 (virtual)
+GPIO → 11 pins
+GPOS → pin set
+EXEC → a0=42, a0=7 (3+4), a0=200 (10*20), a0=63 (100-37), a0=55 (fib(10))
+```
+
+### INFO Response
+```json
+{
+  "status": "alive",
+  "arch": "rv32imc",
+  "chip": "esp32c3",
+  "kernel": "poke-os",
+  "transport": "usb-serial-jtag",
+  "bare_metal": true,
+  "freertos": false
+}
+```
+
+---
+
+## 12. Files Changed
 
 | File | Description |
 |------|-------------|

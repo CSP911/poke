@@ -418,7 +418,13 @@ poke/
 │   ├── linker.ld             Linker script (0x80000000)
 │   └── Makefile
 │
-├── esp32/                     ESP32-C3 RISC-V edge (USB serial)
+├── esp32c3/                   ESP32-C3 bare-metal kernel (Direct Boot, 3.5KB)
+│   ├── kernel.c              USB-Serial/JTAG + POKE protocol + code injection
+│   ├── start.S               RISC-V entry (Direct Boot @ 0x42000008)
+│   ├── linker.ld             Flash→IRAM/DRAM mapping
+│   └── Makefile              Build + flash via esptool
+│
+├── esp32/                     ESP32-C3 FreeRTOS edge (legacy, USB serial)
 │   ├── main/poke_edge_uart.c  USB-Serial/JTAG + POKE protocol + temp sensor
 │   ├── main/poke_edge.c       WiFi HTTP mode (alternative)
 │   ├── Dockerfile             ESP-IDF v5.4 Docker build
@@ -464,13 +470,14 @@ poke/
 │   └── relay_2ch.json       2-channel relay (chip-independent)
 │
 ├── profiles/                 Device profile database (26 profiles, x86 legacy)
-├── test/                     327+ automated tests
+├── test/                     353+ automated tests
 │   ├── asm.test.js           x86 assembler (45 tests)
 │   ├── asm_arm.test.js       ARM64 assembler (49 tests)
 │   ├── asm_rv.test.js        RISC-V assembler (58 tests)
 │   ├── hub.test.js           Hub endpoints (35 tests)
 │   ├── serial.test.js        ESP32 serial pipeline (16 tests)
 │   ├── library.test.js       Device library matching + tools (110 tests)
+│   ├── esp32c3-bare.test.js  ESP32-C3 bare-metal hardware (26 tests)
 │   └── integration.test.js   Full pipeline: QEMU boot → exec → persist → DIE (24 tests)
 │
 ├── demo/
@@ -863,8 +870,9 @@ Tested: write 3 entries → reboot → all 3 entries survived ✅
 - [x] Modular device library — chip base + sensor modules, auto-incubation via LLM
 - [x] POKE OS on 3 architectures — x86 + ARM64 + RV32 bare-metal (all QEMU verified)
 - [x] RV32 bare-metal kernel (no FreeRTOS) — pure POKE OS for RISC-V
-- [x] 327+ automated tests across all modules
-- [ ] POKE OS on real hardware (Pi 4 ARM, ESP32 bare-metal without FreeRTOS)
+- [x] ESP32-C3 bare-metal POKE kernel — Direct Boot, 3.5KB, no FreeRTOS/ESP-IDF
+- [x] 353+ automated tests (including 26 real hardware tests on ESP32-C3)
+- [ ] POKE OS on Pi 4 ARM (bare-metal kernel on real Raspberry Pi)
 - [ ] Device library marketplace
 - [ ] CR3 page table isolation for resident tasks
 
