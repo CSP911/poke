@@ -16,7 +16,9 @@ kernel.o: kernel.c
 	$(CC) $(CFLAGS) -c -o kernel.o kernel.c
 
 poke-esp32c3.elf: start.o kernel.o
-	$(LD) $(LDFLAGS) -o poke-esp32c3.elf start.o kernel.o
+	$(LD) $(LDFLAGS) -o poke-esp32c3.elf start.o kernel.o \
+		
+		
 
 poke-esp32c3.bin: poke-esp32c3.elf
 	$(OBJCOPY) -O binary poke-esp32c3.elf poke-esp32c3.bin

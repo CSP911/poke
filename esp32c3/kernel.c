@@ -86,6 +86,154 @@ static void pms_disable(void) {
     PMS_DRAM0_1 = 0xFFFFFFFF;
 }
 
+/* Forward declarations for USB I/O (used by PHY shim) */
+static void usb_putc(char c);
+static void usb_flush(void);
+
+/* ═══════════════════════════════════════════════════════
+ * WiFi PHY blob shim — minimal stubs for libphy.a
+ * These are NOT an OS. They're a compatibility shim
+ * so the PHY blob can initialize RF hardware.
+ * After init, volatile code accesses WiFi registers directly.
+ * ═══════════════════════════════════════════════════════ */
+
+/* PHY init data (128 bytes, default values for ESP32-C3) */
+static const u8 phy_init_data[128] = {
+    0x00, 0x00,
+    0x50, 0x50, 0x50, 0x4c, 0x4c, 0x48,  /* TX power levels */
+    0x4c, 0x48, 0x48, 0x44, 0x4a, 0x46,
+    0x46, 0x42, 0x00, 0x00, 0x00,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  /* padding */
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x01,
+};
+
+/* PHY calibration data (1904 bytes, zero-init = full calibration) */
+static u8 phy_cal_data[1904] __attribute__((aligned(4)));
+
+/* g_phyFuns — global function pointer table (NULL = use ROM defaults) */
+__attribute__((weak)) void *g_phyFuns = 0;
+
+/* phy_param — pointer to PHY init data */
+__attribute__((weak)) const u8 *phy_param = phy_init_data;
+
+/* ets_delay_us — provided by ROM at 0x40000050 (see linker.ld) */
+
+/* phy_printf — toggle LED on each call to track blob progress */
+static int phy_printf_count = 0;
+int phy_printf(const char *fmt, ...) {
+    (void)fmt;
+    phy_printf_count++;
+    /* Toggle LED on each call */
+    if (phy_printf_count & 1)
+        (*(volatile u32 *)0x60004004) |= (1 << 8);
+    else
+        (*(volatile u32 *)0x60004004) &= ~(1 << 8);
+    return 0;
+}
+
+/* phy_enter/exit_critical — must return uint32_t / take uint32_t */
+u32 phy_enter_critical(void) {
+    return 0;
+}
+void phy_exit_critical(u32 level) {
+    (void)level;
+}
+
+/* coex_pti_print — coexistence debug (no-op) */
+void coex_pti_print(int a, int b, int c) {
+    (void)a; (void)b; (void)c;
+}
+
+/* sprintf — minimal implementation */
+int sprintf(char *buf, const char *fmt, ...) {
+    /* PHY blob uses sprintf for debug only. Return 0. */
+    (void)buf; (void)fmt;
+    buf[0] = 0;
+    return 0;
+}
+
+/* phy_get_tsens_value — weak symbol (optional) */
+int phy_get_tsens_value(int *val) {
+    *val = 128;  /* dummy */
+    return 0;
+}
+
+/* phy_set_tsens_power / phy_set_pwdet_power — weak symbols */
+void phy_set_tsens_power(int mode) { (void)mode; }
+void phy_set_pwdet_power(int mode) { (void)mode; }
+
+/* phy_i2c_enter/exit_critical — weak symbols */
+void phy_i2c_enter_critical(void) {}
+void phy_i2c_exit_critical(void) {}
+
+/* Forward declaration — register_chipv7_phy from libphy.a */
+extern int register_chipv7_phy(const void *init_data, void *cal_data, int cal_mode);
+
+/* Simple LED signal: N fast blinks on GPIO8 */
+/* LED debug: ON for N seconds, then OFF for 1 second */
+static void led_on_seconds(int secs) {
+    (*(volatile u32 *)0x60004020) |= (1 << 8);
+    (*(volatile u32 *)0x60004004) |= (1 << 8);
+    for (int s = 0; s < secs; s++)
+        for (volatile int d = 0; d < 5000000; d++) {}
+    (*(volatile u32 *)0x60004004) &= ~(1 << 8);
+    for (volatile int d = 0; d < 3000000; d++) {}
+}
+
+/* WiFi PHY initialization — called once at boot */
+static int wifi_phy_init(void) {
+    led_on_seconds(1);  /* ON 1초 = wifi_phy_init 진입 */
+
+    /* Enable WiFi clocks */
+    (*(volatile u32 *)0x60026014) = 0xFFFFFFFF;
+    (*(volatile u32 *)0x60026018) = 0;
+
+    led_on_seconds(2);  /* ON 2초 = 클럭 OK */
+
+    /* Enable analog I2C bus for PHY */
+    u32 v = (*(volatile u32 *)0x6000E044);
+    v &= ~(1 << 18);
+    (*(volatile u32 *)0x6000E044) = v;
+
+    v = (*(volatile u32 *)0x6000E048);
+    v |= (1 << 16);
+    (*(volatile u32 *)0x6000E048) = v;
+
+    led_on_seconds(3);  /* ON 3초 = 블롭 호출 직전 */
+
+    /* Disable WDT again right before blob (blob might re-enable it) */
+    (*(volatile u32 *)(0x6001F000 + 0x64)) = 0x50D83AA1; /* TIMG0 unlock */
+    (*(volatile u32 *)(0x6001F000 + 0x48)) = 0;           /* TIMG0 WDT off */
+    (*(volatile u32 *)(0x60008000 + 0xA8)) = 0x50D83AA1;  /* RTC WDT unlock */
+    (*(volatile u32 *)(0x60008000 + 0x90)) = 0;           /* RTC WDT off */
+    (*(volatile u32 *)(0x60008000 + 0xB4)) = 0x8F1D312A;  /* SWD unlock */
+    u32 swd = (*(volatile u32 *)(0x60008000 + 0xB0));
+    swd |= (1 << 18);
+    (*(volatile u32 *)(0x60008000 + 0xB0)) = swd;         /* SWD auto-feed */
+
+    /* Call the PHY blob */
+    int ret = register_chipv7_phy(phy_init_data, phy_cal_data, 2);
+
+    led_on_seconds(5);  /* ON 5초 = 성공!! */
+    return ret;
+}
+
 /* ── Watchdog disable ── */
 static void wdt_disable(void) {
     /* Timer Group 0 WDT */
@@ -406,6 +554,21 @@ void kernel_main(void) {
     wdt_disable();
     pms_disable();
 
+    /* LED signal: 3 fast blinks = before PHY init */
+    (*(volatile u32 *)0x60004020) |= (1 << 8);
+    for (int b = 0; b < 3; b++) {
+        (*(volatile u32 *)0x60004004) |= (1 << 8);
+        for (volatile int d = 0; d < 200000; d++) {}
+        (*(volatile u32 *)0x60004004) &= ~(1 << 8);
+        for (volatile int d = 0; d < 200000; d++) {}
+    }
+
+    /* Initialize WiFi PHY via blob (one-time, at boot) */
+    int phy_ret = -999; // DISABLED - PHY blob crashes
+
+    /* LED signal: solid = PHY done (if we get here, no crash) */
+    (*(volatile u32 *)0x60004004) |= (1 << 8);
+
     /* PROOF OF LIFE: blink GPIO8 LED before anything else */
     /* GPIO_ENABLE_REG: 0x60004020 — set bit 8 to enable output */
     (*(volatile u32 *)0x60004020) |= (1 << 8);
@@ -438,10 +601,13 @@ void kernel_main(void) {
     print(" |  __/| |_| | . \\| |___ \n");
     print(" |_|    \\___/|_|\\_\\_____|\n");
     print("\n");
-    print("  POKE OS ESP32-C3 v0.1 (bare-metal)\n");
+    print("  POKE OS ESP32-C3 v0.2 (bare-metal)\n");
     print("  arch: rv32imc\n");
     print("  kernel: poke-os (no FreeRTOS)\n");
     print("  transport: USB-Serial/JTAG @ 0x60043000\n");
+    print("  wifi phy: ");
+    if (phy_ret == 0) print("OK (RF calibrated)\n");
+    else { print("FAIL (ret="); print_dec(phy_ret < 0 ? (u32)(-phy_ret) : (u32)phy_ret); print(")\n"); }
     print("  code_buf: ");
     print_hex32((u32)code_buf);
     print("\n\n");
