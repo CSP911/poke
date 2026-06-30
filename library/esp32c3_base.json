@@ -11,8 +11,20 @@
     "GPIO_ENABLE":  { "addr": "0x60004020", "desc": "Set GPIO pin direction (1=output)" },
     "TSENS_CTRL":   { "addr": "0x60040058", "desc": "Temperature sensor: bit22=PU, bits[21:14]=raw 8-bit value" },
     "TSENS_CTRL2":  { "addr": "0x6004005C", "desc": "Temperature sensor ctrl2: bit14=XPD_FORCE" },
-    "EFUSE_MAC":    { "addr": "0x6000882C", "desc": "eFuse MAC address (low 32 bits)" },
-    "TIMG0_LO":     { "addr": "0x6001F004", "desc": "Timer Group 0 counter low" }
+    "EFUSE_MAC_LO": { "addr": "0x60008844", "desc": "eFuse MAC address low 32 bits" },
+    "EFUSE_MAC_HI": { "addr": "0x60008848", "desc": "eFuse MAC address high 16 bits" },
+    "TIMG0_LO":     { "addr": "0x6001F004", "desc": "Timer Group 0 counter low" },
+    "WIFI_CLK_EN":  { "addr": "0x60026014", "desc": "WiFi peripheral clock enable (write 0xFFFFFFFF to enable all)", "status": "verified" },
+    "WIFI_RST_EN":  { "addr": "0x60026018", "desc": "WiFi peripheral reset (write 0 to release)", "status": "verified" },
+    "WIFI_MAC_BASE":{ "addr": "0x60033000", "desc": "WiFi MAC registers base", "status": "verified" },
+    "WIFI_RX_EN":   { "addr": "0x60033084", "desc": "WiFi receiver enable/disable", "status": "incubating" },
+    "WIFI_DMA_BASE":{ "addr": "0x60033088", "desc": "WiFi DMA linked-list base address", "status": "incubating" },
+    "WIFI_POWER":   { "addr": "0x60033CA0", "desc": "WiFi module power control", "status": "verified" },
+    "WIFI_TX_DMA":  { "addr": "0x60033D08", "desc": "WiFi transmit DMA address + trigger", "status": "incubating" },
+    "WIFI_INT_RAW": { "addr": "0x60033C3C", "desc": "WiFi interrupt reason", "status": "incubating" },
+    "WIFI_INT_CLR": { "addr": "0x60033C40", "desc": "WiFi interrupt clear", "status": "incubating" },
+    "BB_BASE":      { "addr": "0x6001D000", "desc": "Baseband processor registers", "status": "verified" },
+    "RF_FE_BASE":   { "addr": "0x60006000", "desc": "RF front-end registers", "status": "incubating" }
   },
   "calibration": {
     "temp_raw_to_celsius": "celsius ≈ raw * 0.44 - 28 (approximate, chip-dependent)"
