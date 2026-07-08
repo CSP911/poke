@@ -4,6 +4,7 @@
 
   "by_chip": {
     "esp32c3": ["esp32c3_base"],
+    "bcm2835": ["bcm2835_base"],
     "esp32s3": ["esp32s3_base"],
     "esp32":   ["esp32_base"]
   },

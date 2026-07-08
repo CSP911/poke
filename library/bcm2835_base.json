@@ -1,0 +1,66 @@
+{
+  "id": "bcm2835_base",
+  "name": "BCM2835 Base (Pi Zero W)",
+  "chip": "bcm2835",
+  "arch": "armv6",
+  "match": { "chip": "bcm2835" },
+  "description": "Raspberry Pi Zero W chip-level capabilities",
+  "registers": {
+    "GPIO_BASE":       { "addr": "0x20200000", "desc": "GPIO registers base" },
+    "I2C_BSC1":        { "addr": "0x20804000", "desc": "I2C bus 1 (camera, sensors)" },
+    "EMMC_SDIO":       { "addr": "0x20300000", "desc": "SDIO controller (WiFi chip)" },
+    "UNICAM_CSI":      { "addr": "0x20800000", "desc": "CSI-2 receiver (camera frames)" },
+    "GPU_MAILBOX":     { "addr": "0x2000B880", "desc": "GPU mailbox (camera power, etc)" },
+    "AUX_MINI_UART":   { "addr": "0x20215040", "desc": "Mini UART data register" },
+    "WIFI_POWER_GPIO": { "addr": "GPIO41", "desc": "WiFi chip power on (drive HIGH)" },
+    "ACT_LED_GPIO":    { "addr": "GPIO47", "desc": "ACT LED (output)" }
+  },
+  "devices": {
+    "wifi": {
+      "chip": "BCM43438 (CYW43438)",
+      "interface": "SDIO",
+      "firmware": "brcmfmac43430-sdio.bin (330KB, loaded to chip RAM)",
+      "chip_id": "43430",
+      "chip_ram": "512KB",
+      "gpio_pins": "GPIO34-39 (ALT3), GPIO41 (WL_ON)",
+      "status": "incubating",
+      "reference": "https://github.com/jbentham/zerowi"
+    },
+    "camera": {
+      "sensor": "IMX219",
+      "interface": "I2C (BSC1) + CSI-2 (Unicam)",
+      "i2c_addr": "0x10",
+      "chip_id_reg": "0x0000 = 0x0219",
+      "status": "incubating",
+      "reference": "https://github.com/raspberrypi/raspiraw"
+    }
+  },
+  "calibration": {},
+  "operations": [
+    {
+      "name": "read_gpio",
+      "desc": "Read GPIO pin states",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "GPIO",
+      "tags": ["gpio", "input"]
+    },
+    {
+      "name": "set_gpio",
+      "desc": "Set GPIO pin output",
+      "type": "actuator",
+      "protocol": "command",
+      "command": "GPOS",
+      "params": ["pin", "value"],
+      "tags": ["gpio", "output"]
+    },
+    {
+      "name": "execute_code",
+      "desc": "Execute ARM (ARMv6) machine code on bare metal",
+      "type": "compute",
+      "protocol": "command",
+      "command": "EXEC",
+      "tags": ["compute", "arm", "bare-metal"]
+    }
+  ]
+}
