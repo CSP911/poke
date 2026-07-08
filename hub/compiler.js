@@ -161,9 +161,61 @@ async function compileAssemblyRV(asm) {
   }
 }
 
+// ── ARMv6 assembly compile ──
+let _armv6Module = null
+function getARMv6Module() {
+  if (!_armv6Module) _armv6Module = require(path.join(__dirname, '..', 'src', 'asm_armv6.js'))
+  return _armv6Module
+}
+
+async function compileAssemblyARMv6(asm) {
+  try {
+    const { assembleAndValidateARMv6 } = getARMv6Module()
+    const { binary, scan } = assembleAndValidateARMv6(asm)
+    if (scan.warnings.length > 0) {
+      scan.warnings.forEach(w => log.warn(`[armv6-guard] ${w}`))
+    }
+    log.info(`[asm_armv6.js] assembled ${binary.length} bytes (safe)`)
+    return binary
+  } catch (e) {
+    if (e.scan) {
+      e.scan.errors.forEach(err => log.error(`[armv6-guard] BLOCKED: ${err}`))
+      log.error('[armv6-guard] ARMv6 assembly rejected by safety scanner')
+      return null
+    }
+    log.warn(`[asm_armv6.js] failed: ${e.message}`)
+
+    // Fallback to arm-none-eabi-as
+    const tmpAsm = '/tmp/poke_armv6.s'
+    const tmpObj = '/tmp/poke_armv6.o'
+    const tmpBin = '/tmp/poke_armv6.bin'
+
+    fs.writeFileSync(tmpAsm, asm)
+    try {
+      execSync(`arm-none-eabi-as -march=armv6 -o ${tmpObj} ${tmpAsm} 2>&1`)
+      execSync(`arm-none-eabi-objcopy -O binary ${tmpObj} ${tmpBin} 2>&1`)
+      const bin = fs.readFileSync(tmpBin)
+
+      const { scanBinaryARMv6 } = getARMv6Module()
+      const scan = scanBinaryARMv6(Array.from(bin))
+      if (!scan.safe) {
+        scan.errors.forEach(err => log.error(`[armv6-guard] BLOCKED: ${err}`))
+        return null
+      }
+
+      log.info(`[arm-none-eabi-as] compiled ${bin.length} bytes (safe)`)
+      return bin
+    } catch (e2) {
+      log.error(`[armv6-as fallback] ${e2.message}`)
+      return null
+    }
+  }
+}
+
 module.exports = {
   compileAssembly,
   compileAssemblyARM,
   compileAssemblyRV,
+  compileAssemblyARMv6,
   runImageCode,
 }

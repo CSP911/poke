@@ -205,6 +205,82 @@ async function runTests() {
     assert(summary.includes('riscv32'), 'summary has arch')
   }
 
+  // === BCM2835 (Pi Zero W) Tests ===
+  console.log('  --- BCM2835 / ARMv6 ---')
+
+  // 16. bcm2835_base entry loaded
+  {
+    const entry = entries.get('bcm2835_base')
+    assert(entry !== undefined, 'bcm2835_base entry loaded')
+    assertEq(entry?.arch, 'armv6', 'bcm2835_base arch is armv6')
+    assertEq(entry?.chip, 'bcm2835', 'bcm2835_base chip is bcm2835')
+  }
+
+  // 17. Match by chip=bcm2835
+  {
+    const matched = matchEdge({}, { chip: 'bcm2835' })
+    assert(matched.length > 0, 'bcm2835 chip matches')
+    assert(matched.some(e => e.id === 'bcm2835_base'), 'matched bcm2835_base by chip')
+  }
+
+  // 18. No match for unknown chip
+  {
+    const matched = matchEdge({}, { chip: 'stm32f4' })
+    assertEq(matched.length, 0, 'unknown chip matches nothing')
+  }
+
+  // 19. bcm2835 has registers
+  {
+    const entry = entries.get('bcm2835_base')
+    assert(entry?.registers, 'bcm2835_base has registers')
+    assert(entry?.registers?.GPIO_BASE, 'bcm2835 has GPIO_BASE register')
+    assertEq(entry?.registers?.GPIO_BASE?.addr, '0x20200000', 'GPIO_BASE address correct')
+  }
+
+  // 20. bcm2835 has operations
+  {
+    const entry = entries.get('bcm2835_base')
+    assert(entry?.operations && entry.operations.length >= 3, 'bcm2835_base has >= 3 operations')
+    const opNames = entry?.operations?.map(o => o.name) || []
+    assert(opNames.includes('read_gpio'), 'has read_gpio operation')
+    assert(opNames.includes('set_gpio'), 'has set_gpio operation')
+    assert(opNames.includes('execute_code'), 'has execute_code operation')
+  }
+
+  // 21. Generate tools for bcm2835
+  {
+    const matched = matchEdge({}, { chip: 'bcm2835' })
+    const tools = generateLibraryTools('pi0w-test', matched)
+    assert(tools.length >= 3, 'generates >= 3 tools for bcm2835')
+    const toolNames = tools.map(t => t.name)
+    assert(toolNames.some(n => n.includes('read_gpio')), 'generated read_gpio tool')
+    assert(toolNames.some(n => n.includes('set_gpio')), 'generated set_gpio tool')
+  }
+
+  // 22. bcm2835 + sensor combo match
+  {
+    const matched = matchEdge({}, { chip: 'bcm2835', sensors: ['dht22'] })
+    assert(matched.some(e => e.id === 'bcm2835_base'), 'combo match includes bcm2835_base')
+    assert(matched.some(e => e.id === 'dht22'), 'combo match includes dht22')
+    assert(matched.length >= 2, 'combo match has >= 2 entries')
+  }
+
+  // 23. bcm2835 devices (wifi, camera)
+  {
+    const entry = entries.get('bcm2835_base')
+    assert(entry?.devices?.wifi, 'bcm2835 has wifi device info')
+    assertEq(entry?.devices?.wifi?.interface, 'SDIO', 'wifi interface is SDIO')
+    assert(entry?.devices?.camera, 'bcm2835 has camera device info')
+    assertEq(entry?.devices?.camera?.sensor, 'IMX219', 'camera sensor is IMX219')
+  }
+
+  // 24. bcm2835 summary includes key info
+  {
+    const summary = getLibrarySummary()
+    assert(summary.includes('bcm2835'), 'summary includes bcm2835')
+    assert(summary.includes('armv6'), 'summary includes armv6')
+  }
+
   // ── Print ──
   console.log('')
   results.forEach(r => console.log(r))

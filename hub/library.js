@@ -188,8 +188,11 @@ async function executeLibraryTool(tool, input) {
     }
     if (cmd === 'ESTOP') return await serial.serialEventStop(node.endpoint)
     if (cmd === 'EXEC') {
-      // Requires compiled code — delegate to execute_rv
-      return 'Error: use execute_rv for arbitrary code execution'
+      // Requires compiled code — delegate to architecture-specific execute tool
+      const arch = tool._arch
+      if (arch === 'armv6') return 'Error: use execute_armv6 for arbitrary code execution on this edge'
+      if (arch === 'riscv32') return 'Error: use execute_rv for arbitrary code execution on this edge'
+      return 'Error: use the appropriate execute tool for arbitrary code execution'
     }
 
     return `Error: unknown command "${cmd}"`
@@ -198,7 +201,7 @@ async function executeLibraryTool(tool, input) {
   // HTTP-based edges (x86, etc.)
   if (op.protocol === 'exec' && op.asm) {
     // Compile and execute assembly
-    const { compileAssembly, compileAssemblyRV } = require('./compiler')
+    const { compileAssembly, compileAssemblyRV, compileAssemblyARMv6 } = require('./compiler')
     const { pokeNode } = require('./transport')
 
     let asm = op.asm
@@ -209,7 +212,9 @@ async function executeLibraryTool(tool, input) {
       }
     }
 
-    const compile = tool._arch === 'riscv32' ? compileAssemblyRV : compileAssembly
+    const compile = tool._arch === 'riscv32' ? compileAssemblyRV
+      : tool._arch === 'armv6' ? compileAssemblyARMv6
+      : compileAssembly
     const bin = await compile(asm)
     if (!bin) return 'Error: assembly compilation failed'
 

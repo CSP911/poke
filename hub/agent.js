@@ -52,6 +52,15 @@ const BASE_TOOLS = [
     },
   },
   {
+    name: 'execute_armv6',
+    description: 'Compile and execute ARMv6 (ARM 32-bit, ARM mode, GNU as) assembly on a target edge (Pi Zero W, BCM2835). Returns r0 value. Return in R0, end with BX LR. Registers: r0-r12, sp, lr, pc. Use ldr Rd, =value for 32-bit constants (e.g., register addresses).',
+    input_schema: {
+      type: 'object',
+      properties: { target: { type: 'string' }, asm_code: { type: 'string' } },
+      required: ['target', 'asm_code'],
+    },
+  },
+  {
     name: 'read_sensor',
     description: 'Read a calibrated sensor value from a serial edge. Supported sensors: "temp" (internal temperature in celsius). This uses the firmware\'s built-in driver with proper calibration — prefer this over raw register access via execute_rv for sensor readings.',
     input_schema: {
@@ -581,6 +590,23 @@ async function executeAgentTool(toolName, toolInput) {
       const { compileAssemblyRV } = require('./compiler')
       const bin = await compileAssemblyRV(toolInput.asm_code)
       if (!bin) return 'Error: RISC-V assembly compilation failed'
+      if (node.endpoint.startsWith('serial://')) {
+        const { pokeNodeSerial } = require('./serial')
+        return await pokeNodeSerial(node.endpoint, bin)
+      }
+      return await pokeNode(node.endpoint, bin)
+    } catch (err) {
+      return `Error: ${err.message}`
+    }
+  }
+
+  if (toolName === 'execute_armv6') {
+    const node = nodes.get(toolInput.target)
+    if (!node) return `Error: edge "${toolInput.target}" not found`
+    try {
+      const { compileAssemblyARMv6 } = require('./compiler')
+      const bin = await compileAssemblyARMv6(toolInput.asm_code)
+      if (!bin) return 'Error: ARMv6 assembly compilation failed'
       if (node.endpoint.startsWith('serial://')) {
         const { pokeNodeSerial } = require('./serial')
         return await pokeNodeSerial(node.endpoint, bin)
@@ -1377,7 +1403,7 @@ function validateToolResult(toolName, input, resultStr) {
   const warnings = []
 
   // Raw value interpretation hints (help LLM, don't redirect to firmware)
-  if (toolName === 'execute_rv' || toolName === 'execute_x86') {
+  if (toolName === 'execute_rv' || toolName === 'execute_x86' || toolName === 'execute_armv6') {
     const asmCode = input?.asm_code || ''
     const a0Match = resultStr.match(/a0=(\d+)/)
 
@@ -1423,16 +1449,17 @@ ${memoryContext ? `\n--- MEMORY ---\n${memoryContext}\n--- END MEMORY ---\n` : '
 
 You have tools to:
 - List edges and devices
-- Execute raw x86 (NASM) or ARM64 (GNU as) assembly on edges
+- Execute raw x86 (NASM), ARM64 (AArch64), ARMv6 (ARM 32-bit), or RISC-V assembly on edges
 - Call pre-built device operations directly (no assembly needed!)
 - Generate and send images to edges
 - Reply with text
 ${getDeviceToolsSummary()}
 
 Rules:
-- For math/computation: use execute_x86 or execute_arm based on target architecture.
+- For math/computation: use execute_x86, execute_arm, execute_armv6, or execute_rv based on target architecture.
 - x86 assembly: MUST start with "BITS 32" on first line. Return result in EAX. End with RET. No sections, no labels. Example: "BITS 32\\nmov eax, 2\\nadd eax, 3\\nret"
 - ARM64 assembly: return in X0, end with RET. No .global, .text directives. Just instructions.
+- ARMv6 assembly (Pi Zero W): return in R0, end with BX LR. Registers: r0-r12, sp, lr, pc. Use "ldr r0, =0x20200000" for 32-bit constants (GPIO base etc). ARM mode, not Thumb.
 - RISC-V assembly: return in a0, end with ret. Registers: a0-a7, s0-s11, t0-t6, sp, ra, zero. For ESP32-C3 edges.
 - RISC-V IMPORTANT: ori/andi only support 12-bit signed immediates (-2048 to 2047). For larger values, use li+or/and (R-type).
 - If code fails (compile error, wrong result), read the error, fix the code, and retry.
