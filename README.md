@@ -130,6 +130,14 @@ Real hardware (ESP32-C3 RISC-V) connected via USB serial — hub compiles RISC-V
   <img src="demo/serial-pipeline.gif" alt="ESP32-C3 Serial Pipeline Demo" width="720">
 </p>
 
+### Pi Zero W (ARMv6 Bare Metal)
+
+Real Raspberry Pi Zero W running POKE kernel — 2.8KB bare-metal, verified on hardware:
+- ACT LED heartbeat (GPIO47)
+- POKE protocol over Mini UART (115200 baud)
+- Code injection with I-cache flush
+- GPIO read/write, virtual temperature sensor
+
 | Service | Port | What it does |
 |---------|------|-------------|
 | **Edge** | 8080 | Bare-metal x86 OS in QEMU (kernel built from source) |
@@ -187,8 +195,8 @@ graph TB
 
     subgraph Hub["Hub (Node.js + LLM)"]
         Agent["Agent Loop<br/>observe → think → act → check"]
-        Tools["Tools<br/>execute_x86 | execute_arm<br/>draw_image | fetch_url<br/>device_read_mac | ..."]
-        ASM["asm.js<br/>Built-in Assembler<br/>(300 lines, zero deps)"]
+        Tools["Tools<br/>execute_x86 | execute_arm | execute_armv6<br/>draw_image | fetch_url<br/>device_read_mac | ..."]
+        ASM["asm.js | asm_armv6.js<br/>Built-in Assembler<br/>(300 lines, zero deps)"]
         Guard["Guard Rail<br/>Scans for HLT, CLI<br/>Blocks dangerous code"]
         Agent --> Tools
         Tools --> ASM
@@ -197,7 +205,8 @@ graph TB
 
     subgraph Edges["Edge Devices (bare metal)"]
         X86["x86 Edge<br/>QEMU / Real HW<br/>TCP/IP + HTTP"]
-        ARM["ARM64 Edge<br/>QEMU / RPi<br/>UART Serial"]
+        ARM["ARM64 Edge<br/>Pi 4 / QEMU<br/>PL011 UART"]
+        ARMv6["ARMv6 Edge<br/>Pi Zero W<br/>UART Serial"]
         RV["RISC-V Edge<br/>ESP32-C3<br/>USB Serial"]
         Mobile["Mobile Edge<br/>Browser<br/>Web Speech API"]
     end
@@ -205,10 +214,12 @@ graph TB
     User -->|natural language| Hub
     Guard -->|raw bytes| X86
     Guard -->|raw bytes| ARM
+    Guard -->|raw bytes| ARMv6
     Guard -->|raw bytes| RV
     Guard -->|image data| Mobile
     X86 -->|eax=result| Hub
     ARM -->|x0=result| Hub
+    ARMv6 -->|r0=result| Hub
     RV -->|a0=result| Hub
     Mobile -->|voice input| Hub
 ```
@@ -434,7 +445,8 @@ poke/
 │   ├── hub.js                Hub entry point
 │   ├── asm.js                Built-in x86 assembler (zero deps)
 │   ├── asm_rv.js             Built-in RISC-V assembler (RV32IM, zero deps)
-│   └── asm_arm.js            Built-in ARM64 assembler (zero deps)
+│   ├── asm_arm.js            Built-in ARM64 assembler (zero deps)
+│   └── asm_armv6.js          Built-in ARMv6 assembler (ARM 32-bit, zero deps)
 │
 ├── hub/                      Hub modules
 │   ├── server.js             HTTP routing + auth + scenario APIs
@@ -467,16 +479,31 @@ poke/
 │   ├── dht22.json           DHT22 sensor (chip-independent)
 │   ├── bmp280.json          BMP280 sensor (chip-independent)
 │   ├── hcsr501.json         PIR motion sensor (chip-independent)
-│   └── relay_2ch.json       2-channel relay (chip-independent)
+│   ├── relay_2ch.json       2-channel relay (chip-independent)
+│   ├── bcm2835_base.json   BCM2835/Pi Zero W chip (GPIO, WiFi SDIO, Camera CSI)
+│   └── mpu6050.json         MPU-6050 6-axis IMU sensor (chip-independent)
+│
+├── pi0w/                     Pi Zero W bare-metal kernel (BCM2835, ARMv6)
+│   ├── kernel.c              Mini UART + POKE protocol + GPIO + TEMP + EXEC
+│   ├── kernel_minimal.c      252-byte LED test kernel (verified on hardware)
+│   ├── start.S               ARMv6 entry
+│   ├── linker.ld             Kernel at 0x8000
+│   └── config.txt            UART enable, kernel=kernel.img
+│
+├── pi4/                      Pi 4 bare-metal kernel (BCM2711, AArch64)
+│   ├── kernel.c              PL011 UART + POKE protocol
+│   ├── start.S               AArch64 entry at 0x80000
+│   └── config.txt            64-bit mode, kernel=kernel8.img
 │
 ├── profiles/                 Device profile database (26 profiles, x86 legacy)
-├── test/                     353+ automated tests
+├── test/                     388+ automated tests
 │   ├── asm.test.js           x86 assembler (45 tests)
 │   ├── asm_arm.test.js       ARM64 assembler (49 tests)
 │   ├── asm_rv.test.js        RISC-V assembler (58 tests)
+│   ├── asm_armv6.test.js     ARMv6 assembler (66 tests)
 │   ├── hub.test.js           Hub endpoints (35 tests)
 │   ├── serial.test.js        ESP32 serial pipeline (16 tests)
-│   ├── library.test.js       Device library matching + tools (110 tests)
+│   ├── library.test.js       Device library matching + tools (135 tests)
 │   ├── esp32c3-bare.test.js  ESP32-C3 bare-metal hardware (26 tests)
 │   └── integration.test.js   Full pipeline: QEMU boot → exec → persist → DIE (24 tests)
 │
@@ -868,11 +895,15 @@ Tested: write 3 entries → reboot → all 3 entries survived ✅
 - [x] Serial integration tests (16 tests: PING/INFO/GPIO/TEMP + arithmetic + hub API)
 - [x] Autonomous event loop — edge-initiated EVNT frames + LLM-driven monitor deploy
 - [x] Modular device library — chip base + sensor modules, auto-incubation via LLM
-- [x] POKE OS on 3 architectures — x86 + ARM64 + RV32 bare-metal (all QEMU verified)
+- [x] POKE OS on 6 platforms — x86 + ARM64 + RV32 + ESP32-C3 + Pi Zero W + Pi 4
 - [x] RV32 bare-metal kernel (no FreeRTOS) — pure POKE OS for RISC-V
 - [x] ESP32-C3 bare-metal POKE kernel — Direct Boot, 3.5KB, no FreeRTOS/ESP-IDF
-- [x] 353+ automated tests (including 26 real hardware tests on ESP32-C3)
-- [ ] POKE OS on Pi 4 ARM (bare-metal kernel on real Raspberry Pi)
+- [x] Pi Zero W bare-metal kernel — verified on real hardware (2.8KB, ARMv6)
+- [x] Pi 4 bare-metal kernel — BCM2711, AArch64, PL011 UART
+- [x] ARMv6 mini assembler (asm_armv6.js) — Pi Zero W code injection
+- [x] Modular device library — bcm2835_base with WiFi (SDIO) + Camera (CSI) incubating
+- [x] 388+ automated tests (including 66 ARMv6 + 135 library tests)
+- [ ] POKE OS on Pi 4 ARM — kernel built, pending real hardware verification
 - [ ] Device library marketplace
 - [ ] CR3 page table isolation for resident tasks
 
