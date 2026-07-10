@@ -17,6 +17,7 @@ const path = require('path')
 const ROOT = path.resolve(__dirname, '..')
 const RV32_BIN = path.join(ROOT, 'rv32', 'poke-rv32.bin')
 const ARM_BIN = path.join(ROOT, 'arm', 'poke-arm.bin')
+const PI0W_BIN = path.join(ROOT, 'pi0w', 'poke-pi0w-qemu.bin')
 
 const BOOT_TIMEOUT = 5000
 const RESP_TIMEOUT = 3000
@@ -472,6 +473,128 @@ async function testARM64() {
   }
 }
 
+/* ── ARMv6 (Pi Zero W) Tests ── */
+
+async function testARMv6() {
+  console.log('\n  ARMv6 (Pi Zero W) QEMU Tests\n')
+
+  const fs = require('fs')
+  if (!fs.existsSync(PI0W_BIN)) {
+    console.log('  SKIP  pi0w/poke-pi0w-qemu.bin not found')
+    return
+  }
+
+  const qemu = new QemuProcess('armv6', [
+    'qemu-system-arm',
+    '-M', 'virt', '-cpu', 'cortex-a7', '-m', '128M',
+    '-kernel', PI0W_BIN,
+    '-display', 'none',
+    '-chardev', 'stdio,id=s0',
+    '-serial', 'chardev:s0',
+    '-monitor', 'none',
+  ])
+
+  try {
+    await qemu.start()
+    await sleep(300)
+
+    // -- PING
+    await test('armv6: PING -> PONG', async () => {
+      qemu.clearBuffer()
+      qemu.sendRaw(makePoke(Buffer.from('PING')))
+      const resp = await qemu.waitForResp()
+      eq(resp.toString(), 'PONG')
+    })
+
+    // -- INFO
+    await test('armv6: INFO -> armv6/bcm2835', async () => {
+      qemu.clearBuffer()
+      await sleep(100)
+      qemu.sendRaw(makePoke(Buffer.from('INFO')))
+      const resp = await qemu.waitForResp()
+      const json = resp.toString()
+      includes(json, '"arch":"armv6"')
+      includes(json, '"chip":"bcm2835"')
+      includes(json, '"bare_metal":true')
+      JSON.parse(json)
+    })
+
+    // -- EXEC (mov r0, #42; bx lr) using our assembler
+    await test('armv6: EXEC -> r0=42', async () => {
+      qemu.clearBuffer()
+      await sleep(100)
+      const { assembleARMv6 } = require(path.join(ROOT, 'src', 'asm_armv6.js'))
+      const bin = assembleARMv6('mov r0, #42\nbx lr')
+      const payload = Buffer.concat([Buffer.from('EXEC'), bin])
+      qemu.sendRaw(makePoke(payload))
+      const resp = await qemu.waitForResp()
+      eq(resp.toString(), 'r0=42')
+    })
+
+    // -- EXEC (2+3=5)
+    await test('armv6: EXEC -> 2+3=5', async () => {
+      qemu.clearBuffer()
+      await sleep(100)
+      const { assembleARMv6 } = require(path.join(ROOT, 'src', 'asm_armv6.js'))
+      const bin = assembleARMv6('mov r0, #2\nadd r0, r0, #3\nbx lr')
+      const payload = Buffer.concat([Buffer.from('EXEC'), bin])
+      qemu.sendRaw(makePoke(payload))
+      const resp = await qemu.waitForResp()
+      eq(resp.toString(), 'r0=5')
+    })
+
+    // -- EXEC (10 * 7 = 70)
+    await test('armv6: EXEC -> 10*7=70', async () => {
+      qemu.clearBuffer()
+      await sleep(100)
+      const { assembleARMv6 } = require(path.join(ROOT, 'src', 'asm_armv6.js'))
+      const bin = assembleARMv6('mov r0, #10\nmov r1, #7\nmul r0, r0, r1\nbx lr')
+      const payload = Buffer.concat([Buffer.from('EXEC'), bin])
+      qemu.sendRaw(makePoke(payload))
+      const resp = await qemu.waitForResp()
+      eq(resp.toString(), 'r0=70')
+    })
+
+    // -- GPIO
+    await test('armv6: GPIO -> pin states', async () => {
+      qemu.clearBuffer()
+      await sleep(100)
+      qemu.sendRaw(makePoke(Buffer.from('GPIO')))
+      const resp = await qemu.waitForResp()
+      const json = resp.toString()
+      includes(json, 'gpio')
+      JSON.parse(json)
+    })
+
+    // -- TEMP
+    await test('armv6: TEMP -> temperature', async () => {
+      qemu.clearBuffer()
+      await sleep(100)
+      qemu.sendRaw(makePoke(Buffer.from('TEMP')))
+      const resp = await qemu.waitForResp()
+      const json = resp.toString()
+      includes(json, 'celsius')
+      JSON.parse(json)
+    })
+
+    // -- GPOS (set pin)
+    await test('armv6: GPOS -> set GPIO pin', async () => {
+      qemu.clearBuffer()
+      await sleep(100)
+      const payload = Buffer.concat([Buffer.from('GPOS'), Buffer.from([3, 1])])
+      qemu.sendRaw(makePoke(payload))
+      const resp = await qemu.waitForResp()
+      const json = resp.toString()
+      includes(json, '"pin":3')
+      includes(json, '"value":1')
+      JSON.parse(json)
+    })
+
+  } finally {
+    qemu.kill()
+  }
+}
+
 /* ── Main ── */
 
 async function main() {
@@ -487,6 +610,12 @@ async function main() {
     await testARM64()
   } catch (e) {
     console.log(`  ERROR  ARM64 suite: ${e.message}`)
+  }
+
+  try {
+    await testARMv6()
+  } catch (e) {
+    console.log(`  ERROR  ARMv6 suite: ${e.message}`)
   }
 
   console.log(`\n  ${passed} passed, ${failed} failed, ${total} total\n`)
