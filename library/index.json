@@ -16,11 +16,14 @@
   },
 
   "by_sensor": {
-    "dht22":     ["dht22"],
-    "bmp280":    ["bmp280"],
-    "bh1750":    ["bh1750"],
-    "hcsr501":   ["hcsr501"],
-    "relay_2ch": ["relay_2ch"],
-    "mpu6050":   ["mpu6050"]
+    "dht22":           ["dht22"],
+    "bmp280":          ["bmp280"],
+    "bh1750":          ["bh1750"],
+    "hcsr501":         ["hcsr501"],
+    "relay_2ch":       ["relay_2ch"],
+    "relay_4ch":       ["relay_4ch"],
+    "mpu6050":         ["mpu6050"],
+    "mq135":           ["mq135"],
+    "ir_transmitter":  ["ir_transmitter"]
   }
 }

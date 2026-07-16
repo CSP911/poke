@@ -1,0 +1,45 @@
+{
+  "id": "mq135",
+  "name": "MQ-135 Air Quality Gas Sensor",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "mq135" },
+  "description": "Analog gas sensor for air quality monitoring. Detects NH3, NOx, alcohol, benzene, smoke, CO2. Outputs analog voltage proportional to gas concentration. Needs ADC to read.",
+  "wiring": {
+    "vcc": "5V (heater needs 5V)",
+    "gnd": "GND",
+    "aout": "ADC input (analog voltage 0-3.3V)",
+    "dout": "Digital output (threshold comparator, optional)"
+  },
+  "calibration": {
+    "warmup_time": "24-48 hours for first use, 2-5 minutes after",
+    "clean_air_resistance": "~30-50 KΩ in clean air",
+    "adc_to_ppm": "Requires calibration curve. Raw ADC > 300 typically indicates poor air quality.",
+    "reference": "Rs/R0 ratio vs ppm logarithmic curve per gas type"
+  },
+  "operations": [
+    {
+      "name": "read_air_quality",
+      "desc": "Read air quality sensor analog value via ADC",
+      "type": "sensor",
+      "protocol": "adc",
+      "returns": "Raw ADC value (higher = more gas detected)",
+      "tags": ["air", "gas", "co2", "quality", "analog"]
+    },
+    {
+      "name": "read_air_digital",
+      "desc": "Read digital output (HIGH=clean, LOW=gas detected above threshold)",
+      "type": "sensor",
+      "protocol": "command",
+      "command": "GPIO",
+      "tags": ["air", "gas", "digital", "threshold"]
+    },
+    {
+      "name": "monitor_air",
+      "desc": "Monitor air quality and trigger when value exceeds threshold",
+      "type": "sensor",
+      "protocol": "adc",
+      "tags": ["air", "monitor", "threshold"]
+    }
+  ]
+}

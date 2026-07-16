@@ -1,0 +1,56 @@
+{
+  "id": "mpu6050",
+  "name": "MPU-6050 6-Axis IMU (Accelerometer + Gyroscope)",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "mpu6050" },
+  "description": "I2C 6-axis motion sensor: 3-axis accelerometer + 3-axis gyroscope. Default I2C address 0x68.",
+  "wiring": {
+    "vcc": "3.3V",
+    "gnd": "GND",
+    "sda": "I2C SDA",
+    "scl": "I2C SCL"
+  },
+  "registers": {
+    "WHO_AM_I":    { "addr": "0x75", "desc": "Device ID (should read 0x68)" },
+    "PWR_MGMT_1":  { "addr": "0x6B", "desc": "Power management (write 0x00 to wake)" },
+    "ACCEL_XOUT_H": { "addr": "0x3B", "desc": "Accel X high byte" },
+    "ACCEL_YOUT_H": { "addr": "0x3D", "desc": "Accel Y high byte" },
+    "ACCEL_ZOUT_H": { "addr": "0x3F", "desc": "Accel Z high byte" },
+    "GYRO_XOUT_H":  { "addr": "0x43", "desc": "Gyro X high byte" },
+    "GYRO_YOUT_H":  { "addr": "0x45", "desc": "Gyro Y high byte" },
+    "GYRO_ZOUT_H":  { "addr": "0x47", "desc": "Gyro Z high byte" },
+    "TEMP_OUT_H":   { "addr": "0x41", "desc": "Temperature high byte" }
+  },
+  "calibration": {
+    "accel_scale": "raw / 16384.0 (±2g default)",
+    "gyro_scale": "raw / 131.0 (±250°/s default)",
+    "temp_formula": "raw / 340.0 + 36.53"
+  },
+  "operations": [
+    {
+      "name": "read_accel",
+      "desc": "Read 3-axis acceleration (X, Y, Z in g)",
+      "type": "sensor",
+      "protocol": "i2c",
+      "i2c_addr": "0x68",
+      "tags": ["accelerometer", "motion", "imu"]
+    },
+    {
+      "name": "read_gyro",
+      "desc": "Read 3-axis angular velocity (X, Y, Z in °/s)",
+      "type": "sensor",
+      "protocol": "i2c",
+      "i2c_addr": "0x68",
+      "tags": ["gyroscope", "rotation", "imu"]
+    },
+    {
+      "name": "detect_motion",
+      "desc": "Detect motion by monitoring acceleration magnitude change",
+      "type": "sensor",
+      "protocol": "i2c",
+      "i2c_addr": "0x68",
+      "tags": ["motion", "vibration", "tilt"]
+    }
+  ]
+}

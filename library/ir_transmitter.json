@@ -1,0 +1,44 @@
+{
+  "id": "ir_transmitter",
+  "name": "IR Transmitter (Infrared Blaster)",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "ir_transmitter" },
+  "description": "Infrared LED transmitter for controlling AC, TV, and other IR remote-controlled devices. Requires PWM at 38kHz carrier frequency. Protocols: NEC, Samsung, RC5, RC6.",
+  "wiring": {
+    "vcc": "3.3V or 5V",
+    "gnd": "GND",
+    "data": "GPIO (PWM capable)"
+  },
+  "protocols": {
+    "NEC": {
+      "carrier": "38kHz",
+      "leader": "9ms pulse + 4.5ms space",
+      "bit_1": "562.5μs pulse + 1687.5μs space",
+      "bit_0": "562.5μs pulse + 562.5μs space",
+      "frame": "address(8) + ~address(8) + command(8) + ~command(8)"
+    },
+    "Samsung": {
+      "carrier": "38kHz",
+      "leader": "4.5ms pulse + 4.5ms space"
+    }
+  },
+  "operations": [
+    {
+      "name": "ir_send_nec",
+      "desc": "Send NEC IR code (address + command)",
+      "type": "actuator",
+      "protocol": "exec",
+      "params": ["address", "command"],
+      "tags": ["ir", "remote", "nec", "ac", "tv"]
+    },
+    {
+      "name": "ir_send_raw",
+      "desc": "Send raw IR timing sequence (pulse/space pairs in microseconds)",
+      "type": "actuator",
+      "protocol": "exec",
+      "params": ["timings"],
+      "tags": ["ir", "remote", "raw"]
+    }
+  ]
+}

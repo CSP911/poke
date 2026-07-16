@@ -1,0 +1,44 @@
+{
+  "id": "relay_4ch",
+  "name": "4-Channel Relay Module",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "relay_4ch" },
+  "description": "GPIO-controlled 4-channel relay module for switching AC/DC loads. Active LOW. Each channel can switch up to 10A 250VAC.",
+  "wiring": {
+    "vcc": "5V",
+    "gnd": "GND",
+    "in1": "GPIO (channel 1 — e.g., lighting)",
+    "in2": "GPIO (channel 2 — e.g., fan)",
+    "in3": "GPIO (channel 3 — e.g., monitor)",
+    "in4": "GPIO (channel 4 — e.g., spare)"
+  },
+  "operations": [
+    {
+      "name": "relay_on",
+      "desc": "Turn on a relay channel (active LOW — set GPIO to 0)",
+      "type": "actuator",
+      "protocol": "command",
+      "command": "GPOS",
+      "params": ["pin", "value"],
+      "tags": ["relay", "switch", "actuator", "power"]
+    },
+    {
+      "name": "relay_off",
+      "desc": "Turn off a relay channel (set GPIO to 1)",
+      "type": "actuator",
+      "protocol": "command",
+      "command": "GPOS",
+      "params": ["pin", "value"],
+      "tags": ["relay", "switch", "actuator", "power"]
+    },
+    {
+      "name": "relay_status",
+      "desc": "Read current state of all relay channels",
+      "type": "actuator",
+      "protocol": "command",
+      "command": "GPIO",
+      "tags": ["relay", "status"]
+    }
+  ]
+}

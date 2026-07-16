@@ -1,0 +1,44 @@
+{
+  "id": "bh1750",
+  "name": "BH1750 Ambient Light Sensor",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "bh1750" },
+  "description": "I2C digital ambient light sensor. Measures illuminance in lux (1-65535). Default I2C address 0x23.",
+  "wiring": {
+    "vcc": "3.3V",
+    "gnd": "GND",
+    "sda": "I2C SDA",
+    "scl": "I2C SCL",
+    "addr": "GND=0x23, VCC=0x5C"
+  },
+  "registers": {
+    "POWER_ON":       { "cmd": "0x01", "desc": "Power on" },
+    "CONTINUOUS_H":   { "cmd": "0x10", "desc": "Continuous high-res mode (1 lux, 120ms)" },
+    "CONTINUOUS_H2":  { "cmd": "0x11", "desc": "Continuous high-res mode 2 (0.5 lux, 120ms)" },
+    "CONTINUOUS_L":   { "cmd": "0x13", "desc": "Continuous low-res mode (4 lux, 16ms)" },
+    "ONE_TIME_H":     { "cmd": "0x20", "desc": "One-time high-res (auto power down)" }
+  },
+  "calibration": {
+    "lux_formula": "raw / 1.2"
+  },
+  "operations": [
+    {
+      "name": "read_lux",
+      "desc": "Read ambient light level in lux",
+      "type": "sensor",
+      "protocol": "i2c",
+      "i2c_addr": "0x23",
+      "returns": "Illuminance in lux (0-65535)",
+      "tags": ["light", "lux", "ambient", "illuminance"]
+    },
+    {
+      "name": "monitor_light",
+      "desc": "Monitor light level and trigger on threshold",
+      "type": "sensor",
+      "protocol": "i2c",
+      "i2c_addr": "0x23",
+      "tags": ["light", "monitor", "threshold"]
+    }
+  ]
+}
