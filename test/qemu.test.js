@@ -10,7 +10,8 @@
  * Usage: node test/qemu.test.js
  */
 
-const { spawn } = require('child_process')
+const { spawn, execSync } = require('child_process')
+const fs = require('fs')
 const net = require('net')
 const path = require('path')
 
@@ -18,6 +19,25 @@ const ROOT = path.resolve(__dirname, '..')
 const RV32_BIN = path.join(ROOT, 'rv32', 'poke-rv32.bin')
 const ARM_BIN = path.join(ROOT, 'arm', 'poke-arm.bin')
 const PI0W_BIN = path.join(ROOT, 'pi0w', 'poke-pi0w-qemu.bin')
+
+/* ── Auto-build binaries if missing ── */
+function ensureBinary(binPath, makeDir, makeTarget) {
+  if (fs.existsSync(binPath)) return true
+  console.log(`  BUILD  ${path.basename(binPath)} not found, building...`)
+  try {
+    execSync(`make -C ${makeDir} ${makeTarget || ''}`, { stdio: 'pipe' })
+    return fs.existsSync(binPath)
+  } catch (e) {
+    console.log(`  SKIP  build failed: ${e.message.split('\n')[0]}`)
+    return false
+  }
+}
+
+/* ── Check QEMU availability ── */
+function hasQemu(cmd) {
+  try { execSync(`which ${cmd}`, { stdio: 'pipe' }); return true }
+  catch { return false }
+}
 
 const BOOT_TIMEOUT = 5000
 const RESP_TIMEOUT = 3000
@@ -250,11 +270,8 @@ function includes(str, sub, msg) {
 async function testRV32() {
   console.log('\n  RV32 QEMU Tests\n')
 
-  const fs = require('fs')
-  if (!fs.existsSync(RV32_BIN)) {
-    console.log('  SKIP  rv32/poke-rv32.bin not found')
-    return
-  }
+  if (!hasQemu('qemu-system-riscv32')) { console.log('  SKIP  qemu-system-riscv32 not found'); return }
+  if (!ensureBinary(RV32_BIN, path.join(ROOT, 'rv32'))) return
 
   const qemu = new QemuProcess('rv32', [
     'qemu-system-riscv32',
@@ -359,11 +376,8 @@ async function testRV32() {
 async function testARM64() {
   console.log('\n  ARM64 QEMU Tests\n')
 
-  const fs = require('fs')
-  if (!fs.existsSync(ARM_BIN)) {
-    console.log('  SKIP  arm/poke-arm.bin not found')
-    return
-  }
+  if (!hasQemu('qemu-system-aarch64')) { console.log('  SKIP  qemu-system-aarch64 not found'); return }
+  if (!ensureBinary(ARM_BIN, path.join(ROOT, 'arm'))) return
 
   // Use a random port to avoid conflicts
   const port = 18081 + Math.floor(Math.random() * 1000)
@@ -478,11 +492,8 @@ async function testARM64() {
 async function testARMv6() {
   console.log('\n  ARMv6 (Pi Zero W) QEMU Tests\n')
 
-  const fs = require('fs')
-  if (!fs.existsSync(PI0W_BIN)) {
-    console.log('  SKIP  pi0w/poke-pi0w-qemu.bin not found')
-    return
-  }
+  if (!hasQemu('qemu-system-arm')) { console.log('  SKIP  qemu-system-arm not found'); return }
+  if (!ensureBinary(PI0W_BIN, path.join(ROOT, 'pi0w'), 'qemu')) return
 
   const qemu = new QemuProcess('armv6', [
     'qemu-system-arm',

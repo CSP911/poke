@@ -9,6 +9,8 @@
   "scripts": {
     "start": "node src/hub.js",
     "test": "node test/asm.test.js && node test/asm_arm.test.js && node test/asm_rv.test.js && node test/asm_armv6.test.js && node test/hub.test.js && node test/library.test.js",
+    "test:qemu": "node test/qemu.test.js",
+    "test:all": "npm test && node test/qemu.test.js",
     "test:integration": "node test/integration.test.js"
   },
   "keywords": [
