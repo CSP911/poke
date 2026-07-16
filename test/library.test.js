@@ -281,6 +281,117 @@ async function runTests() {
     assert(summary.includes('armv6'), 'summary includes armv6')
   }
 
+  // === JARVIS Sensor Library Tests ===
+  console.log('  --- JARVIS Sensors ---')
+
+  // 25. All new entries loaded
+  {
+    const ids = ['mpu6050', 'bh1750', 'mq135', 'relay_4ch', 'ir_transmitter']
+    for (const id of ids) {
+      const entry = entries.get(id)
+      assert(entry !== undefined, `${id} entry loaded`)
+      assertEq(entry?.chip, null, `${id} is chip-independent`)
+      assertEq(entry?.arch, null, `${id} has no arch`)
+    }
+  }
+
+  // 26. MPU6050 structure
+  {
+    const e = entries.get('mpu6050')
+    assert(e?.match?.sensor === 'mpu6050', 'mpu6050 match.sensor')
+    assert(e?.registers?.WHO_AM_I, 'mpu6050 has WHO_AM_I register')
+    assert(e?.calibration?.accel_scale, 'mpu6050 has accel calibration')
+    assert(e?.operations?.length >= 2, 'mpu6050 has >= 2 operations')
+    const ops = e?.operations?.map(o => o.name) || []
+    assert(ops.includes('read_accel'), 'mpu6050 has read_accel')
+    assert(ops.includes('read_gyro'), 'mpu6050 has read_gyro')
+  }
+
+  // 27. BH1750 structure
+  {
+    const e = entries.get('bh1750')
+    assert(e?.match?.sensor === 'bh1750', 'bh1750 match.sensor')
+    assert(e?.registers?.CONTINUOUS_H, 'bh1750 has CONTINUOUS_H register')
+    assert(e?.calibration?.lux_formula, 'bh1750 has lux calibration')
+    const ops = e?.operations?.map(o => o.name) || []
+    assert(ops.includes('read_lux'), 'bh1750 has read_lux')
+  }
+
+  // 28. MQ-135 structure
+  {
+    const e = entries.get('mq135')
+    assert(e?.match?.sensor === 'mq135', 'mq135 match.sensor')
+    assert(e?.wiring?.aout, 'mq135 has analog output wiring')
+    assert(e?.calibration?.warmup_time, 'mq135 has warmup_time')
+    const ops = e?.operations?.map(o => o.name) || []
+    assert(ops.includes('read_air_quality'), 'mq135 has read_air_quality')
+    assert(ops.includes('monitor_air'), 'mq135 has monitor_air')
+  }
+
+  // 29. Relay 4ch structure
+  {
+    const e = entries.get('relay_4ch')
+    assert(e?.match?.sensor === 'relay_4ch', 'relay_4ch match.sensor')
+    assert(e?.wiring?.in4, 'relay_4ch has 4 input pins')
+    const ops = e?.operations?.map(o => o.name) || []
+    assert(ops.includes('relay_on'), 'relay_4ch has relay_on')
+    assert(ops.includes('relay_off'), 'relay_4ch has relay_off')
+    assert(ops.includes('relay_status'), 'relay_4ch has relay_status')
+  }
+
+  // 30. IR Transmitter structure
+  {
+    const e = entries.get('ir_transmitter')
+    assert(e?.match?.sensor === 'ir_transmitter', 'ir_transmitter match.sensor')
+    assert(e?.protocols?.NEC, 'ir has NEC protocol')
+    assert(e?.protocols?.Samsung, 'ir has Samsung protocol')
+    const ops = e?.operations?.map(o => o.name) || []
+    assert(ops.includes('ir_send_nec'), 'ir has ir_send_nec')
+    assert(ops.includes('ir_send_raw'), 'ir has ir_send_raw')
+  }
+
+  // 31. Sensor matching for new entries
+  {
+    for (const sensor of ['mpu6050', 'bh1750', 'mq135', 'relay_4ch', 'ir_transmitter']) {
+      const matched = matchEdge({}, { sensors: [sensor] })
+      assert(matched.length === 1, `${sensor} matches 1 entry`)
+      assertEq(matched[0]?.id, sensor, `${sensor} matches ${sensor}`)
+    }
+  }
+
+  // 32. JARVIS combo: ESP32 + all JARVIS sensors
+  {
+    const matched = matchEdge({}, {
+      chip: 'esp32c3',
+      sensors: ['dht22', 'mq135', 'bh1750', 'hcsr501', 'relay_4ch', 'ir_transmitter']
+    })
+    assert(matched.length === 7, `JARVIS combo matches 7 entries (got ${matched.length})`)
+    assert(matched.some(e => e.id === 'esp32c3_base'), 'JARVIS has chip base')
+    assert(matched.some(e => e.id === 'dht22'), 'JARVIS has dht22')
+    assert(matched.some(e => e.id === 'mq135'), 'JARVIS has mq135')
+    assert(matched.some(e => e.id === 'bh1750'), 'JARVIS has bh1750')
+    assert(matched.some(e => e.id === 'relay_4ch'), 'JARVIS has relay_4ch')
+    assert(matched.some(e => e.id === 'ir_transmitter'), 'JARVIS has ir_transmitter')
+  }
+
+  // 33. Tool generation for JARVIS combo
+  {
+    const matched = matchEdge({}, {
+      chip: 'esp32c3',
+      sensors: ['dht22', 'mq135', 'relay_4ch']
+    })
+    const tools = generateLibraryTools('jarvis-esp32', matched)
+    assert(tools.length >= 10, `JARVIS generates >= 10 tools (got ${tools.length})`)
+    const names = tools.map(t => t.name)
+    assert(names.some(n => n.includes('read_air')), 'JARVIS tools include air quality')
+    assert(names.some(n => n.includes('relay_on')), 'JARVIS tools include relay_on')
+  }
+
+  // 34. Total entry count
+  {
+    assert(entries.size >= 11, `library has >= 11 entries (got ${entries.size})`)
+  }
+
   // ── Print ──
   console.log('')
   results.forEach(r => console.log(r))
