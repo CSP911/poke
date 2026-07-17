@@ -387,9 +387,31 @@ async function runTests() {
     assert(names.some(n => n.includes('relay_on')), 'JARVIS tools include relay_on')
   }
 
-  // 34. Total entry count
+  // 34. SSD1306 OLED structure
   {
-    assert(entries.size >= 11, `library has >= 11 entries (got ${entries.size})`)
+    const e = entries.get('ssd1306')
+    assert(e !== undefined, 'ssd1306 entry loaded')
+    assertEq(e?.chip, null, 'ssd1306 is chip-independent')
+    assert(e?.match?.sensor === 'ssd1306', 'ssd1306 match.sensor')
+    assert(e?.display?.width === 128, 'ssd1306 width is 128')
+    assert(e?.display?.height === 64, 'ssd1306 height is 64')
+    assert(e?.registers?.DISPLAY_ON, 'ssd1306 has DISPLAY_ON register')
+    const ops = e?.operations?.map(o => o.name) || []
+    assert(ops.includes('display_text'), 'ssd1306 has display_text')
+    assert(ops.includes('display_clear'), 'ssd1306 has display_clear')
+    assert(ops.includes('display_value'), 'ssd1306 has display_value')
+  }
+
+  // 35. SSD1306 sensor matching
+  {
+    const matched = matchEdge({}, { sensors: ['ssd1306'] })
+    assert(matched.length === 1, 'ssd1306 matches 1 entry')
+    assertEq(matched[0]?.id, 'ssd1306', 'ssd1306 matched correctly')
+  }
+
+  // 36. Total entry count
+  {
+    assert(entries.size >= 12, `library has >= 12 entries (got ${entries.size})`)
   }
 
   // ── Print ──

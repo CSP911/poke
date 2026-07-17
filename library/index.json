@@ -24,6 +24,7 @@
     "relay_4ch":       ["relay_4ch"],
     "mpu6050":         ["mpu6050"],
     "mq135":           ["mq135"],
-    "ir_transmitter":  ["ir_transmitter"]
+    "ir_transmitter":  ["ir_transmitter"],
+    "ssd1306":         ["ssd1306"]
   }
 }

@@ -1,0 +1,61 @@
+{
+  "id": "ssd1306",
+  "name": "SSD1306 OLED Display (128x64)",
+  "chip": null,
+  "arch": null,
+  "match": { "sensor": "ssd1306" },
+  "description": "I2C 0.96-inch OLED display, 128x64 pixels, monochrome. Default I2C address 0x3C. Used for status text, sensor values, icons.",
+  "wiring": {
+    "vcc": "3.3V",
+    "gnd": "GND",
+    "sda": "I2C SDA",
+    "scl": "I2C SCL"
+  },
+  "registers": {
+    "COMMAND":         { "addr": "0x00", "desc": "Command register (co-byte prefix)" },
+    "DATA":            { "addr": "0x40", "desc": "Data register (GDDRAM write)" },
+    "DISPLAY_OFF":     { "cmd": "0xAE", "desc": "Display OFF" },
+    "DISPLAY_ON":      { "cmd": "0xAF", "desc": "Display ON" },
+    "SET_CONTRAST":    { "cmd": "0x81", "desc": "Set contrast (0x00-0xFF)" },
+    "NORMAL_DISPLAY":  { "cmd": "0xA6", "desc": "Normal display (1=white)" },
+    "INVERT_DISPLAY":  { "cmd": "0xA7", "desc": "Inverted display (0=white)" },
+    "SET_MUX_RATIO":   { "cmd": "0xA8", "desc": "Set multiplex ratio (0x3F for 64)" },
+    "SET_PAGE_ADDR":   { "cmd": "0x22", "desc": "Set page address range" },
+    "SET_COL_ADDR":    { "cmd": "0x21", "desc": "Set column address range" }
+  },
+  "display": {
+    "width": 128,
+    "height": 64,
+    "pages": 8,
+    "color": "monochrome",
+    "font": "5x7 built-in (application level)"
+  },
+  "operations": [
+    {
+      "name": "display_text",
+      "desc": "Display text string on OLED (clear screen + write)",
+      "type": "display",
+      "protocol": "i2c",
+      "i2c_addr": "0x3C",
+      "params": ["text", "line"],
+      "tags": ["display", "oled", "text", "status"]
+    },
+    {
+      "name": "display_clear",
+      "desc": "Clear the OLED display",
+      "type": "display",
+      "protocol": "i2c",
+      "i2c_addr": "0x3C",
+      "tags": ["display", "oled", "clear"]
+    },
+    {
+      "name": "display_value",
+      "desc": "Display a sensor value with label (e.g., 'Temp: 25.3°C')",
+      "type": "display",
+      "protocol": "i2c",
+      "i2c_addr": "0x3C",
+      "params": ["label", "value", "unit"],
+      "tags": ["display", "oled", "sensor", "dashboard"]
+    }
+  ]
+}
