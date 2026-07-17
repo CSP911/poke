@@ -13,6 +13,7 @@
  *   Event:    "EVNT" (4) + payload_len (4 LE) + JSON  (edge → hub, unsolicited)
  */
 
+const net = require('net')
 const { log } = require('./logger')
 
 // ── Event callback: set by hub to handle edge-initiated events ──
@@ -46,12 +47,86 @@ function getSerialPort() {
 const ports = new Map()  // path → { port, lock, onResp }
 
 function parseSerialEndpoint(endpoint) {
+  // TCP endpoint: tcp://host:port
+  const tcpMatch = endpoint.match(/^tcp:\/\/([^:]+):(\d+)$/)
+  if (tcpMatch) {
+    return { path: `tcp:${tcpMatch[1]}:${tcpMatch[2]}`, host: tcpMatch[1], tcpPort: parseInt(tcpMatch[2]), isTcp: true }
+  }
+  // Serial endpoint: serial:///dev/...
   const match = endpoint.match(/^serial:\/\/(.+?)(\?.*)?$/)
   if (!match) return null
   const portPath = match[1]
   const params = new URLSearchParams(match[2] || '')
   const baud = parseInt(params.get('baud')) || 115200
   return { path: portPath, baud }
+}
+
+function getOrOpenTcp(key, host, tcpPort) {
+  if (ports.has(key)) {
+    const entry = ports.get(key)
+    if (!entry.port.destroyed) return entry
+    ports.delete(key)
+  }
+
+  const sock = new net.Socket()
+  // Wrap socket to match serial port API
+  sock.isOpen = false
+  const entry = { port: sock, lock: Promise.resolve(), onResp: null }
+
+  sock.connect(tcpPort, host, () => {
+    sock.isOpen = true
+    log.info(`[tcp] connected ${host}:${tcpPort}`)
+  })
+
+  sock.on('error', (err) => {
+    log.error(`[tcp] ${key} error: ${err.message}`)
+    if (entry.onResp) {
+      entry.onResp.reject(new PokeTransportError(err.message, 'TCP_ERROR'))
+      entry.onResp = null
+    }
+  })
+
+  sock.on('close', () => {
+    sock.isOpen = false
+    log.info(`[tcp] ${key} closed`)
+    ports.delete(key)
+  })
+
+  // Frame parser (same as serial)
+  let rxBuf = Buffer.alloc(0)
+  sock.on('data', (data) => {
+    rxBuf = Buffer.concat([rxBuf, data])
+    while (rxBuf.length >= 4) {
+      const respIdx = rxBuf.indexOf('RESP')
+      const evntIdx = rxBuf.indexOf('EVNT')
+      let frameIdx = -1, frameType = null
+      if (respIdx >= 0 && (evntIdx < 0 || respIdx <= evntIdx)) { frameIdx = respIdx; frameType = 'RESP' }
+      else if (evntIdx >= 0) { frameIdx = evntIdx; frameType = 'EVNT' }
+      if (frameIdx < 0) { if (rxBuf.length > 3) rxBuf = rxBuf.slice(-3); break }
+      if (frameIdx > 0) rxBuf = rxBuf.slice(frameIdx)
+      if (rxBuf.length < 8) break
+      const payloadLen = rxBuf.readUInt32LE(4)
+      if (payloadLen > 1024 * 1024) { rxBuf = rxBuf.slice(4); continue }
+      const frameSize = 8 + payloadLen
+      if (rxBuf.length < frameSize) break
+      const payload = rxBuf.slice(8, frameSize).toString()
+      rxBuf = rxBuf.slice(frameSize)
+      if (frameType === 'RESP') {
+        if (entry.onResp) {
+          const cb = entry.onResp; entry.onResp = null; clearTimeout(cb.timer); cb.resolve(payload)
+        }
+      } else if (frameType === 'EVNT') {
+        log.info(`[tcp] EVNT from ${key}: ${payload.slice(0, 100)}`)
+        if (_onEvent) {
+          try { const evt = JSON.parse(payload); evt._endpoint = `tcp://${host}:${tcpPort}`; _onEvent(evt) }
+          catch (e) { log.warn(`[tcp] EVNT parse error: ${e.message}`) }
+        }
+      }
+    }
+  })
+
+  ports.set(key, entry)
+  return entry
 }
 
 function getOrOpenPort(portPath, baud) {
@@ -163,14 +238,16 @@ function buildFrame(command, data) {
 function serialCommand(endpoint, command, data, timeoutMs) {
   const parsed = parseSerialEndpoint(endpoint)
   if (!parsed) {
-    return Promise.reject(new PokeTransportError('invalid serial endpoint: ' + endpoint, 'INVALID_ENDPOINT'))
+    return Promise.reject(new PokeTransportError('invalid endpoint: ' + endpoint, 'INVALID_ENDPOINT'))
   }
 
   let entry
   try {
-    entry = getOrOpenPort(parsed.path, parsed.baud)
+    entry = parsed.isTcp
+      ? getOrOpenTcp(parsed.path, parsed.host, parsed.tcpPort)
+      : getOrOpenPort(parsed.path, parsed.baud)
   } catch (e) {
-    return Promise.reject(new PokeTransportError(e.message, 'SERIAL_OPEN_ERROR'))
+    return Promise.reject(new PokeTransportError(e.message, 'OPEN_ERROR'))
   }
 
   // Chain onto lock: only one command at a time per port
@@ -203,7 +280,7 @@ function serialCommand(endpoint, command, data, timeoutMs) {
               clearTimeout(timer)
               entry.onResp = null
               unlockResolve()
-              reject(new PokeTransportError('serial write error: ' + err.message, 'SERIAL_WRITE_ERROR'))
+              reject(new PokeTransportError('write error: ' + err.message, 'WRITE_ERROR'))
             }
           })
         } else {

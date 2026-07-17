@@ -185,10 +185,52 @@ async function launch() {
     process.exit(1)
   }
 
-  console.log('  JARVIS running. Press Ctrl+C to stop.\n')
-  console.log('  Edge ports:')
+  // Register edges with hub
+  const hubUrl = process.env.HUB_URL || 'http://localhost:3333'
+  const hubSecret = process.env.HUB_SECRET || 'poke-secret'
+  console.log(`\n  Registering with hub (${hubUrl})...\n`)
+
+  let registered = 0
   for (const edge of config.edges) {
-    console.log(`    ${edge.id}: tcp://127.0.0.1:${edge.port}`)
+    try {
+      const body = JSON.stringify({
+        node_id: `jarvis-${edge.id}`,
+        endpoint: `tcp://127.0.0.1:${edge.port}`,
+        arch: 'riscv32',
+        memory_mb: 32,
+        capabilities: ['exec', 'gpio', 'temp'],
+        sensors: edge.sensors,
+        description: edge.description,
+      })
+      const http = require('http')
+      await new Promise((resolve, reject) => {
+        const url = new URL(`/enroll?token=${hubSecret}`, hubUrl)
+        const req = http.request({
+          hostname: url.hostname, port: url.port, path: url.pathname + url.search,
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': body.length },
+          timeout: 3000,
+        }, (res) => {
+          let d = ''; res.on('data', c => d += c)
+          res.on('end', () => {
+            try { const j = JSON.parse(d); if (j.ok) { registered++; resolve() } else reject(new Error(d)) }
+            catch { reject(new Error(d)) }
+          })
+        })
+        req.on('error', reject)
+        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')) })
+        req.write(body); req.end()
+      })
+      console.log(`    ✓ jarvis-${edge.id} enrolled`)
+    } catch (e) {
+      console.log(`    ✗ jarvis-${edge.id}: ${e.message.slice(0, 60)}`)
+    }
+  }
+  console.log(`\n  ${registered}/${config.edges.length} edges registered with hub`)
+
+  console.log('\n  JARVIS running. Press Ctrl+C to stop.\n')
+  console.log('  Edge endpoints:')
+  for (const edge of config.edges) {
+    console.log(`    jarvis-${edge.id}: tcp://127.0.0.1:${edge.port}`)
   }
   console.log('')
 }
