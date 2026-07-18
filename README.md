@@ -103,26 +103,57 @@ MCP gives AI hands in the software world. POKE gives AI hands in the physical wo
 
 ## Quick Start
 
+### 1. HEX Autonomous Federation (recommended)
+
+Talk to a self-operating multi-site system. 3 hubs, 9 bare-metal edges, 1 LLM orchestrator — no hardware needed:
+
 ```bash
 git clone https://github.com/CSP911/poke.git
 cd poke
+npm install
 
-# 1. Configure API key (required)
+# Configure API key
 cp .env.example .env
 # Edit .env — add your Anthropic API key:
 #   ANTHROPIC_API_KEY=sk-ant-your-key-here
-# Get a key at https://console.anthropic.com → API Keys → Create Key
+#   HUB_SECRET=poke-secret
 
-# 2. Start everything
-docker compose up --build
+# Run autonomous multi-hub federation
+node hex/autonomous.js
+```
 
-# 3. Open dashboard
+The system boots 9 QEMU bare-metal edges across 3 sites (Office, Factory, Warehouse), starts 3 independent hubs, and begins autonomous monitoring. No human input needed — the LLM detects anomalies and executes corrective actions:
+
+```
+═══ Cycle 1 ═══
+  Office       entrance:26.2C  workspace:27.2C  server-room:26C
+  Factory      line-1:26C  line-2:26.8C  quality:27C
+  Warehouse    dock:25.6C  storage:27.4C  cold-room:26C
+  HEX: All clear ✓
+
+═══ Cycle 2 ═══
+  server-room: 31C!
+  HEX: "위험! 쿨링팬 켠다"
+  >>> ACTION: office-server-room GPIO 0 = 1 — {"pin":0,"value":1} ✅
+```
+
+### Other modes
+
+```bash
+node hex/cli.js              # Interactive chat with 10 edges
+node hex/federation.js       # Multi-hub with @hub targeting
+node hex/simulator.js        # Dynamic events simulation
+node hex/scenarios.js        # Run 8 automated LLM decision tests
+```
+
+### 2. Docker (x86 single edge)
+
+```bash
+docker compose up --build    # x86 kernel + hub + dashboard
 open http://localhost:3333/ui
 ```
 
-That's it. Docker compiles the x86 kernel from source, boots it in QEMU, starts the hub, and registers the edge automatically.
-
-### ESP32-C3 Serial Demo
+### 3. ESP32-C3 Serial Demo
 
 Real hardware (ESP32-C3 RISC-V) connected via USB serial — hub compiles RISC-V assembly, sends binary over serial, ESP32 executes bare-metal and returns the result:
 
@@ -130,38 +161,16 @@ Real hardware (ESP32-C3 RISC-V) connected via USB serial — hub compiles RISC-V
   <img src="demo/serial-pipeline.gif" alt="ESP32-C3 Serial Pipeline Demo" width="720">
 </p>
 
-### Pi Zero W (ARMv6 Bare Metal)
+### Configuration
 
-Real Raspberry Pi Zero W running POKE kernel — 2.8KB bare-metal, verified on hardware:
-- ACT LED heartbeat (GPIO47)
-- POKE protocol over Mini UART (115200 baud)
-- Code injection with I-cache flush
-- GPIO read/write, virtual temperature sensor
+| Variable | Required | Description |
+|----------|:--------:|-------------|
+| `ANTHROPIC_API_KEY` | Yes | Claude API key ([get one here](https://console.anthropic.com/)) |
+| `HUB_SECRET` | No | Bearer token for hub authentication |
+| `LOG_LEVEL` | No | `debug`, `info` (default), `warn`, `error` |
+| `PORT` | No | Hub port (default: 3333) |
 
-| Service | Port | What it does |
-|---------|------|-------------|
-| **Edge** | 8080 | Bare-metal x86 OS in QEMU (kernel built from source) |
-| **Hub** | 3333 | LLM agent server (connects to Claude API) |
-| **Dashboard** | 3333/ui | Web UI — manage edges, send commands, view results |
-| **Incubation** | 3333/devices | PCI device discovery + assembly sketch library |
-| **Scenarios** | 3333/scenario | Server Room / Factory / Goal Mode simulations |
-| **Setup** | — | Auto-registers edge with hub, then exits |
-
-> **Platform:** macOS, Linux x86_64, Windows (via WSL2 + Docker Desktop).
-
-### Using the Dashboard
-
-1. **Open** `http://localhost:3333/ui`
-2. **Edge cards** appear at top — click one to view its devices and tasks
-3. **⚙ Settings** — click the gear icon to set an alias (e.g. "cleanroom", "etch-chamber")
-4. **Scan Devices** — auto-detects hardware on the edge, creates device profiles
-5. **Command bar** — type natural language, AI generates code and executes on the edge
-
-```
-Hub mode (no edge selected):  AI routes to the right edge automatically
-Edge mode (card selected):    Commands target that specific edge
-Click selected card again:    Switches back to Hub mode
-```
+> **Platform:** macOS (Apple Silicon / Intel), Linux x86_64. Requires QEMU and cross-compilers for kernel builds.
 
 ### Example Commands
 
@@ -175,15 +184,6 @@ Click selected card again:    Switches back to Hub mode
 ```
 
 Each command shows the **execution flow**: which tools were called, what assembly was generated, which edge executed it, and the result.
-
-### Configuration
-
-| Variable | Required | Description |
-|----------|:--------:|-------------|
-| `ANTHROPIC_API_KEY` | Yes | Claude API key ([get one here](https://console.anthropic.com/)) |
-| `HUB_SECRET` | No | Bearer token for hub authentication |
-| `LOG_LEVEL` | No | `debug`, `info` (default), `warn`, `error` |
-| `PORT` | No | Hub port (default: 3333) |
 
 ---
 
