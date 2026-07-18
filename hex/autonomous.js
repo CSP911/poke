@@ -134,80 +134,90 @@ async function boot() {
   return { alive, enrolled }
 }
 
-// ── Collect: gather sensor data from all hubs ──
+// ── Collect: direct TCP sensor reads (no LLM, fast) ──
 
 async function collectAll() {
+  const serial = require(path.join(ROOT, 'hub', 'serial'))
   const siteData = []
 
   for (const hub of config.hubs) {
-    const site = { hub: hub.id, name: hub.name, edges: [] }
+    const site = { hub: hub.id, name: hub.name, port: hub.port, edges: [] }
 
     for (const edge of hub.edges) {
-      const from = `${hub.id}-${edge.id}`
+      const fullId = `${hub.id}-${edge.id}`
+      const endpoint = `tcp://127.0.0.1:${edge.port}`
+      let temp = null
       try {
-        const r = await httpPost(hub.port, '/relay', {
-          from, command: `read_sensor temp for ${from}`
-        })
-        // Extract temp from steps
-        const tempStep = r.steps?.find(s => s.tool === 'read_sensor')
-        let temp = null
-        if (tempStep?.result) {
-          try { temp = JSON.parse(tempStep.result)?.celsius } catch {}
-        }
-        // Simulate rising temperature in server-room and cold-room
-        if (edge.id === 'server-room' && cycle >= 2) temp = 28 + cycle * 1.5
-        if (edge.id === 'cold-room' && cycle >= 3) temp = 27 + cycle * 2
-        site.edges.push({ id: edge.id, fullId: from, temp, sensors: edge.sensors })
-      } catch {
-        site.edges.push({ id: edge.id, fullId: from, temp: null, sensors: edge.sensors })
-      }
+        const raw = await serial.serialTemp(endpoint)
+        try { temp = JSON.parse(raw)?.celsius } catch {}
+      } catch {}
+
+      // Simulate rising temperature for demo
+      if (edge.id === 'server-room' && cycle >= 2) temp = 28 + cycle * 1.5
+      if (edge.id === 'cold-room' && cycle >= 3) temp = 27 + cycle * 2
+
+      const hasRelay = edge.sensors.some(s => s.includes('relay'))
+      site.edges.push({ id: edge.id, fullId, temp, sensors: edge.sensors, hasRelay })
     }
     siteData.push(site)
   }
   return siteData
 }
 
-// ── Analyze: LLM decides what to do ──
+// ── Orchestrator: 1 LLM call → targeted execution ──
 
-async function analyze(siteData) {
+async function orchestrate(siteData) {
   // Build situation report
-  let report = `[HEX Federation Status Report — Cycle ${cycle}]\n\n`
+  let report = `[HEX Orchestrator — Cycle ${cycle}]\n\n`
+  report += `너는 전체 연합 시스템의 오케스트레이터다. 3개 사이트의 데이터를 보고 판단하라.\n\n`
+
   for (const site of siteData) {
-    report += `Site: ${site.name} (${site.hub})\n`
+    report += `Site: ${site.name} (hub: ${site.hub}, port: ${site.port})\n`
     for (const edge of site.edges) {
-      const tempStr = edge.temp !== null ? `${edge.temp}C` : 'N/A'
-      report += `  ${edge.fullId}: ${tempStr} [${edge.sensors.join(', ')}]\n`
+      const tempStr = edge.temp !== null ? `${edge.temp.toFixed ? edge.temp.toFixed(1) : edge.temp}C` : 'N/A'
+      const relay = edge.hasRelay ? 'relay:YES' : 'relay:NO'
+      report += `  ${edge.fullId}: ${tempStr} [${edge.sensors.join(', ')}] ${relay}\n`
     }
     report += '\n'
   }
 
-  report += `이 데이터를 분석하고 자율적으로 판단하라:
+  report += `규칙:
+- 28C 이상 = 주의, 30C 이상 = 위험
+- 위험한 엣지에 relay가 있으면 → set_gpio target=엣지ID pin=0 value=1 로 팬을 켜라
+- relay가 없으면 → "수동 조치 필요" 보고
+- 정상이면 → "All clear" 한 줄
 
-1. 위험한 엣지가 있는가? (28C 이상 = 주의, 30C 이상 = 위험)
-2. 조치가 필요하면 즉시 set_gpio로 릴레이(쿨링팬/환기팬)를 직접 켜라.
-   - 릴레이가 있는 엣지: relay_2ch 또는 relay_4ch 센서가 있는 엣지
-   - 팬 켜기: set_gpio pin=0 value=1 (ON), 끄기: value=0
-3. 조치했으면 뭘 했는지 보고하라.
-4. 정상이면 "All clear" 한 줄로 끝내라.
+중요: 조치가 필요하면 해당 엣지의 set_gpio를 직접 호출하라!
+한국어로 간결하게 답변.`
 
-중요: 말만 하지 말고, 필요하면 set_gpio 도구를 직접 호출해서 실행하라!
-한국어로 답변.`
+  // Single LLM call via the orchestrator hub (first hub)
+  const orchHub = config.hubs[0]
+  const from = `${orchHub.id}-${orchHub.edges[0].id}`
 
-  // Send to each hub — each hub acts on its own edges
-  const results = []
+  // First, make sure orchestrator hub knows all edge IDs
+  // Register remote edges as virtual nodes on orchestrator hub
   for (const hub of config.hubs) {
-    const from = `${hub.id}-${hub.edges[0].id}`
-    try {
-      const r = await httpPost(hub.port, '/relay', { from, command: report })
-      results.push({ hub: hub.id, name: hub.name, ...r })
-    } catch (e) {
-      results.push({ hub: hub.id, name: hub.name, error: e.message })
+    if (hub.id === orchHub.id) continue
+    for (const edge of hub.edges) {
+      try {
+        await httpPost(orchHub.port, `/enroll?token=${HUB_SECRET}`, {
+          node_id: `${hub.id}-${edge.id}`,
+          endpoint: `tcp://127.0.0.1:${edge.port}`,
+          arch: 'riscv32', memory_mb: 32,
+          capabilities: ['exec', 'gpio', 'temp'],
+          sensors: edge.sensors,
+        })
+      } catch {}
     }
   }
-  return results
-}
 
-// executeDecision removed — LLM now executes actions directly via set_gpio in analyze()
+  try {
+    const r = await httpPost(orchHub.port, '/relay', { from, command: report })
+    return r
+  } catch (e) {
+    return { error: e.message }
+  }
+}
 
 // ── Autonomous Loop ──
 
@@ -229,37 +239,25 @@ async function autonomousLoop() {
     console.log(`    ${site.name.padEnd(12)} ${temps}`)
   }
 
-  // 2. Analyze + Act (LLM decides AND executes)
-  process.stdout.write('  Analyzing + acting...')
-  const results = await analyze(siteData)
+  // 2. Orchestrate: single LLM call → targeted actions
+  process.stdout.write('  Orchestrator deciding...')
+  const result = await orchestrate(siteData)
   console.log(' done\n')
 
-  let totalActions = 0
-  for (const r of results) {
-    const actions = r.steps?.filter(s => s.tool === 'set_gpio').length || 0
-    totalActions += actions
-    const actionMark = actions > 0 ? ` [${actions} actions!]` : ''
+  if (result.result) {
+    result.result.split('\n').forEach(l => console.log(`  HEX: ${l}`))
 
-    if (r.result) {
-      console.log(`  ── ${r.name} ──${actionMark}`)
-      r.result.split('\n').forEach(l => console.log(`  ${l}`))
-
-      // Log actual GPIO changes
-      if (r.steps) {
-        for (const s of r.steps) {
-          if (s.tool === 'set_gpio') {
-            console.log(`  >>> ACTION: ${s.input?.target} GPIO ${s.input?.pin} = ${s.input?.value} — ${s.result}`)
-          }
-        }
-      }
+    // Log actions
+    const actions = result.steps?.filter(s => s.tool === 'set_gpio') || []
+    if (actions.length > 0) {
       console.log('')
-    } else if (r.error) {
-      console.log(`  ── ${r.name} ── Error: ${r.error}\n`)
+      for (const a of actions) {
+        console.log(`  >>> ACTION: ${a.input?.target} GPIO ${a.input?.pin} = ${a.input?.value} — ${a.result}`)
+      }
+      console.log(`\n  *** ${actions.length} autonomous actions executed ***`)
     }
-  }
-
-  if (totalActions > 0) {
-    console.log(`  *** ${totalActions} autonomous actions executed this cycle ***`)
+  } else if (result.error) {
+    console.log(`  HEX: Error — ${result.error}`)
   }
 }
 
