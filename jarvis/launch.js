@@ -19,9 +19,9 @@ const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), '
 
 // Binary paths
 const BINS = {
-  rv32:  path.join(ROOT, 'rv32', 'poke-rv32.bin'),
-  arm64: path.join(ROOT, 'arm', 'poke-arm.bin'),
-  armv6: path.join(ROOT, 'pi0w', 'poke-pi0w-qemu.bin'),
+  rv32:  path.join(ROOT, 'kernel', 'rv32', 'poke-rv32.bin'),
+  arm64: path.join(ROOT, 'kernel', 'arm64', 'poke-arm.bin'),
+  armv6: path.join(ROOT, 'kernel', 'pi0w', 'poke-pi0w-qemu.bin'),
 }
 
 // QEMU commands per arch

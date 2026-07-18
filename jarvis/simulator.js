@@ -24,7 +24,7 @@ require('dotenv').config({ path: path.join(ROOT, '.env') })
 
 const HUB_PORT = parseInt(process.env.PORT) || 3333
 const HUB_SECRET = process.env.HUB_SECRET || 'poke-secret'
-const RV32_BIN = path.join(ROOT, 'rv32', 'poke-rv32.bin')
+const RV32_BIN = path.join(ROOT, 'kernel', 'rv32', 'poke-rv32.bin')
 
 const processes = []
 let hubProc = null
@@ -213,7 +213,7 @@ async function chat(command) {
 
 async function setup() {
   // Build
-  if (!fs.existsSync(RV32_BIN)) execSync(`make -C ${path.join(ROOT, 'rv32')}`, { stdio: 'pipe' })
+  if (!fs.existsSync(RV32_BIN)) execSync(`make -C ${path.join(ROOT, 'kernel', 'rv32')}`, { stdio: 'pipe' })
 
   // Edges
   for (const edge of config.edges) {

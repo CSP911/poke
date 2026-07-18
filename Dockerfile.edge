@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY kernel/ ./kernel/
+COPY kernel/x86/ ./kernel/
 COPY Makefile ./
 
 # Build using native gcc (x86_64 → i386 via -m32 workaround)

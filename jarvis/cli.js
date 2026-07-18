@@ -27,7 +27,7 @@ const HUB_PORT = parseInt(process.env.PORT) || 3333
 const HUB_SECRET = process.env.HUB_SECRET || 'poke-secret'
 const HUB_URL = `http://localhost:${HUB_PORT}`
 
-const RV32_BIN = path.join(ROOT, 'rv32', 'poke-rv32.bin')
+const RV32_BIN = path.join(ROOT, 'kernel', 'rv32', 'poke-rv32.bin')
 const processes = []
 let hubProc = null
 
@@ -36,7 +36,7 @@ let hubProc = null
 function ensureBinary() {
   if (fs.existsSync(RV32_BIN)) return
   console.log('  Building RV32 kernel...')
-  execSync(`make -C ${path.join(ROOT, 'rv32')}`, { stdio: 'pipe' })
+  execSync(`make -C ${path.join(ROOT, 'kernel', 'rv32')}`, { stdio: 'pipe' })
 }
 
 function waitForPort(port, timeoutMs) {
