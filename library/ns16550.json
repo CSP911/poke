@@ -1,0 +1,27 @@
+{
+  "id": "ns16550",
+  "name": "NS16550 UART",
+  "chip": null,
+  "arch": null,
+  "match": { "vendor_device": "ISA:COM1" },
+  "description": "Standard 16550 UART. Used for serial communication on x86, QEMU virt (RV32/ARM), and many embedded systems.",
+  "interface": "pio_or_mmio",
+  "registers": {
+    "THR": { "offset": "0x00", "desc": "Transmit Holding Register (write)" },
+    "RBR": { "offset": "0x00", "desc": "Receive Buffer Register (read)" },
+    "IER": { "offset": "0x01", "desc": "Interrupt Enable Register" },
+    "IIR": { "offset": "0x02", "desc": "Interrupt Identification Register (read)" },
+    "FCR": { "offset": "0x02", "desc": "FIFO Control Register (write)" },
+    "LCR": { "offset": "0x03", "desc": "Line Control Register (8N1 = 0x03)" },
+    "MCR": { "offset": "0x04", "desc": "Modem Control Register" },
+    "LSR": { "offset": "0x05", "desc": "Line Status Register (bit0=data ready, bit5=THR empty)" },
+    "MSR": { "offset": "0x06", "desc": "Modem Status Register" },
+    "DLL": { "offset": "0x00", "desc": "Divisor Latch Low (when DLAB=1)" },
+    "DLH": { "offset": "0x01", "desc": "Divisor Latch High (when DLAB=1)" }
+  },
+  "operations": [
+    { "name": "read_char", "desc": "Read one character from UART RX", "type": "serial", "protocol": "register_read", "registers": ["RBR"], "tags": ["serial", "uart", "rx"] },
+    { "name": "write_char", "desc": "Write one character to UART TX", "type": "serial", "protocol": "register_write", "registers": ["THR"], "tags": ["serial", "uart", "tx"] },
+    { "name": "read_status", "desc": "Read line status (data ready, TX empty)", "type": "serial", "protocol": "register_read", "registers": ["LSR"], "tags": ["serial", "status"] }
+  ]
+}

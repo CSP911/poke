@@ -1,0 +1,30 @@
+{
+  "id": "intel_e1000",
+  "name": "Intel 82540EM Gigabit Ethernet (e1000)",
+  "chip": null,
+  "arch": null,
+  "match": { "vendor_device": "8086:100E" },
+  "description": "Intel e1000 NIC. MMIO register access via BAR0. Common in QEMU virtual machines.",
+  "interface": "mmio",
+  "registers": {
+    "CTRL":   { "offset": "0x0000", "desc": "Device Control" },
+    "STATUS": { "offset": "0x0008", "desc": "Device Status (bit1=link up)" },
+    "ICR":    { "offset": "0x00C0", "desc": "Interrupt Cause Read" },
+    "RDBAL":  { "offset": "0x2800", "desc": "RX Descriptor Base Address Low" },
+    "TDBAL":  { "offset": "0x3800", "desc": "TX Descriptor Base Address Low" },
+    "RDH":    { "offset": "0x2810", "desc": "RX Descriptor Head" },
+    "TDH":    { "offset": "0x3810", "desc": "TX Descriptor Head" },
+    "RAL":    { "offset": "0x5400", "desc": "Receive Address Low (MAC bytes 0-3)" },
+    "RAH":    { "offset": "0x5404", "desc": "Receive Address High (MAC bytes 4-5)" },
+    "GPRC":   { "offset": "0x4074", "desc": "Good Packets Received Count" },
+    "GPTC":   { "offset": "0x4080", "desc": "Good Packets Transmitted Count" },
+    "GORCL":  { "offset": "0x4088", "desc": "Good Octets Received Count Low" },
+    "GOTCL":  { "offset": "0x4090", "desc": "Good Octets Transmitted Count Low" },
+    "RLEC":   { "offset": "0x4040", "desc": "Receive Length Error Count" }
+  },
+  "operations": [
+    { "name": "read_mac", "desc": "Read MAC address from RAL+RAH", "type": "network", "protocol": "register_read", "registers": ["RAL", "RAH"], "tags": ["mac", "network", "identity"] },
+    { "name": "read_status", "desc": "Read link status (bit1=link up)", "type": "network", "protocol": "register_read", "registers": ["STATUS"], "tags": ["link", "status", "network"] },
+    { "name": "read_stats", "desc": "Read packet/byte counters", "type": "network", "protocol": "register_read", "registers": ["GPRC", "GPTC", "GORCL", "GOTCL"], "tags": ["statistics", "network"] }
+  ]
+}

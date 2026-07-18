@@ -1,0 +1,15 @@
+{
+  "id": "fab_cleanroom",
+  "name": "Clean Room Environment Controller",
+  "chip": null,
+  "arch": null,
+  "match": { "vendor_device": "FAB:CR01" },
+  "description": "Wafer fab clean room monitoring — temperature, humidity, particle count, differential pressure, HEPA status.",
+  "interface": "virtual",
+  "operations": [
+    { "name": "read_temperature", "desc": "Read clean room temperature (target: 21.0 +/- 0.1 C)", "type": "sensor", "protocol": "register_read", "tags": ["temperature", "cleanroom", "fab"] },
+    { "name": "read_humidity", "desc": "Read relative humidity (target: 45 +/- 5%)", "type": "sensor", "protocol": "register_read", "tags": ["humidity", "cleanroom", "fab"] },
+    { "name": "read_particle_count", "desc": "Read particle count per cubic meter (Class 100 target)", "type": "sensor", "protocol": "register_read", "tags": ["particle", "cleanroom", "fab"] },
+    { "name": "read_pressure", "desc": "Read differential pressure (positive pressure required)", "type": "sensor", "protocol": "register_read", "tags": ["pressure", "cleanroom", "fab"] }
+  ]
+}

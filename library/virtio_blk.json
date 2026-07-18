@@ -1,0 +1,21 @@
+{
+  "id": "virtio_blk",
+  "name": "VirtIO Block Device",
+  "chip": null,
+  "arch": null,
+  "match": { "vendor_device": "1AF4:1001" },
+  "description": "Virtual block storage device (VirtIO). Used in QEMU for persistent disk access.",
+  "interface": "mmio",
+  "registers": {
+    "DEVICE_FEATURES": { "offset": "0x00", "desc": "Device features bits" },
+    "QUEUE_SIZE":      { "offset": "0x0C", "desc": "Queue size" },
+    "QUEUE_SEL":       { "offset": "0x14", "desc": "Queue select" },
+    "STATUS":          { "offset": "0x12", "desc": "Device status" },
+    "CAPACITY_LOW":    { "offset": "0x14", "desc": "Disk capacity (low 32 bits, in 512B sectors)" },
+    "CAPACITY_HIGH":   { "offset": "0x18", "desc": "Disk capacity (high 32 bits)" }
+  },
+  "operations": [
+    { "name": "read_capacity", "desc": "Read disk capacity in sectors", "type": "storage", "protocol": "register_read", "registers": ["CAPACITY_LOW", "CAPACITY_HIGH"], "tags": ["disk", "capacity", "storage"] },
+    { "name": "read_status", "desc": "Read device status", "type": "storage", "protocol": "register_read", "registers": ["STATUS"], "tags": ["status", "storage"] }
+  ]
+}

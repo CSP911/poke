@@ -1,18 +1,18 @@
 {
-  "_comment": "POKE Device Library Index — modular: chip base + sensor/actuator modules",
-  "_version": "2.0",
+  "_comment": "POKE Device Library Index — architecture-neutral, modular",
+  "_version": "3.0",
 
   "by_chip": {
     "esp32c3": ["esp32c3_base"],
-    "bcm2835": ["bcm2835_base"],
-    "esp32s3": ["esp32s3_base"],
-    "esp32":   ["esp32_base"]
+    "bcm2835": ["bcm2835_base"]
   },
 
   "by_vendor_device": {
     "8086:100E": ["intel_e1000"],
     "1AF4:1001": ["virtio_blk"],
-    "1234:1111": ["qemu_vga"]
+    "ISA:COM1":  ["ns16550"],
+    "FAB:CR01":  ["fab_cleanroom"],
+    "FAB:ET01":  ["fab_etch"]
   },
 
   "by_sensor": {

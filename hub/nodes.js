@@ -22,57 +22,10 @@ function enrollNode(nodeData) {
   return _registryLock
 }
 
-// ── Device profile DB ──
+// ── Device profiles (deprecated — use library/ instead) ──
 const profiles = new Map()
-
-const REQUIRED_PROFILE_FIELDS = ['vendor_device', 'name', 'type']
-
-function validateProfile(p, filename) {
-  for (const field of REQUIRED_PROFILE_FIELDS) {
-    if (!p[field]) {
-      log.warn(`[profiles] ${filename}: missing required field "${field}", skipping`)
-      return false
-    }
-  }
-  if (p.operations && !Array.isArray(p.operations)) {
-    log.warn(`[profiles] ${filename}: "operations" must be an array, skipping`)
-    return false
-  }
-  if (p.operations) {
-    for (let i = 0; i < p.operations.length; i++) {
-      const op = p.operations[i]
-      if (!op.name || !op.asm) {
-        log.warn(`[profiles] ${filename}: operation[${i}] missing "name" or "asm", skipping operation`)
-        p.operations.splice(i, 1)
-        i--
-      }
-    }
-  }
-  return true
-}
-
-function loadProfiles() {
-  const dir = path.join(__dirname, '..', 'profiles')
-  if (!fs.existsSync(dir)) return
-  for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.json'))) {
-    try {
-      const p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
-      if (validateProfile(p, f)) {
-        profiles.set(p.vendor_device, p)
-      }
-    } catch (e) {
-      log.warn(`[profiles] failed to load ${f}: ${e.message}`)
-    }
-  }
-  log.info(`[profiles] loaded ${profiles.size} device profiles`)
-}
-
-function getProfileSummary() {
-  if (profiles.size === 0) return 'No device profiles loaded.'
-  return [...profiles.values()].map(p =>
-    `${p.vendor_device} ${p.name} (${p.type}) BAR0=0x${(p.bar0?.address >>> 0).toString(16)}`
-  ).join('\n')
-}
+function loadProfiles() { /* no-op: profiles/ replaced by library/ */ }
+function getProfileSummary() { return 'Profiles deprecated. Use library.' }
 
 // ── Health check + resource monitoring (every 5s) ──
 const edgeHistory = new Map()
@@ -159,6 +112,5 @@ module.exports = {
   getProfileSummary,
   startHealthCheck,
   stopHealthCheck,
-  validateProfile,
   setMonitorTriggerCallback,
 }

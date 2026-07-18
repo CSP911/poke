@@ -1,0 +1,15 @@
+{
+  "id": "fab_etch",
+  "name": "Plasma Etch Chamber",
+  "chip": null,
+  "arch": null,
+  "match": { "vendor_device": "FAB:ET01" },
+  "description": "Semiconductor plasma etch chamber — RF power, gas flow, chamber pressure, wafer temperature.",
+  "interface": "virtual",
+  "operations": [
+    { "name": "read_rf_power", "desc": "Read RF power output (watts)", "type": "sensor", "protocol": "register_read", "tags": ["rf", "power", "etch", "fab"] },
+    { "name": "read_gas_flow", "desc": "Read process gas flow rate (sccm)", "type": "sensor", "protocol": "register_read", "tags": ["gas", "flow", "etch", "fab"] },
+    { "name": "read_chamber_pressure", "desc": "Read chamber pressure (mTorr)", "type": "sensor", "protocol": "register_read", "tags": ["pressure", "vacuum", "etch", "fab"] },
+    { "name": "read_wafer_temp", "desc": "Read wafer chuck temperature", "type": "sensor", "protocol": "register_read", "tags": ["temperature", "wafer", "etch", "fab"] }
+  ]
+}

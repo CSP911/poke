@@ -177,7 +177,7 @@ async function runTests() {
   {
     const indexPath = path.join(__dirname, '..', 'library', 'index.json')
     const index = JSON.parse(fs.readFileSync(indexPath, 'utf8'))
-    assertEq(index._version, '2.0', 'index version is 2.0')
+    assertEq(index._version, '3.0', 'index version is 3.0')
     assert(index.by_chip, 'index has by_chip')
     assert(index.by_sensor, 'index has by_sensor')
     assert(index.by_vendor_device, 'index has by_vendor_device')
