@@ -412,111 +412,71 @@ Raw bytes     → code execution → returns eax value
 
 ```
 poke/
-├── kernel/                   x86 bare-metal kernel (27KB)
-│   ├── kernel.c              TCP/IP + HTTP + VirtIO + PCI scan + scheduler
-│   ├── boot.asm              Bootloader (Real Mode → Protected Mode, 54 sectors)
-│   ├── kernel_entry.asm      BSS init + C entry point
-│   └── linker.ld             Linker script
+├── kernel/                   Bare-metal kernels (6 architectures)
+│   ├── x86/                  x86 (QEMU, Docker) — TCP/IP + HTTP + VirtIO
+│   ├── arm64/                ARM64 (QEMU virt) — PL011 UART
+│   ├── rv32/                 RISC-V 32 (QEMU virt) — NS16550 UART
+│   ├── pi0w/                 Pi Zero W (real HW + QEMU) — Mini UART
+│   ├── pi4/                  Pi 4 (real HW) — PL011 UART
+│   └── esp32c3/              ESP32-C3 (Direct Boot) — USB-Serial/JTAG
 │
-├── arm/                      ARM64 bare-metal kernel (QEMU virt)
-│   ├── kernel.c              UART + serial protocol + GPIO + TEMP + EVNT + audio
-│   ├── start.S               ARM64 entry
-│   └── Makefile
-│
-├── rv32/                     RV32 bare-metal kernel (QEMU virt, no FreeRTOS)
-│   ├── kernel.c              NS16550 UART + POKE protocol + GPIO + TEMP + EVNT
-│   ├── start.S               RISC-V entry
-│   ├── linker.ld             Linker script (0x80000000)
-│   └── Makefile
-│
-├── esp32c3/                   ESP32-C3 bare-metal kernel (Direct Boot, 3.5KB)
-│   ├── kernel.c              USB-Serial/JTAG + POKE protocol + code injection
-│   ├── start.S               RISC-V entry (Direct Boot @ 0x42000008)
-│   ├── linker.ld             Flash→IRAM/DRAM mapping
-│   └── Makefile              Build + flash via esptool
-│
-├── esp32/                     ESP32-C3 FreeRTOS edge (legacy, USB serial)
-│   ├── main/poke_edge_uart.c  USB-Serial/JTAG + POKE protocol + temp sensor
-│   ├── main/poke_edge.c       WiFi HTTP mode (alternative)
-│   ├── Dockerfile             ESP-IDF v5.4 Docker build
-│   └── main/Kconfig.projbuild UART/WiFi mode selection
-│
-├── src/
+├── src/                      Built-in assemblers (zero deps)
 │   ├── hub.js                Hub entry point
-│   ├── asm.js                Built-in x86 assembler (zero deps)
-│   ├── asm_rv.js             Built-in RISC-V assembler (RV32IM, zero deps)
-│   ├── asm_arm.js            Built-in ARM64 assembler (zero deps)
-│   └── asm_armv6.js          Built-in ARMv6 assembler (ARM 32-bit, zero deps)
+│   ├── asm.js                x86 assembler
+│   ├── asm_arm.js            ARM64 assembler
+│   ├── asm_armv6.js          ARMv6 assembler (Pi Zero W)
+│   └── asm_rv.js             RISC-V assembler (RV32IM)
 │
 ├── hub/                      Hub modules
-│   ├── server.js             HTTP routing + auth + scenario APIs
-│   ├── agent.js              Agent loop + 20+ tool definitions
-│   ├── llm.js                LLM API calls
-│   ├── compiler.js           Assembly compilation + guard rail
-│   ├── transport.js           Edge communication (HTTP, MON, RES, STP, DIE, CTX)
-│   ├── serial.js             USB serial transport (POKE frame protocol)
-│   ├── nodes.js              Node registry + profiles + monitor triggers
-│   ├── memory.js             JARVIS memory (monthly files, index, patterns)
+│   ├── server.js             HTTP routing + auth
+│   ├── agent.js              LLM agent loop + tool definitions
+│   ├── serial.js             Serial + TCP transport (POKE frame protocol)
 │   ├── library.js            Device library — modular matching + auto-incubation
-│   ├── incubate.js           Device incubation engine (PCI → sketches → profiles)
-│   ├── asmcache.js           Assembly template cache (reusable parameterized code)
-│   ├── goal.js               Goal-based autonomous control loops
-│   ├── scenario-env.js       Scenario environment auto-provisioning
-│   ├── trace.js              Real-time SSE event tracing
-│   ├── sketches.json         Assembly sketch library (14 templates)
+│   ├── compiler.js           Assembly compilation + guard rail
+│   ├── transport.js          Edge communication (HTTP)
+│   ├── nodes.js              Node registry + health check
+│   ├── memory.js             Persistent memory (monthly files, patterns)
 │   └── logger.js             Structured logging
 │
-├── web/
-│   ├── dashboard/index.html  Hub management dashboard
-│   ├── scenario/index.html   Scenario test UI (Server Room / Factory / Goal Mode)
-│   ├── devices/index.html    Device incubation + assembly library UI
-│   ├── mobile.html           Browser edge (voice UI + canvas)
-│   └── playground/           Browser bare-metal (v86 + NE2000)
+├── library/                  Device library (17 entries, architecture-neutral)
+│   ├── index.json            Device ID → entry mapping (v3.0)
+│   ├── esp32c3_base.json     ESP32-C3 chip base
+│   ├── bcm2835_base.json     Pi Zero W chip base
+│   ├── intel_e1000.json      Intel NIC (register map)
+│   ├── virtio_blk.json       VirtIO block device
+│   ├── ns16550.json          NS16550 UART
+│   ├── dht22.json            Temperature/humidity sensor
+│   ├── bmp280.json           Barometric pressure sensor
+│   ├── bh1750.json           Ambient light sensor (lux)
+│   ├── mq135.json            Air quality gas sensor
+│   ├── mpu6050.json          6-axis IMU (accel + gyro)
+│   ├── hcsr501.json          PIR motion sensor
+│   ├── relay_2ch.json        2-channel relay
+│   ├── relay_4ch.json        4-channel relay
+│   ├── ir_transmitter.json   IR blaster (NEC/Samsung)
+│   ├── ssd1306.json          OLED display (128x64)
+│   └── fab_*.json            Factory simulation (cleanroom, etch)
 │
-├── library/                 Modular device library (chip base + sensor modules)
-│   ├── index.json           Device ID → entry mapping
-│   ├── esp32c3_base.json    ESP32-C3 chip (GPIO, TEMP, EXEC, monitors)
-│   ├── dht22.json           DHT22 sensor (chip-independent)
-│   ├── bmp280.json          BMP280 sensor (chip-independent)
-│   ├── hcsr501.json         PIR motion sensor (chip-independent)
-│   ├── relay_2ch.json       2-channel relay (chip-independent)
-│   ├── bcm2835_base.json   BCM2835/Pi Zero W chip (GPIO, WiFi SDIO, Camera CSI)
-│   └── mpu6050.json         MPU-6050 6-axis IMU sensor (chip-independent)
+├── hex/                      HEX — Hub-Edge eXecutor
+│   ├── cli.js                Interactive CLI (10 edges)
+│   ├── simulator.js          Live simulation (dynamic events)
+│   ├── federation.js         Multi-hub interactive (3 hubs × 3 edges)
+│   ├── autonomous.js         Self-operating orchestrator (no human input)
+│   ├── scenarios.js          LLM decision tests (8 scenarios)
+│   ├── config.json           10-edge configuration
+│   └── federation.json       3-hub federation configuration
 │
-├── pi0w/                     Pi Zero W bare-metal kernel (BCM2835, ARMv6)
-│   ├── kernel.c              Mini UART + POKE protocol + GPIO + TEMP + EXEC
-│   ├── kernel_minimal.c      252-byte LED test kernel (verified on hardware)
-│   ├── start.S               ARMv6 entry
-│   ├── linker.ld             Kernel at 0x8000
-│   └── config.txt            UART enable, kernel=kernel.img
+├── test/                     480+ automated tests
+│   ├── asm*.test.js          Assembler tests (x86, ARM64, ARMv6, RV32)
+│   ├── hub.test.js           Hub endpoint tests
+│   ├── library.test.js       Device library tests (207)
+│   ├── qemu.test.js          QEMU integration tests (20)
+│   └── serial.test.js        ESP32 serial pipeline tests
 │
-├── pi4/                      Pi 4 bare-metal kernel (BCM2711, AArch64)
-│   ├── kernel.c              PL011 UART + POKE protocol
-│   ├── start.S               AArch64 entry at 0x80000
-│   └── config.txt            64-bit mode, kernel=kernel8.img
-│
-├── profiles/                 Device profile database (26 profiles, x86 legacy)
-├── test/                     388+ automated tests
-│   ├── asm.test.js           x86 assembler (45 tests)
-│   ├── asm_arm.test.js       ARM64 assembler (49 tests)
-│   ├── asm_rv.test.js        RISC-V assembler (58 tests)
-│   ├── asm_armv6.test.js     ARMv6 assembler (66 tests)
-│   ├── hub.test.js           Hub endpoints (35 tests)
-│   ├── serial.test.js        ESP32 serial pipeline (16 tests)
-│   ├── library.test.js       Device library matching + tools (135 tests)
-│   ├── esp32c3-bare.test.js  ESP32-C3 bare-metal hardware (26 tests)
-│   └── integration.test.js   Full pipeline: QEMU boot → exec → persist → DIE (24 tests)
-│
-├── demo/
-│   ├── serial-demo.sh        ESP32 serial pipeline demo script
-│   ├── serial-pipeline.cast  asciinema recording
-│   └── serial-pipeline.gif   Demo GIF for README
-│
-├── Dockerfile.hub            Hub container (Node.js + nasm + docker CLI)
-├── Dockerfile.edge           Edge container (QEMU + VirtIO disk)
-├── docker-compose.yml        One-command startup
-├── docker-compose.factory.yml 3-line factory simulation
-└── LICENSE                   Apache 2.0
+├── web/                      Dashboard UI
+├── demo/                     Demo recordings
+├── docs/                     Documentation + patents
+└── docker-compose.yml        One-command Docker startup
 ```
 
 ---
