@@ -154,6 +154,9 @@ async function collectAll() {
         if (tempStep?.result) {
           try { temp = JSON.parse(tempStep.result)?.celsius } catch {}
         }
+        // Simulate rising temperature in server-room and cold-room
+        if (edge.id === 'server-room' && cycle >= 2) temp = 28 + cycle * 1.5
+        if (edge.id === 'cold-room' && cycle >= 3) temp = 27 + cycle * 2
         site.edges.push({ id: edge.id, fullId: from, temp, sensors: edge.sensors })
       } catch {
         site.edges.push({ id: edge.id, fullId: from, temp: null, sensors: edge.sensors })
@@ -178,46 +181,33 @@ async function analyze(siteData) {
     report += '\n'
   }
 
-  report += `Based on this data, analyze the situation and decide:
-1. Are any sites or edges in danger? (overheating, gas leak, anomaly)
-2. Should any cross-site action be taken? (reroute, shutdown, alert)
-3. Are there optimization opportunities? (energy saving, load balancing)
+  report += `이 데이터를 분석하고 자율적으로 판단하라:
 
-If action is needed, specify which hub and edge to target.
-If everything is normal, say "All clear" briefly.
-Reply in Korean.`
+1. 위험한 엣지가 있는가? (28C 이상 = 주의, 30C 이상 = 위험)
+2. 조치가 필요하면 즉시 set_gpio로 릴레이(쿨링팬/환기팬)를 직접 켜라.
+   - 릴레이가 있는 엣지: relay_2ch 또는 relay_4ch 센서가 있는 엣지
+   - 팬 켜기: set_gpio pin=0 value=1 (ON), 끄기: value=0
+3. 조치했으면 뭘 했는지 보고하라.
+4. 정상이면 "All clear" 한 줄로 끝내라.
 
-  // Send to first hub's LLM for cross-site analysis
-  const mainHub = config.hubs[0]
-  const from = `${mainHub.id}-${mainHub.edges[0].id}`
-  try {
-    const r = await httpPost(mainHub.port, '/relay', { from, command: report })
-    return r
-  } catch (e) {
-    return { error: e.message }
-  }
-}
+중요: 말만 하지 말고, 필요하면 set_gpio 도구를 직접 호출해서 실행하라!
+한국어로 답변.`
 
-// ── Execute: carry out LLM decisions ──
-
-async function executeDecision(analysis) {
-  if (!analysis?.result) return
-
-  const text = analysis.result.toLowerCase()
-
-  // Check if LLM wants to take action on a specific hub
+  // Send to each hub — each hub acts on its own edges
+  const results = []
   for (const hub of config.hubs) {
-    if (text.includes(hub.id) && (text.includes('켜') || text.includes('끄') || text.includes('조치') || text.includes('활성'))) {
-      const from = `${hub.id}-${hub.edges[0].id}`
-      try {
-        await httpPost(hub.port, '/relay', {
-          from,
-          command: `LLM이 판단한 조치를 실행해줘: ${analysis.result.slice(0, 200)}`
-        })
-      } catch {}
+    const from = `${hub.id}-${hub.edges[0].id}`
+    try {
+      const r = await httpPost(hub.port, '/relay', { from, command: report })
+      results.push({ hub: hub.id, name: hub.name, ...r })
+    } catch (e) {
+      results.push({ hub: hub.id, name: hub.name, error: e.message })
     }
   }
+  return results
 }
+
+// executeDecision removed — LLM now executes actions directly via set_gpio in analyze()
 
 // ── Autonomous Loop ──
 
@@ -239,21 +229,38 @@ async function autonomousLoop() {
     console.log(`    ${site.name.padEnd(12)} ${temps}`)
   }
 
-  // 2. Analyze
-  process.stdout.write('  Analyzing...')
-  const analysis = await analyze(siteData)
-  console.log(' done')
+  // 2. Analyze + Act (LLM decides AND executes)
+  process.stdout.write('  Analyzing + acting...')
+  const results = await analyze(siteData)
+  console.log(' done\n')
 
-  if (analysis.result) {
-    console.log('')
-    analysis.result.split('\n').forEach(l => console.log(`  HEX: ${l}`))
-    if (analysis.steps?.length) console.log(`  [${analysis.steps.length} actions]`)
-  } else if (analysis.error) {
-    console.log(`  HEX: Error — ${analysis.error}`)
+  let totalActions = 0
+  for (const r of results) {
+    const actions = r.steps?.filter(s => s.tool === 'set_gpio').length || 0
+    totalActions += actions
+    const actionMark = actions > 0 ? ` [${actions} actions!]` : ''
+
+    if (r.result) {
+      console.log(`  ── ${r.name} ──${actionMark}`)
+      r.result.split('\n').forEach(l => console.log(`  ${l}`))
+
+      // Log actual GPIO changes
+      if (r.steps) {
+        for (const s of r.steps) {
+          if (s.tool === 'set_gpio') {
+            console.log(`  >>> ACTION: ${s.input?.target} GPIO ${s.input?.pin} = ${s.input?.value} — ${s.result}`)
+          }
+        }
+      }
+      console.log('')
+    } else if (r.error) {
+      console.log(`  ── ${r.name} ── Error: ${r.error}\n`)
+    }
   }
 
-  // 3. Execute decisions
-  await executeDecision(analysis)
+  if (totalActions > 0) {
+    console.log(`  *** ${totalActions} autonomous actions executed this cycle ***`)
+  }
 }
 
 // ── Main ──
