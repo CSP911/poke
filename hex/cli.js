@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * JARVIS — Interactive Smart Office CLI
+ * HEX — Interactive Smart Office CLI
  *
  * "The future doesn't need an operating system."
  *
  * Launches 10 QEMU edges, starts the hub, and opens an interactive
- * prompt where you talk to JARVIS (LLM) in natural language.
+ * prompt where you talk to HEX (LLM) in natural language.
  *
- * Usage: node jarvis/cli.js
+ * Usage: node hex/cli.js
  */
 
 const { spawn, execSync } = require('child_process')
@@ -137,7 +137,7 @@ async function enrollEdges() {
   for (const edge of config.edges) {
     try {
       const r = await httpPost(`/enroll?token=${HUB_SECRET}`, {
-        node_id: `jarvis-${edge.id}`,
+        node_id: `hex-${edge.id}`,
         endpoint: `tcp://127.0.0.1:${edge.port}`,
         arch: 'riscv32', memory_mb: 32,
         capabilities: ['exec', 'gpio', 'temp'],
@@ -154,7 +154,7 @@ async function enrollEdges() {
 
 async function chat(command) {
   // Use first edge as "from" — the LLM sees all edges
-  const from = `jarvis-${config.edges[0].id}`
+  const from = `hex-${config.edges[0].id}`
   try {
     const result = await httpPost('/relay', { from, command })
     return result
@@ -168,8 +168,8 @@ async function chat(command) {
 async function main() {
   console.log('')
   console.log('  ╔═══════════════════════════════════════════════╗')
-  console.log('  ║         J.A.R.V.I.S.                         ║')
-  console.log('  ║   Just A Rather Very Intelligent System       ║')
+  console.log('  ║         H.E.X.                         ║')
+  console.log('  ║   Hub-Edge eXecutor       ║')
   console.log('  ║                                               ║')
   console.log('  ║   POKE Smart Office — 10 Edge Devices         ║')
   console.log('  ║   "The future doesn\'t need an operating system." ║')
@@ -200,7 +200,7 @@ async function main() {
   console.log('         parking, rooftop, lobby')
   console.log('  ─────────────────────────────────────────────')
   console.log('')
-  console.log('  Talk to JARVIS. Type "exit" to quit.')
+  console.log('  Talk to HEX. Type "exit" to quit.')
   console.log('')
 
   // 4. Interactive loop
@@ -215,10 +215,10 @@ async function main() {
   rl.on('line', async (line) => {
     const input = line.trim()
     if (!input) { rl.prompt(); return }
-    if (input === 'exit' || input === 'quit') { console.log('\n  JARVIS: Goodbye, sir.\n'); rl.close(); return }
+    if (input === 'exit' || input === 'quit') { console.log('\n  HEX: Goodbye, sir.\n'); rl.close(); return }
 
     console.log('')
-    process.stdout.write('  JARVIS: thinking...\r')
+    process.stdout.write('  HEX: thinking...\r')
 
     const result = await chat(input)
 
@@ -226,11 +226,11 @@ async function main() {
     process.stdout.write('                        \r')
 
     if (result.error) {
-      console.log(`  JARVIS: Error — ${result.error}`)
+      console.log(`  HEX: Error — ${result.error}`)
     } else if (result.result) {
       // Format LLM response
       const lines = result.result.split('\n')
-      lines.forEach(l => console.log(`  JARVIS: ${l}`))
+      lines.forEach(l => console.log(`  HEX: ${l}`))
 
       // Show steps summary
       if (result.steps && result.steps.length > 0) {
@@ -238,7 +238,7 @@ async function main() {
         console.log(`  [${result.steps.length} actions taken]`)
       }
     } else {
-      console.log('  JARVIS: (no response)')
+      console.log('  HEX: (no response)')
     }
 
     console.log('')

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * JARVIS — Complex scenario tests
+ * HEX — Complex scenario tests
  *
  * Tests LLM's ability to make multi-step autonomous decisions
  * across 10 QEMU edges in a smart office environment.
  *
- * Usage: node jarvis/scenarios.js
+ * Usage: node hex/scenarios.js
  */
 
 const { spawn, execSync } = require('child_process')
@@ -79,7 +79,7 @@ function httpPost(urlPath, body) {
 }
 
 async function chat(command) {
-  const from = `jarvis-${config.edges[0].id}`
+  const from = `hex-${config.edges[0].id}`
   return httpPost('/relay', { from, command })
 }
 
@@ -181,7 +181,7 @@ async function setup() {
   for (const e of config.edges) {
     try {
       const r = await httpPost(`/enroll?token=${HUB_SECRET}`, {
-        node_id: `jarvis-${e.id}`, endpoint: `tcp://127.0.0.1:${e.port}`,
+        node_id: `hex-${e.id}`, endpoint: `tcp://127.0.0.1:${e.port}`,
         arch: 'riscv32', memory_mb: 32, capabilities: ['exec','gpio','temp'],
         sensors: e.sensors, description: e.description,
       })
@@ -201,7 +201,7 @@ function teardown() {
 // ── Scenarios ──
 
 async function runScenarios() {
-  console.log('\n  JARVIS Scenario Tests\n')
+  console.log('\n  HEX Scenario Tests\n')
   const delay = () => new Promise(r => setTimeout(r, 3000))
 
   // 1. Multi-edge temperature survey
@@ -302,7 +302,7 @@ async function runScenarios() {
 
 async function main() {
   console.log('\n  ╔═══════════════════════════════════════╗')
-  console.log('  ║   JARVIS Scenario Tests               ║')
+  console.log('  ║   HEX Scenario Tests               ║')
   console.log('  ║   Complex LLM Decision Making          ║')
   console.log('  ╚═══════════════════════════════════════╝')
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "JARVIS — 10 QEMU edge configuration for smart office simulation",
+  "_comment": "HEX — 10 QEMU edge configuration for smart office simulation",
   "edges": [
     {
       "id": "entrance",

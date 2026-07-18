@@ -380,7 +380,7 @@ async function runTests() {
       chip: 'esp32c3',
       sensors: ['dht22', 'mq135', 'relay_4ch']
     })
-    const tools = generateLibraryTools('jarvis-esp32', matched)
+    const tools = generateLibraryTools('hex-esp32', matched)
     assert(tools.length >= 10, `JARVIS generates >= 10 tools (got ${tools.length})`)
     const names = tools.map(t => t.name)
     assert(names.some(n => n.includes('read_air')), 'JARVIS tools include air quality')

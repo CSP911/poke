@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * JARVIS Simulator — Dynamic smart office with events
+ * HEX Simulator — Dynamic smart office with events
  *
  * Simulates a living building:
  * - Temperature drifts over time (server room heats up)
  * - Motion sensors fire randomly
  * - Gas sensor spikes in kitchen
- * - JARVIS (LLM) reacts autonomously
+ * - HEX (LLM) reacts autonomously
  *
- * Usage: node jarvis/simulator.js
+ * Usage: node hex/simulator.js
  */
 
 const { spawn, execSync } = require('child_process')
@@ -48,7 +48,7 @@ const world = {
     'rooftop':      { temp: 21.0, humidity: 60, pressure: 1013, wind: 5 },
     'lobby':        { temp: 23.0, motion: false, lights: false, display: '' },
   },
-  events: [],       // pending events for JARVIS
+  events: [],       // pending events for HEX
   log: [],          // history
   tick: 0,
 }
@@ -206,7 +206,7 @@ function httpPost(urlPath, body) {
 }
 
 async function chat(command) {
-  const from = `jarvis-${config.edges[0].id}`
+  const from = `hex-${config.edges[0].id}`
   try { return await httpPost('/relay', { from, command }) }
   catch (e) { return { error: e.message } }
 }
@@ -246,7 +246,7 @@ async function setup() {
   for (const e of config.edges) {
     try {
       const r = await httpPost(`/enroll?token=${HUB_SECRET}`, {
-        node_id: `jarvis-${e.id}`, endpoint: `tcp://127.0.0.1:${e.port}`,
+        node_id: `hex-${e.id}`, endpoint: `tcp://127.0.0.1:${e.port}`,
         arch: 'riscv32', memory_mb: 32, capabilities: ['exec','gpio','temp'],
         sensors: e.sensors, description: e.description,
       })
@@ -284,8 +284,8 @@ function renderStatus() {
 async function main() {
   console.log('')
   console.log('  ╔═══════════════════════════════════════════════╗')
-  console.log('  ║   J.A.R.V.I.S. — Live Simulation              ║')
-  console.log('  ║   Building events unfold. JARVIS reacts.       ║')
+  console.log('  ║   H.E.X. — Live Simulation              ║')
+  console.log('  ║   Building events unfold. HEX reacts.       ║')
   console.log('  ╚═══════════════════════════════════════════════╝')
   console.log('')
 
@@ -313,17 +313,17 @@ async function main() {
       console.log(`\n  *** EVENT: ${event.event} ***`)
       console.log(`  ${event.message}\n`)
 
-      // JARVIS reacts autonomously
-      process.stdout.write('  JARVIS: thinking...\r')
+      // HEX reacts autonomously
+      process.stdout.write('  HEX: thinking...\r')
       const result = await chat(event.message)
       process.stdout.write('                       \r')
 
       if (result.result) {
         const lines = result.result.split('\n')
-        lines.forEach(l => console.log(`  JARVIS: ${l}`))
+        lines.forEach(l => console.log(`  HEX: ${l}`))
         if (result.steps?.length) console.log(`\n  [${result.steps.length} actions]`)
 
-        // Update world based on JARVIS actions
+        // Update world based on HEX actions
         if (result.steps) {
           for (const step of result.steps) {
             if (step.tool === 'set_gpio' && step.input?.target?.includes('server-room')) {
@@ -341,7 +341,7 @@ async function main() {
           }
         }
       } else if (result.error) {
-        console.log(`  JARVIS: (error: ${result.error})`)
+        console.log(`  HEX: (error: ${result.error})`)
       }
       console.log('')
       rl.prompt()
@@ -355,11 +355,11 @@ async function main() {
     if (input === 'exit') { clearInterval(simLoop); rl.close(); return }
     if (input === 'status') { renderStatus(); rl.prompt(); return }
 
-    process.stdout.write('  JARVIS: thinking...\r')
+    process.stdout.write('  HEX: thinking...\r')
     const result = await chat(input)
     process.stdout.write('                       \r')
     if (result.result) {
-      result.result.split('\n').forEach(l => console.log(`  JARVIS: ${l}`))
+      result.result.split('\n').forEach(l => console.log(`  HEX: ${l}`))
       if (result.steps?.length) console.log(`  [${result.steps.length} actions]`)
     }
     console.log('')

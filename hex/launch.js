@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * JARVIS — Launch 10 QEMU edges for smart office simulation
+ * HEX — Launch 10 QEMU edges for smart office simulation
  *
  * Each edge runs a POKE kernel in QEMU with UART mapped to a TCP port.
  * The hub connects to each edge via serial://tcp:localhost:PORT
  *
- * Usage: node jarvis/launch.js [--hub]
+ * Usage: node hex/launch.js [--hub]
  *   --hub    Also start the hub server (default: edges only)
  */
 
@@ -131,7 +131,7 @@ const processes = []
 
 async function launch() {
   console.log('\n  ╔═══════════════════════════════════════╗')
-  console.log('  ║   JARVIS — Smart Office Simulation    ║')
+  console.log('  ║   HEX — Smart Office Simulation    ║')
   console.log('  ║   10 QEMU Edges × 3 Architectures    ║')
   console.log('  ╚═══════════════════════════════════════╝\n')
 
@@ -194,7 +194,7 @@ async function launch() {
   for (const edge of config.edges) {
     try {
       const body = JSON.stringify({
-        node_id: `jarvis-${edge.id}`,
+        node_id: `hex-${edge.id}`,
         endpoint: `tcp://127.0.0.1:${edge.port}`,
         arch: 'riscv32',
         memory_mb: 32,
@@ -220,23 +220,23 @@ async function launch() {
         req.on('timeout', () => { req.destroy(); reject(new Error('timeout')) })
         req.write(body); req.end()
       })
-      console.log(`    ✓ jarvis-${edge.id} enrolled`)
+      console.log(`    ✓ hex-${edge.id} enrolled`)
     } catch (e) {
-      console.log(`    ✗ jarvis-${edge.id}: ${e.message.slice(0, 60)}`)
+      console.log(`    ✗ hex-${edge.id}: ${e.message.slice(0, 60)}`)
     }
   }
   console.log(`\n  ${registered}/${config.edges.length} edges registered with hub`)
 
-  console.log('\n  JARVIS running. Press Ctrl+C to stop.\n')
+  console.log('\n  HEX running. Press Ctrl+C to stop.\n')
   console.log('  Edge endpoints:')
   for (const edge of config.edges) {
-    console.log(`    jarvis-${edge.id}: tcp://127.0.0.1:${edge.port}`)
+    console.log(`    hex-${edge.id}: tcp://127.0.0.1:${edge.port}`)
   }
   console.log('')
 }
 
 function shutdown() {
-  console.log('\n  Shutting down JARVIS...')
+  console.log('\n  Shutting down HEX...')
   for (const { edge, proc } of processes) {
     proc.kill('SIGKILL')
   }
