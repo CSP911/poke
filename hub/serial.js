@@ -348,7 +348,10 @@ async function listSerialPorts() {
 // ── Close all ports (cleanup) ──
 function closeAll() {
   for (const [, entry] of ports) {
-    if (entry.port.isOpen) entry.port.close()
+    try {
+      if (entry.port.destroy) entry.port.destroy()   // TCP socket
+      else if (entry.port.isOpen) entry.port.close()  // SerialPort
+    } catch {}
   }
   ports.clear()
 }

@@ -161,6 +161,9 @@ async function collectAll() {
     }
     siteData.push(site)
   }
+
+  // Close all TCP connections so hub processes can use the same ports
+  serial.closeAll()
   return siteData
 }
 
