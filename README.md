@@ -103,6 +103,16 @@ MCP gives AI hands in the software world. POKE gives AI hands in the physical wo
 
 ## Quick Start
 
+### Prerequisites
+
+```bash
+# macOS
+brew install qemu riscv64-elf-gcc node
+
+# Ubuntu/Debian
+sudo apt install qemu-system-misc gcc-riscv64-unknown-elf nodejs npm
+```
+
 ### 1. HEX Autonomous Federation (recommended)
 
 Talk to a self-operating multi-site system. 3 hubs, 9 bare-metal edges, 1 LLM orchestrator — no hardware needed:
