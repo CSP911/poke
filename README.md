@@ -485,342 +485,50 @@ poke/
 
 ### LLM as the Compiler
 
-POKE doesn't need gcc, clang, or any traditional compiler. The LLM generates machine code directly:
+No gcc, no clang. The LLM generates machine code directly. Built-in assemblers (`asm.js`, `asm_arm.js`, `asm_armv6.js`, `asm_rv.js`) bridge the gap — 4 architectures, 218 tests, zero external dependencies.
+
+### Autonomous Multi-Site Control (HEX)
+
+The real power: **self-operating infrastructure across multiple sites**.
 
 ```
-20 tests, 3 difficulty levels — no assembler, raw hex bytes only:
-
-                     Opus 4.8    Opus 4.6    Haiku 4.5
-  Easy (arithmetic)    6/6         6/6         6/6
-  Medium (multi-op)    8/8         8/8         8/8
-  Hard (loops, logic)  6/6         2/6         2/6
-
-  Total              20/20 (100%) 16/20 (80%) 16/20 (80%)
+[Orchestrator] — single LLM, full situational awareness
+     │ collect: 9 edges via TCP (no LLM, fast)
+     │ analyze: 1 LLM call with all data
+     │ act: targeted GPIO commands to specific edges
+     ↓
+Office  server-room 31°C  → set_gpio → fan ON ✅
+Factory line-1 26°C       → All clear
+Warehouse cold-room 33°C  → set_gpio → fan ON ✅
 ```
 
-**Opus 4.8 scores 100% — the assembler is officially optional.** It correctly generates raw bytes for fibonacci, factorial, popcount, and loop summation — including relative jump offsets. No assembler, no compiler, just LLM → bytes → CPU.
+Verified: LLM detects cross-site anomalies, dispatches corrective actions to the correct hub, and monitors recovery — all without human input.
 
-For older models, `asm.js` (300 lines of JS, 45 tests, byte-identical to nasm) bridges the gap.
-
-### Task-Level Parallelism
-
-POKE doesn't parallelize binaries — it parallelizes **intent**:
+### Sense → Decide → Act Loop
 
 ```
-User: "Compute 15² on x86, then divide by 2 on ARM"
-
-  → Hub decomposes the task semantically
-  → Step 1: x86 edge computes 15² = 225        (171ms)
-  → Step 2: ARM edge computes 225 / 2 = 112    (175ms)
-  → Both run on different bare-metal CPUs
-
-Benchmark (50M iterations × 4, split across 2 edges):
-  Single:   349ms
-  Parallel: 175ms
-  Speedup:  1.99x
+Edge monitors condition (bare metal, no OS)
+    → threshold exceeded
+    → Hub receives event
+    → LLM decides corrective action
+    → Hub sends new binary to edge
+    → Edge state changes
+    → Condition clears
 ```
 
-### Real-World Examples
+### Architecture-Neutral Device Library
 
-POKE isn't just for arithmetic. The agent decomposes real questions into binary-level operations:
-
-#### "What hardware is connected to this machine?"
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant Hub as Hub (LLM)
-    participant Edge as x86 Edge
-
-    User->>Hub: "What hardware is on this system?"
-    Hub->>Hub: Agent decides: need PCI bus scan
-    Hub->>Hub: LLM writes C program:<br/>scan all 32 PCI slots,<br/>read vendor:device IDs,<br/>format as hex string
-    Hub->>Hub: Cross-compile → 319 bytes
-    Hub->>Edge: POST /poke (319B binary)
-    Edge->>Edge: Bare-metal: reads PCI config space<br/>port 0xCF8/0xCFC for each slot
-    Edge-->>Hub: "8086:1237\n8086:100E\n1234:1111\n..."
-    Hub->>Hub: LLM interprets results with its knowledge
-    Hub-->>User: "8 devices found:<br/>Intel Host Bridge<br/>Intel e1000 NIC<br/>QEMU VGA..."
-```
-
-**What happened:** The LLM wrote a PCI scanner in C, compiled it to a 319-byte binary, injected it into bare metal, and interpreted the raw register values — all from one natural language question.
-
-#### "Is the network card working? What's its MAC address?"
-
-```
-Agent steps:
-
-  Step 1: list_devices()
-    → "8086:100E Intel 82540EM (e1000) — operations: network_read_mac, network_read_status"
-
-  Step 2: network_read_status()        ← auto-generated from device profile
-    → eax=2148009859 (0x80200783)
-    → Agent interprets: bit 1 = 1 → link is UP
-
-  Step 3: build_and_deploy()           ← LLM writes C to format full MAC
-    → e1000_read_mac(&nic, mac)
-    → poke_format_mac(mac, buf)
-    → 221 bytes deployed → "52:54:00:12:34:56"
-
-  Step 4: reply_text()
-    → "e1000 NIC is UP. MAC: 52:54:00:12:34:56"
-```
-
-**What happened:** The agent mixed auto-generated tools (from profile) with a custom C binary (for formatting) — choosing the right approach for each sub-task.
-
-#### "Get Seoul weather, convert to Fahrenheit on the CPU, check NIC status"
-
-```mermaid
-graph TB
-    User["User: weather + convert + NIC status"]
-
-    User --> Hub
-
-    subgraph Hub["Hub (LLM Agent)"]
-        direction TB
-        S1["Step 1: fetch_url<br/>wttr.in/Seoul → 25°C"]
-        S2["Step 2: network_read_status<br/>auto-generated tool → link UP"]
-        S3["Step 3: execute_x86<br/>mov eax,25 | imul eax,9<br/>xor edx,edx | div 5<br/>add eax,32 → 77°F"]
-        S4["Step 4: reply_text<br/>combine all results"]
-        S1 --> S3
-        S2 --> S4
-        S3 --> S4
-    end
-
-    S1 -.->|"HTTP GET"| API["Weather API"]
-    S2 -.->|"auto-tool"| NIC["e1000 NIC<br/>(bare metal)"]
-    S3 -.->|"raw bytes"| CPU["x86 CPU<br/>(bare metal)"]
-
-    style API fill:#FF9800,color:#fff
-    style NIC fill:#4CAF50,color:#fff
-    style CPU fill:#2196F3,color:#fff
-```
-
-**What happened:** One question triggered three different tool types — external API, hardware register read, and CPU computation — all orchestrated by the LLM in a single turn.
-
-#### "If outside temperature > sensor reading, turn on AC"
-
-The hub fetches external data and embeds it directly into the binary:
-
-```
-Hub: fetch(weather API) → 25°C
-Hub: generates bare-metal binary:
-
-  int outside = 25;                      // ← hub-injected external data
-  int inside = read_sensor(0xfebc0000);  // ← hardware register read
-  if (outside > inside)
-      gpio_set(PIN_AC, 1);              // ← hardware control
-
-Edge: executes autonomously. No OS. No network needed after deployment.
-```
-
-This is the pattern unique to POKE: **external data (from hub) + local hardware (from edge) in one binary**, deployed once, runs forever.
-
-#### Distributed Sensor Monitoring
-
-```
-User: "Read temperature from all sensors, compare with Seoul outside temp"
-
-  → Step 1: fetch_url(wttr.in/Seoul)          → 21°C (external API)
-  → Step 2: sensor_read_temperature(sensor-A)  → 20.42°C (edge hardware)
-  → Step 3: sensor_read_temperature(sensor-B)  → 20.35°C (edge hardware)
-  → Step 4: reply_text → combined analysis:
-
-  | Location    | Temperature |
-  |-------------|-------------|
-  | Seoul (outside) | 21.00°C |
-  | Sensor A (indoor) | 20.42°C |
-  | Sensor B (indoor) | 20.35°C |
-
-  "Indoor is 0.6°C cooler than outside. Both sensors consistent."
-```
-
-**What happened:** The agent combined an external weather API with two bare-metal sensor readings from different edge devices, then analyzed the data — three sources, one natural language answer.
-
-### Autonomous Event Loop — JARVIS Mode
-
-POKE edges can **think for themselves**. Deploy a condition monitor to an edge, and it autonomously checks, triggers, and fires events back to the hub — where the LLM decides what to do next. No human in the loop.
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant Hub as Hub (LLM)
-    participant EdgeA as Edge: Sensors
-    participant EdgeB as Edge: Actuators
-
-    User->>Hub: "If temperature > 30°C,<br/>slow the motor and turn on fan"
-    Hub->>Hub: LLM generates monitor binary<br/>(reads virtual temp register)
-    Hub->>EdgeA: deploy_monitor(asm, "gt:30", 2s)
-    EdgeA-->>Hub: monitor=0, ok
-
-    Note over EdgeA: Autonomous monitoring begins<br/>No hub involvement
-
-    loop Every 2 seconds
-        EdgeA->>EdgeA: Execute monitor code<br/>Read temp register → EAX
-        EdgeA->>EdgeA: Check: EAX > 30?
-    end
-
-    Note over EdgeA: Temperature hits 50°C!
-
-    EdgeA-->>Hub: TRIGGERED! value=50
-    Hub->>Hub: LLM autonomous decision:<br/>"Temperature critical →<br/>reduce speed + activate fan"
-
-    Hub->>EdgeB: execute_x86: mov [speed], 50
-    Hub->>EdgeB: execute_x86: mov [fan], 1
-    EdgeB-->>Hub: speed=50, fan=ON
-
-    Note over EdgeA,EdgeB: Temperature drops: 50→38°C<br/>System self-corrected
-```
-
-**Actual test output from QEMU:**
-
-```
-🔥 MONITOR TRIGGERED!
-   Edge: x86-qemu
-   Value: 50 (temperature)
-   State: temp=50 speed=100 fan=0
-
-   → LLM deciding...
-
-=== LLM DECIDED ===
-   Tool: execute_x86
-   ASM: mov dword [0x200004], 50     ← motor speed 100→50
-   Tool: execute_x86
-   ASM: mov dword [0x200008], 1      ← fan OFF→ON
-
-   LLM says: "Motor speed reduced, fan activated."
-
-=== AFTER LLM ACTION ===
-   temp=38  speed=50  fan=1
-
-✅ LLM autonomously modified edge state!
-```
-
-The full cycle — **sense → decide → act** — happens without any human intervention. The edge monitors hardware, the hub's LLM makes decisions, and the system self-corrects.
-
-```mermaid
-graph LR
-    A["Edge monitors<br/>condition"] -->|"threshold<br/>exceeded"| B["Hub receives<br/>event"]
-    B -->|"LLM<br/>decides"| C["Hub sends<br/>corrective action"]
-    C -->|"new binary<br/>deployed"| D["Edge state<br/>changes"]
-    D -->|"condition<br/>clears"| A
-
-    style A fill:#FF5722,color:#fff
-    style B fill:#FF9800,color:#fff
-    style C fill:#4CAF50,color:#fff
-    style D fill:#2196F3,color:#fff
-```
-
-This is the difference between a remote control and an autonomous system. POKE edges don't wait for commands — they **react**.
-
-### Goal Mode — LLM as Autonomous Controller
-
-Goal Mode takes autonomy further. Instead of reacting to triggers, the LLM **proactively maintains a goal**:
-
-```
-User: "Maintain temperature below 30°C. Keep web/db servers running. Save energy."
-  │
-  ▼
-Hub (LLM) plans:
-  → Read current state (temp=80°C — critical!)
-  → Deploy resident binary for continuous monitoring
-  → Increase cooling to MAX
-  → Shut down low-priority servers
-  │
-  ▼ (every 15 seconds)
-Hub checks progress:
-  Cycle 1: temp=60, power=900W → "Still high, maintaining MAX cooling"
-  Cycle 2: temp=40, power=850W → "Improving. Keep current settings."
-  Cycle 3: temp=28, power=750W → "GOAL MET. Reducing cooling to save energy."
-```
-
-The LLM chooses between 4 execution modes based on what the goal needs:
-
-| Request | LLM Choice | Mode |
-|---------|-----------|------|
-| "Read temperature" | One-shot | `execute_x86` |
-| "Alert if temp > 30" | Conditional trigger | `deploy_monitor` |
-| "Run PID control loop" | Persistent loop | `deploy_resident` |
-| "Keep temp below 30" | Autonomous control | **Goal Mode** |
-
-### Device Incubation — Automatic Hardware Discovery
-
-When an edge connects, the hub automatically discovers and profiles all hardware:
-
-```mermaid
-sequenceDiagram
-    participant Edge as Edge (bare metal)
-    participant Hub as Hub (LLM)
-    participant Profiles as Profile DB
-
-    Edge->>Hub: POST /enroll
-    Hub->>Edge: GET /pci
-    Edge-->>Hub: 8 devices (7 PCI + virtual sensors)
-
-    loop For each device
-        Hub->>Hub: Identify (vendor:device → known DB)
-        Hub->>Hub: Select sketches for device type
-        Hub->>Edge: Execute probe assembly
-        Edge-->>Hub: Register values
-        Hub->>Profiles: Generate + save profile JSON
-    end
-
-    Hub->>Hub: Reload profiles → new agent tools available
-```
-
-Sketch library provides pre-built assembly templates:
+17 device entries, zero hardcoded assembly. Register maps only — LLM generates the right code for any architecture at runtime:
 
 ```json
 {
-  "network": {
-    "read_mac_mmio": {
-      "asm": "BITS 32\nmov ebx, {{BAR0}}\nmov eax, [ebx + 0x5400]\nret",
-      "params": ["BAR0"]
-    }
-  },
-  "sensor": {
-    "read_value": {
-      "asm": "BITS 32\nmov eax, [{{ADDR}}]\nret",
-      "params": ["ADDR"]
-    }
-  }
+  "id": "intel_e1000",
+  "registers": { "STATUS": { "offset": "0x0008" }, "RAL": { "offset": "0x5400" } },
+  "operations": [{ "name": "read_mac", "registers": ["RAL", "RAH"] }]
 }
 ```
 
-### Resident Binaries — Persistent Control Loops
-
-Unlike ephemeral binaries, resident binaries run continuously on the edge:
-
-```
-Ephemeral:  generate → execute → discard (milliseconds)
-Resident:   generate → deploy → runs forever (survives reboot)
-
-┌─── Task 0: Kernel ─────────────────┐
-│ HTTP server + network polling       │
-│        ⚡ PIT interrupt (10ms)       │
-│        ↕ context switch              │
-├─── Task 1: PID Controller ─────────┤
-│ while(1) { read_sensor → adjust }   │
-├─── Task 2: Data Logger ────────────┤
-│ while(1) { collect → write_disk }   │
-├─── Task 3: Safety Monitor ─────────┤
-│ while(1) { check → alert if needed }│
-└─────────────────────────────────────┘
-```
-
-Preemptive multitasking via PIT timer + IDT ensures the kernel stays responsive while resident code runs.
-
-### Persistent Context — VirtIO Disk Storage
-
-Edge devices remember across reboots:
-
-```
-Hub writes context → CTX protocol → VirtIO-blk driver → disk sector
-Edge reboots → ctx_store_init() → reads header from disk → data restored
-Hub reads back → GET /store → entries from disk
-
-Tested: write 3 entries → reboot → all 3 entries survived ✅
-```
+Same library entry works on x86, ARM64, ARMv6, RISC-V.
 
 ---
 
@@ -862,84 +570,26 @@ Tested: write 3 entries → reboot → all 3 entries survived ✅
 - [x] Pi 4 bare-metal kernel — BCM2711, AArch64, PL011 UART
 - [x] ARMv6 mini assembler (asm_armv6.js) — Pi Zero W code injection
 - [x] Modular device library — bcm2835_base with WiFi (SDIO) + Camera (CSI) incubating
-- [x] 388+ automated tests (including 66 ARMv6 + 135 library tests)
-- [ ] POKE OS on Pi 4 ARM — kernel built, pending real hardware verification
+- [x] 480+ automated tests (unit + QEMU integration)
+- [x] HEX multi-hub federation — 3 hubs, 9 edges, autonomous orchestrator
+- [x] Architecture-neutral device library (17 entries, v3.0)
+- [x] TCP transport for QEMU edges
+- [ ] Real hardware multi-site deployment (Pi 4 + ESP32)
 - [ ] Device library marketplace
-- [ ] CR3 page table isolation for resident tasks
+- [ ] Web dashboard for HEX federation
 
 ---
 
 ## Industry Targets
 
-POKE is most valuable where hardware is fragmented, legacy equipment is alive, and software maintenance costs are high.
+POKE fits where hardware is fragmented, legacy equipment is alive, and software maintenance costs are high:
 
-### Phase 1: Smart Farm & Smart Factory
-
-```
-Problem:
-  Factory: 10 PLCs, 5 CNCs, 50 sensors — each with different protocols
-           (Modbus, OPC-UA, PROFINET). Adding one machine = 6 months + integrator.
-  Farm:    Soil sensors, valves, fans, CO2 sensors — all different vendors.
-           Internet unreliable. Must work offline.
-
-POKE:
-  Attach one edge per device → profile auto-discovery
-  "Set conveyor speed to 120 RPM" → hub reads Modbus profile → generates register write
-  "If temperature > 30°C and humidity < 70%, turn on mist" → binary deployed, runs offline
-
-Value: Integration cost -90%. Legacy equipment modernized without replacement.
-```
-
-### Phase 2: Industrial Robotics
-
-```
-Problem:
-  FANUC, ABB, KUKA, Hyundai Robotics — each has its own language and IDE.
-  Replace one robot = rewrite all programs.
-  Vision + gripper + sensor integration is custom every time.
-
-POKE:
-  "Pick red parts from conveyor, move to line B" → hub generates robot commands
-  Switch robot brand? Change the profile, same commands work.
-  Camera → multimodal LLM → real-time motion adjustment
-
-Value: Vendor independence. One protocol for any robot.
-```
-
-### Phase 3: Building Automation
-
-```
-Problem:
-  HVAC + lighting + elevators + access control + fire safety
-  BACnet, KNX, LonWorks, Modbus — mixed protocols, $M+ to replace BMS.
-
-POKE:
-  Bridge into existing BMS → profile each subsystem
-  "If meeting room is empty, dim lights to 30%, reduce HVAC"
-  Hub integrates Google Calendar + occupancy sensors + HVAC control
-
-Value: 30% energy savings. No BMS replacement needed.
-```
-
-### Future: Autonomous Vehicles, Defense, Maritime
-
-```
-Automotive:  100+ ECUs on CAN bus → diagnostics & analysis (read-only first)
-Defense:     Closed networks, offline autonomy, minimal attack surface
-Maritime:    Engine + navigation + cargo — unreliable connectivity, onboard hub
-Mining:      Remote sites, hazardous environments, autonomous monitoring
-```
-
-### Industry Fit Matrix
-
-| Industry | HW Fragmentation | Legacy | Real-time | Offline | Market |
-|----------|:---:|:---:|:---:|:---:|:---:|
-| Smart Factory | ★★★★★ | ★★★★★ | ★★★★ | ★★★ | $300B |
-| Smart Farm | ★★★ | ★★ | ★★★ | ★★★★★ | $25B |
-| Robotics | ★★★★ | ★★★ | ★★★★★ | ★★ | $70B |
-| Building | ★★★★★ | ★★★★ | ★★★ | ★★ | $120B |
-| Medical | ★★★★ | ★★★★ | ★★ | ★★ | $500B |
-| Automotive | ★★★ | ★★ | ★★★★★ | ★★★ | $200B |
+| Industry | Use Case | POKE Value |
+|----------|----------|------------|
+| **Smart Factory** | 50 sensors, 5 protocols → one POKE hub | Integration cost -90% |
+| **Building Automation** | HVAC + lighting + access control | 30% energy savings, no BMS replacement |
+| **Smart Farm** | Soil/weather sensors, offline operation | Works without internet after deployment |
+| **Robotics** | FANUC/ABB/KUKA → vendor-independent control | Same commands, any robot brand |
 
 ---
 
