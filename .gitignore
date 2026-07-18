@@ -4,6 +4,7 @@ build/
 *.elf
 *.bin
 *.img
+poke.img
 poke2.img
 
 # Secrets
@@ -19,9 +20,19 @@ package-lock.json
 /tmp/
 *.ppm
 .DS_Store
+
+# Runtime data
+data/
+
+# Docs (private)
 docs/patent-figures/
 docs/patent-draft.md
 docs/patent-defense-notes.md
-data/
 docs/patent-moip.md
+
+# ESP32 blobs
 libphy.a
+
+# OS junk
+.DS_Store
+Thumbs.db
