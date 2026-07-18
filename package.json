@@ -40,10 +40,6 @@
     "hex/",
     "test/",
     "kernel/",
-    "Dockerfile.edge",
-    "Dockerfile.hub",
-    "docker-compose.yml",
-    "docker-compose.factory.yml",
     "README.md",
     "LICENSE"
   ],

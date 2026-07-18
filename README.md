@@ -146,14 +146,7 @@ node hex/simulator.js        # Dynamic events simulation
 node hex/scenarios.js        # Run 8 automated LLM decision tests
 ```
 
-### 2. Docker (x86 single edge)
-
-```bash
-docker compose up --build    # x86 kernel + hub + dashboard
-open http://localhost:3333/ui
-```
-
-### 3. ESP32-C3 Serial Demo
+### 2. ESP32-C3 Serial Demo
 
 Real hardware (ESP32-C3 RISC-V) connected via USB serial — hub compiles RISC-V assembly, sends binary over serial, ESP32 executes bare-metal and returns the result:
 
@@ -413,7 +406,7 @@ Raw bytes     → code execution → returns eax value
 ```
 poke/
 ├── kernel/                   Bare-metal kernels (6 architectures)
-│   ├── x86/                  x86 (QEMU, Docker) — TCP/IP + HTTP + VirtIO
+│   ├── x86/                  x86 (QEMU) — TCP/IP + HTTP + VirtIO
 │   ├── arm64/                ARM64 (QEMU virt) — PL011 UART
 │   ├── rv32/                 RISC-V 32 (QEMU virt) — NS16550 UART
 │   ├── pi0w/                 Pi Zero W (real HW + QEMU) — Mini UART
@@ -476,7 +469,7 @@ poke/
 ├── web/                      Dashboard UI
 ├── demo/                     Demo recordings
 ├── docs/                     Documentation + patents
-└── docker-compose.yml        One-command Docker startup
+└── LICENSE                   Apache 2.0
 ```
 
 ---
@@ -543,7 +536,7 @@ Same library entry works on x86, ARM64, ARMv6, RISC-V.
 - [x] Voice pipeline (STT → LLM → execute → TTS)
 - [x] Multi-edge orchestration + parallel execution (1.99x speedup)
 - [x] Distributed computing (parallel_execute + load balancing)
-- [x] Docker one-command setup
+- [x] HEX CLI + federation + autonomous orchestrator
 - [x] Autonomous event loop (edge monitors → LLM auto-decision → corrective action)
 - [x] JARVIS memory system (monthly files, keyword index, edge sync)
 - [x] VirtIO-blk disk driver + persistent context store (survives reboot)
