@@ -129,7 +129,7 @@ cp .env.example .env
 #   HUB_SECRET=poke-secret
 
 # Run autonomous multi-hub federation
-node hex/autonomous.js
+node orchestration/autonomous.js
 ```
 
 The system boots 9 QEMU bare-metal edges across 3 sites (Office, Factory, Warehouse), starts 3 independent hubs, and begins autonomous monitoring. No human input needed — the LLM detects anomalies and executes corrective actions:
@@ -150,10 +150,10 @@ The system boots 9 QEMU bare-metal edges across 3 sites (Office, Factory, Wareho
 ### Other modes
 
 ```bash
-node hex/cli.js              # Interactive chat with 10 edges
-node hex/federation.js       # Multi-hub with @hub targeting
-node hex/simulator.js        # Dynamic events simulation
-node hex/scenarios.js        # Run 8 automated LLM decision tests
+node orchestration/cli.js              # Interactive chat with 10 edges
+node orchestration/federation.js       # Multi-hub with @hub targeting
+node orchestration/simulator.js        # Dynamic events simulation
+node orchestration/scenarios.js        # Run 8 automated LLM decision tests
 ```
 
 ### 2. ESP32-C3 Serial Demo
@@ -415,71 +415,35 @@ Raw bytes     → code execution → returns eax value
 
 ```
 poke/
-├── kernel/                   Bare-metal kernels (6 architectures)
-│   ├── x86/                  x86 (QEMU) — TCP/IP + HTTP + VirtIO
-│   ├── arm64/                ARM64 (QEMU virt) — PL011 UART
-│   ├── rv32/                 RISC-V 32 (QEMU virt) — NS16550 UART
-│   ├── pi0w/                 Pi Zero W (real HW + QEMU) — Mini UART
-│   ├── pi4/                  Pi 4 (real HW) — PL011 UART
-│   └── esp32c3/              ESP32-C3 (Direct Boot) — USB-Serial/JTAG
+├── edge/                     Edge layer — bare-metal devices
+│   ├── kernel/               Kernels (6 architectures)
+│   │   ├── x86/              x86 (QEMU) — TCP/IP + HTTP + VirtIO
+│   │   ├── arm64/            ARM64 (QEMU virt) — PL011 UART
+│   │   ├── rv32/             RISC-V 32 (QEMU virt) — NS16550 UART
+│   │   ├── pi0w/             Pi Zero W (real HW + QEMU) — Mini UART
+│   │   ├── pi4/              Pi 4 (real HW) — PL011 UART
+│   │   └── esp32c3/          ESP32-C3 (Direct Boot) — USB-Serial/JTAG
+│   └── library/              Device library (17 entries, architecture-neutral)
 │
-├── src/                      Built-in assemblers (zero deps)
-│   ├── hub.js                Hub entry point
-│   ├── asm.js                x86 assembler
-│   ├── asm_arm.js            ARM64 assembler
-│   ├── asm_armv6.js          ARMv6 assembler (Pi Zero W)
-│   └── asm_rv.js             RISC-V assembler (RV32IM)
-│
-├── hub/                      Hub modules
+├── hub/                      Hub layer — intelligence
 │   ├── server.js             HTTP routing + auth
 │   ├── agent.js              LLM agent loop + tool definitions
 │   ├── serial.js             Serial + TCP transport (POKE frame protocol)
-│   ├── library.js            Device library — modular matching + auto-incubation
 │   ├── compiler.js           Assembly compilation + guard rail
-│   ├── transport.js          Edge communication (HTTP)
-│   ├── nodes.js              Node registry + health check
-│   ├── memory.js             Persistent memory (monthly files, patterns)
-│   └── logger.js             Structured logging
+│   ├── library.js            Device library matching + auto-incubation
+│   └── assembler/            Built-in assemblers (x86, ARM64, ARMv6, RV32)
 │
-├── library/                  Device library (17 entries, architecture-neutral)
-│   ├── index.json            Device ID → entry mapping (v3.0)
-│   ├── esp32c3_base.json     ESP32-C3 chip base
-│   ├── bcm2835_base.json     Pi Zero W chip base
-│   ├── intel_e1000.json      Intel NIC (register map)
-│   ├── virtio_blk.json       VirtIO block device
-│   ├── ns16550.json          NS16550 UART
-│   ├── dht22.json            Temperature/humidity sensor
-│   ├── bmp280.json           Barometric pressure sensor
-│   ├── bh1750.json           Ambient light sensor (lux)
-│   ├── mq135.json            Air quality gas sensor
-│   ├── mpu6050.json          6-axis IMU (accel + gyro)
-│   ├── hcsr501.json          PIR motion sensor
-│   ├── relay_2ch.json        2-channel relay
-│   ├── relay_4ch.json        4-channel relay
-│   ├── ir_transmitter.json   IR blaster (NEC/Samsung)
-│   ├── ssd1306.json          OLED display (128x64)
-│   └── fab_*.json            Factory simulation (cleanroom, etch)
-│
-├── hex/                      HEX — Hub-Edge eXecutor
-│   ├── cli.js                Interactive CLI (10 edges)
-│   ├── simulator.js          Live simulation (dynamic events)
+├── orchestration/            Orchestration layer — multi-site control
+│   ├── cli.js                Interactive chat (10 edges)
 │   ├── federation.js         Multi-hub interactive (3 hubs × 3 edges)
 │   ├── autonomous.js         Self-operating orchestrator (no human input)
-│   ├── scenarios.js          LLM decision tests (8 scenarios)
-│   ├── config.json           10-edge configuration
-│   └── federation.json       3-hub federation configuration
+│   ├── simulator.js          Live event simulation
+│   └── scenarios.js          LLM decision tests (8 scenarios)
 │
 ├── test/                     480+ automated tests
-│   ├── asm*.test.js          Assembler tests (x86, ARM64, ARMv6, RV32)
-│   ├── hub.test.js           Hub endpoint tests
-│   ├── library.test.js       Device library tests (207)
-│   ├── qemu.test.js          QEMU integration tests (20)
-│   └── serial.test.js        ESP32 serial pipeline tests
-│
 ├── web/                      Dashboard UI
-├── demo/                     Demo recordings
 ├── docs/                     Documentation + patents
-└── LICENSE                   Apache 2.0
+└── index.js                  Hub entry point
 ```
 
 ---

@@ -2,12 +2,12 @@
   "name": "@orvian/poke",
   "version": "0.5.0",
   "description": "Protocol for Open Kernel Execution — inject and execute machine code on bare-metal devices via natural language",
-  "main": "src/hub.js",
+  "main": "index.js",
   "bin": {
-    "poke": "src/hub.js"
+    "poke": "index.js"
   },
   "scripts": {
-    "start": "node src/hub.js",
+    "start": "node index.js",
     "test": "node test/asm.test.js && node test/asm_arm.test.js && node test/asm_rv.test.js && node test/asm_armv6.test.js && node test/hub.test.js && node test/library.test.js",
     "test:qemu": "node test/qemu.test.js",
     "test:all": "npm test && node test/qemu.test.js",
@@ -33,13 +33,13 @@
   },
   "homepage": "https://github.com/CSP911/poke",
   "files": [
-    "src/",
+    "hub/assembler/",
     "hub/",
     "web/",
-    "library/",
-    "hex/",
+    
+    "orchestration/",
     "test/",
-    "kernel/",
+    "edge/",
     "README.md",
     "LICENSE"
   ],

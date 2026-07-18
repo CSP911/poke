@@ -9,7 +9,7 @@ const { log } = require('./logger')
 
 let _asmModule = null
 function getAsmModule() {
-  if (!_asmModule) _asmModule = require(path.join(__dirname, '..', 'src', 'asm.js'))
+  if (!_asmModule) _asmModule = require(path.join(__dirname, 'assembler', 'asm.js'))
   return _asmModule
 }
 
@@ -66,7 +66,7 @@ async function compileAssembly(asm) {
 async function compileAssemblyARM(asm) {
   // Try built-in ARM assembler first
   try {
-    const { assembleAndValidateARM } = require(path.join(__dirname, '..', 'src', 'asm_arm.js'))
+    const { assembleAndValidateARM } = require(path.join(__dirname, 'assembler', 'asm_arm.js'))
     const { binary, scan } = assembleAndValidateARM(asm)
     if (scan.warnings.length > 0) {
       scan.warnings.forEach(w => log.warn(`[arm-guard] ${w}`))
@@ -94,7 +94,7 @@ async function compileAssemblyARM(asm) {
     const bin = fs.readFileSync(tmpBin)
 
     // Scan external assembler output too
-    const { scanBinaryARM } = require(path.join(__dirname, '..', 'src', 'asm_arm.js'))
+    const { scanBinaryARM } = require(path.join(__dirname, 'assembler', 'asm_arm.js'))
     const scan = scanBinaryARM(Array.from(bin))
     if (!scan.safe) {
       scan.errors.forEach(err => log.error(`[arm-guard] BLOCKED: ${err}`))
@@ -145,7 +145,7 @@ function runImageCode(code) {
 // ── RISC-V assembly compile ──
 let _rvModule = null
 function getRVModule() {
-  if (!_rvModule) _rvModule = require(path.join(__dirname, '..', 'src', 'asm_rv.js'))
+  if (!_rvModule) _rvModule = require(path.join(__dirname, 'assembler', 'asm_rv.js'))
   return _rvModule
 }
 
@@ -164,7 +164,7 @@ async function compileAssemblyRV(asm) {
 // ── ARMv6 assembly compile ──
 let _armv6Module = null
 function getARMv6Module() {
-  if (!_armv6Module) _armv6Module = require(path.join(__dirname, '..', 'src', 'asm_armv6.js'))
+  if (!_armv6Module) _armv6Module = require(path.join(__dirname, 'assembler', 'asm_armv6.js'))
   return _armv6Module
 }
 

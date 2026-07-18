@@ -4,7 +4,7 @@
  * Usage: node test/asm_arm.test.js
  */
 
-const { assembleARM, scanBinaryARM, assembleAndValidateARM, MAX_BINARY_SIZE } = require('../src/asm_arm.js')
+const { assembleARM, scanBinaryARM, assembleAndValidateARM, MAX_BINARY_SIZE } = require('../hub/assembler/asm_arm.js')
 
 let passed = 0
 let failed = 0

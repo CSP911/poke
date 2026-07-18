@@ -8,7 +8,7 @@
  * 3. LLM decides actions autonomously
  * 4. Actions execute across hubs
  *
- * Usage: node hex/autonomous.js
+ * Usage: node orchestration/autonomous.js
  */
 
 const { spawn, execSync } = require('child_process')
@@ -22,7 +22,7 @@ const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'federation.json'
 require('dotenv').config({ path: path.join(ROOT, '.env') })
 
 const HUB_SECRET = process.env.HUB_SECRET || 'poke-secret'
-const RV32_BIN = path.join(ROOT, 'kernel', 'rv32', 'poke-rv32.bin')
+const RV32_BIN = path.join(ROOT, 'edge', 'kernel', 'rv32', 'poke-rv32.bin')
 const processes = []
 const hubProcs = []
 let cycle = 0
@@ -82,7 +82,7 @@ function httpPost(port, urlPath, body) {
 // ── Boot infrastructure ──
 
 async function boot() {
-  if (!fs.existsSync(RV32_BIN)) execSync(`make -C ${path.join(ROOT, 'kernel', 'rv32')}`, { stdio: 'pipe' })
+  if (!fs.existsSync(RV32_BIN)) execSync(`make -C ${path.join(ROOT, 'edge', 'kernel', 'rv32')}`, { stdio: 'pipe' })
 
   for (const hub of config.hubs) {
     for (const edge of hub.edges) {

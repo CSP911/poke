@@ -175,7 +175,7 @@ async function runTests() {
 
   // === 13. Index structure ===
   {
-    const indexPath = path.join(__dirname, '..', 'library', 'index.json')
+    const indexPath = path.join(__dirname, '..', 'edge', 'library', 'index.json')
     const index = JSON.parse(fs.readFileSync(indexPath, 'utf8'))
     assertEq(index._version, '3.0', 'index version is 3.0')
     assert(index.by_chip, 'index has by_chip')

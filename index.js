@@ -9,25 +9,25 @@
 
 require('dotenv').config()
 
-const { log } = require('../hub/logger')
-const { loadProfiles, startHealthCheck, stopHealthCheck } = require('../hub/nodes')
-const { createServer } = require('../hub/server')
+const { log } = require('./hub/logger')
+const { loadProfiles, startHealthCheck, stopHealthCheck } = require('./hub/nodes')
+const { createServer } = require('./hub/server')
 
 process.on('uncaughtException', (err) => { log.error('[FATAL]', err.message) })
 process.on('unhandledRejection', (err) => { log.error('[REJECT]', err.message || err) })
 
 // ── Load device profiles + library ──
 loadProfiles()
-const { loadLibrary } = require('../hub/library')
+const { loadLibrary } = require('./hub/library')
 loadLibrary()
 
 // ── Start health check ──
 startHealthCheck()
 
 // ── Serial event listener: edge-initiated events → agentLoop ──
-const { onSerialEvent } = require('../hub/serial')
-const { agentLoop } = require('../hub/agent')
-const { nodes } = require('../hub/nodes')
+const { onSerialEvent } = require('./hub/serial')
+const { agentLoop } = require('./hub/agent')
+const { nodes } = require('./hub/nodes')
 
 onSerialEvent((evt) => {
   // Find which edge sent the event by matching endpoint
@@ -72,7 +72,7 @@ if (process.env.HTTPS === '1') {
     const keyPath = __dirname + '/key.pem'
     const certPath = __dirname + '/cert.pem'
     if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-      const { handleRequest } = require('../hub/server')
+      const { handleRequest } = require('./hub/server')
       const HTTPS_PORT = process.env.HTTPS_PORT || 3334
       const httpsServer = https.createServer({
         key: fs.readFileSync(keyPath),

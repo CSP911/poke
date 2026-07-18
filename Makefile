@@ -4,7 +4,7 @@ LD = i686-elf-ld
 OBJCOPY = i686-elf-objcopy
 QEMU = qemu-system-i386
 
-KERNEL_DIR = kernel/x86
+KERNEL_DIR = edge/kernel/x86
 BUILD_DIR = build
 CFLAGS = -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -Os -Wall -Wno-unused-function -Wno-unused-variable
 LDFLAGS = -T $(KERNEL_DIR)/linker.ld -nostdlib

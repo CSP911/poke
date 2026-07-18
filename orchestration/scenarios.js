@@ -5,7 +5,7 @@
  * Tests LLM's ability to make multi-step autonomous decisions
  * across 10 QEMU edges in a smart office environment.
  *
- * Usage: node hex/scenarios.js
+ * Usage: node orchestration/scenarios.js
  */
 
 const { spawn, execSync } = require('child_process')

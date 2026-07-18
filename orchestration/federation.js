@@ -10,7 +10,7 @@
  *     ↓                         ↓                          ↓
  *   3 edges                   3 edges                    3 edges
  *
- * Usage: node hex/federation.js
+ * Usage: node orchestration/federation.js
  */
 
 const { spawn, execSync } = require('child_process')

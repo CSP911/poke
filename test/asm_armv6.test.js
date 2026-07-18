@@ -4,7 +4,7 @@
  * Usage: node test/asm_armv6.test.js
  */
 
-const { assembleARMv6, scanBinaryARMv6, assembleAndValidateARMv6, encodeImm, MAX_BINARY_SIZE } = require('../src/asm_armv6.js')
+const { assembleARMv6, scanBinaryARMv6, assembleAndValidateARMv6, encodeImm, MAX_BINARY_SIZE } = require('../hub/assembler/asm_armv6.js')
 
 let passed = 0
 let failed = 0

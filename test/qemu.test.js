@@ -16,9 +16,9 @@ const net = require('net')
 const path = require('path')
 
 const ROOT = path.resolve(__dirname, '..')
-const RV32_BIN = path.join(ROOT, 'kernel', 'rv32', 'poke-rv32.bin')
-const ARM_BIN = path.join(ROOT, 'kernel', 'arm64', 'poke-arm.bin')
-const PI0W_BIN = path.join(ROOT, 'kernel', 'pi0w', 'poke-pi0w-qemu.bin')
+const RV32_BIN = path.join(ROOT, 'edge', 'kernel', 'rv32', 'poke-rv32.bin')
+const ARM_BIN = path.join(ROOT, 'edge', 'kernel', 'arm64', 'poke-arm.bin')
+const PI0W_BIN = path.join(ROOT, 'edge', 'kernel', 'pi0w', 'poke-pi0w-qemu.bin')
 
 /* ── Auto-build binaries if missing ── */
 function ensureBinary(binPath, makeDir, makeTarget) {
@@ -271,7 +271,7 @@ async function testRV32() {
   console.log('\n  RV32 QEMU Tests\n')
 
   if (!hasQemu('qemu-system-riscv32')) { console.log('  SKIP  qemu-system-riscv32 not found'); return }
-  if (!ensureBinary(RV32_BIN, path.join(ROOT, 'kernel', 'rv32'))) return
+  if (!ensureBinary(RV32_BIN, path.join(ROOT, 'edge', 'kernel', 'rv32'))) return
 
   const qemu = new QemuProcess('rv32', [
     'qemu-system-riscv32',
@@ -377,7 +377,7 @@ async function testARM64() {
   console.log('\n  ARM64 QEMU Tests\n')
 
   if (!hasQemu('qemu-system-aarch64')) { console.log('  SKIP  qemu-system-aarch64 not found'); return }
-  if (!ensureBinary(ARM_BIN, path.join(ROOT, 'kernel', 'arm64'))) return
+  if (!ensureBinary(ARM_BIN, path.join(ROOT, 'edge', 'kernel', 'arm64'))) return
 
   // Use a random port to avoid conflicts
   const port = 18081 + Math.floor(Math.random() * 1000)
@@ -493,7 +493,7 @@ async function testARMv6() {
   console.log('\n  ARMv6 (Pi Zero W) QEMU Tests\n')
 
   if (!hasQemu('qemu-system-arm')) { console.log('  SKIP  qemu-system-arm not found'); return }
-  if (!ensureBinary(PI0W_BIN, path.join(ROOT, 'kernel', 'pi0w'), 'qemu')) return
+  if (!ensureBinary(PI0W_BIN, path.join(ROOT, 'edge', 'kernel', 'pi0w'), 'qemu')) return
 
   const qemu = new QemuProcess('armv6', [
     'qemu-system-arm',
@@ -534,7 +534,7 @@ async function testARMv6() {
     await test('armv6: EXEC -> r0=42', async () => {
       qemu.clearBuffer()
       await sleep(100)
-      const { assembleARMv6 } = require(path.join(ROOT, 'src', 'asm_armv6.js'))
+      const { assembleARMv6 } = require(path.join(ROOT, 'hub', 'assembler', 'asm_armv6.js'))
       const bin = assembleARMv6('mov r0, #42\nbx lr')
       const payload = Buffer.concat([Buffer.from('EXEC'), bin])
       qemu.sendRaw(makePoke(payload))
@@ -546,7 +546,7 @@ async function testARMv6() {
     await test('armv6: EXEC -> 2+3=5', async () => {
       qemu.clearBuffer()
       await sleep(100)
-      const { assembleARMv6 } = require(path.join(ROOT, 'src', 'asm_armv6.js'))
+      const { assembleARMv6 } = require(path.join(ROOT, 'hub', 'assembler', 'asm_armv6.js'))
       const bin = assembleARMv6('mov r0, #2\nadd r0, r0, #3\nbx lr')
       const payload = Buffer.concat([Buffer.from('EXEC'), bin])
       qemu.sendRaw(makePoke(payload))
@@ -558,7 +558,7 @@ async function testARMv6() {
     await test('armv6: EXEC -> 10*7=70', async () => {
       qemu.clearBuffer()
       await sleep(100)
-      const { assembleARMv6 } = require(path.join(ROOT, 'src', 'asm_armv6.js'))
+      const { assembleARMv6 } = require(path.join(ROOT, 'hub', 'assembler', 'asm_armv6.js'))
       const bin = assembleARMv6('mov r0, #10\nmov r1, #7\nmul r0, r0, r1\nbx lr')
       const payload = Buffer.concat([Buffer.from('EXEC'), bin])
       qemu.sendRaw(makePoke(payload))

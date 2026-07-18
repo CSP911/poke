@@ -5,7 +5,7 @@
  * Each edge runs a POKE kernel in QEMU with UART mapped to a TCP port.
  * The hub connects to each edge via serial://tcp:localhost:PORT
  *
- * Usage: node hex/launch.js [--hub]
+ * Usage: node orchestration/launch.js [--hub]
  *   --hub    Also start the hub server (default: edges only)
  */
 
@@ -19,7 +19,7 @@ const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), '
 
 // Binary paths
 const BINS = {
-  rv32:  path.join(ROOT, 'kernel', 'rv32', 'poke-rv32.bin'),
+  rv32:  path.join(ROOT, 'edge', 'kernel', 'rv32', 'poke-rv32.bin'),
   arm64: path.join(ROOT, 'kernel', 'arm64', 'poke-arm.bin'),
   armv6: path.join(ROOT, 'kernel', 'pi0w', 'poke-pi0w-qemu.bin'),
 }

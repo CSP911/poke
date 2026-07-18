@@ -7,7 +7,7 @@
  * Launches 10 QEMU edges, starts the hub, and opens an interactive
  * prompt where you talk to HEX (LLM) in natural language.
  *
- * Usage: node hex/cli.js
+ * Usage: node orchestration/cli.js
  */
 
 const { spawn, execSync } = require('child_process')
@@ -27,7 +27,7 @@ const HUB_PORT = parseInt(process.env.PORT) || 3333
 const HUB_SECRET = process.env.HUB_SECRET || 'poke-secret'
 const HUB_URL = `http://localhost:${HUB_PORT}`
 
-const RV32_BIN = path.join(ROOT, 'kernel', 'rv32', 'poke-rv32.bin')
+const RV32_BIN = path.join(ROOT, 'edge', 'kernel', 'rv32', 'poke-rv32.bin')
 const processes = []
 let hubProc = null
 
@@ -36,7 +36,7 @@ let hubProc = null
 function ensureBinary() {
   if (fs.existsSync(RV32_BIN)) return
   console.log('  Building RV32 kernel...')
-  execSync(`make -C ${path.join(ROOT, 'kernel', 'rv32')}`, { stdio: 'pipe' })
+  execSync(`make -C ${path.join(ROOT, 'edge', 'kernel', 'rv32')}`, { stdio: 'pipe' })
 }
 
 function waitForPort(port, timeoutMs) {

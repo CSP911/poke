@@ -15,7 +15,7 @@ const fs = require('fs')
 const path = require('path')
 const { log } = require('./logger')
 
-const LIBRARY_DIR = path.join(__dirname, '..', 'library')
+const LIBRARY_DIR = path.join(__dirname, '..', 'edge', 'library')
 
 // ── Library state ──
 const entries = new Map()   // id → entry JSON
