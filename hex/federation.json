@@ -1,0 +1,35 @@
+{
+  "_comment": "HEX Federation — 3 hubs, 9 edges, interconnected",
+  "hubs": [
+    {
+      "id": "office",
+      "name": "Office",
+      "port": 3001,
+      "edges": [
+        { "id": "entrance",    "port": 19101, "sensors": ["hcsr501"], "description": "Motion detection" },
+        { "id": "workspace",   "port": 19102, "sensors": ["dht22", "bh1750", "relay_4ch"], "description": "Temp, light, controls" },
+        { "id": "server-room", "port": 19103, "sensors": ["dht22", "relay_2ch"], "description": "Server cooling" }
+      ]
+    },
+    {
+      "id": "factory",
+      "name": "Factory",
+      "port": 3002,
+      "edges": [
+        { "id": "line-1",   "port": 19201, "sensors": ["dht22", "relay_4ch"], "description": "Production line 1" },
+        { "id": "line-2",   "port": 19202, "sensors": ["dht22", "relay_4ch"], "description": "Production line 2" },
+        { "id": "quality",  "port": 19203, "sensors": ["mq135", "bh1750"], "description": "Quality inspection" }
+      ]
+    },
+    {
+      "id": "warehouse",
+      "name": "Warehouse",
+      "port": 3003,
+      "edges": [
+        { "id": "dock",      "port": 19301, "sensors": ["hcsr501", "relay_2ch"], "description": "Loading dock" },
+        { "id": "storage",   "port": 19302, "sensors": ["dht22", "mq135"], "description": "Main storage" },
+        { "id": "cold-room", "port": 19303, "sensors": ["dht22", "relay_4ch"], "description": "Cold storage" }
+      ]
+    }
+  ]
+}
