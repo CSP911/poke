@@ -2,3 +2,11 @@ arm_64bit=1
 enable_uart=1
 uart_2ndstage=1
 kernel=kernel8.img
+gpu_mem=16
+
+# 5" 800x480 HDMI LCD (no EDID — force mode)
+hdmi_force_hotplug=1
+hdmi_group=2
+hdmi_mode=87
+hdmi_cvt=800 480 60 6 0 0 0
+hdmi_drive=1

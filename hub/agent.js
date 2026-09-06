@@ -590,7 +590,7 @@ async function executeAgentTool(toolName, toolInput) {
       const { compileAssemblyRV } = require('./compiler')
       const bin = await compileAssemblyRV(toolInput.asm_code)
       if (!bin) return 'Error: RISC-V assembly compilation failed'
-      if (node.endpoint.startsWith('serial://') || node.endpoint.startsWith('tcp://')) {
+      if (node.endpoint.startsWith('serial://') || node.endpoint.startsWith('tcp://') || node.endpoint.startsWith('udp://')) {
         const { pokeNodeSerial } = require('./serial')
         return await pokeNodeSerial(node.endpoint, bin)
       }
@@ -607,7 +607,7 @@ async function executeAgentTool(toolName, toolInput) {
       const { compileAssemblyARMv6 } = require('./compiler')
       const bin = await compileAssemblyARMv6(toolInput.asm_code)
       if (!bin) return 'Error: ARMv6 assembly compilation failed'
-      if (node.endpoint.startsWith('serial://') || node.endpoint.startsWith('tcp://')) {
+      if (node.endpoint.startsWith('serial://') || node.endpoint.startsWith('tcp://') || node.endpoint.startsWith('udp://')) {
         const { pokeNodeSerial } = require('./serial')
         return await pokeNodeSerial(node.endpoint, bin)
       }
@@ -620,7 +620,7 @@ async function executeAgentTool(toolName, toolInput) {
   if (toolName === 'deploy_serial_monitor') {
     const node = nodes.get(toolInput.target)
     if (!node) return `Error: edge "${toolInput.target}" not found`
-    if (!node.endpoint.startsWith('serial://') && !node.endpoint.startsWith('tcp://')) return 'Error: only works with serial/tcp edges'
+    if (!node.endpoint.startsWith('serial://') && !node.endpoint.startsWith('tcp://')) return 'Error: only works with serial/tcp/udp edges'
     try {
       const serial = require('./serial')
       let config
@@ -649,7 +649,7 @@ async function executeAgentTool(toolName, toolInput) {
   if (toolName === 'stop_serial_monitor') {
     const node = nodes.get(toolInput.target)
     if (!node) return `Error: edge "${toolInput.target}" not found`
-    if (!node.endpoint.startsWith('serial://') && !node.endpoint.startsWith('tcp://')) return 'Error: only works with serial/tcp edges'
+    if (!node.endpoint.startsWith('serial://') && !node.endpoint.startsWith('tcp://')) return 'Error: only works with serial/tcp/udp edges'
     try {
       const serial = require('./serial')
       return await serial.serialEventStop(node.endpoint)
@@ -661,7 +661,7 @@ async function executeAgentTool(toolName, toolInput) {
   if (toolName === 'set_gpio') {
     const node = nodes.get(toolInput.target)
     if (!node) return `Error: edge "${toolInput.target}" not found`
-    if (!node.endpoint.startsWith('serial://') && !node.endpoint.startsWith('tcp://')) return 'Error: only works with serial/tcp edges'
+    if (!node.endpoint.startsWith('serial://') && !node.endpoint.startsWith('tcp://')) return 'Error: only works with serial/tcp/udp edges'
     try {
       const serial = require('./serial')
       return await serial.serialGpioSet(node.endpoint, toolInput.pin, toolInput.value)
@@ -673,7 +673,7 @@ async function executeAgentTool(toolName, toolInput) {
   if (toolName === 'read_sensor') {
     const node = nodes.get(toolInput.target)
     if (!node) return `Error: edge "${toolInput.target}" not found`
-    if (!node.endpoint.startsWith('serial://') && !node.endpoint.startsWith('tcp://')) return 'Error: read_sensor only works with serial/tcp edges'
+    if (!node.endpoint.startsWith('serial://') && !node.endpoint.startsWith('tcp://')) return 'Error: read_sensor only works with serial/tcp/udp edges'
     try {
       const serial = require('./serial')
       if (toolInput.sensor === 'temp') {

@@ -14,6 +14,7 @@
  */
 
 const net = require('net')
+const dgram = require('dgram')
 const { log } = require('./logger')
 
 // ── Event callback: set by hub to handle edge-initiated events ──
@@ -47,6 +48,11 @@ function getSerialPort() {
 const ports = new Map()  // path → { port, lock, onResp }
 
 function parseSerialEndpoint(endpoint) {
+  // UDP endpoint: udp://host:port
+  const udpMatch = endpoint.match(/^udp:\/\/([^:]+):(\d+)$/)
+  if (udpMatch) {
+    return { path: `udp:${udpMatch[1]}:${udpMatch[2]}`, host: udpMatch[1], udpPort: parseInt(udpMatch[2]), isUdp: true }
+  }
   // TCP endpoint: tcp://host:port
   const tcpMatch = endpoint.match(/^tcp:\/\/([^:]+):(\d+)$/)
   if (tcpMatch) {
@@ -127,6 +133,62 @@ function getOrOpenTcp(key, host, tcpPort) {
 
   ports.set(key, entry)
   return entry
+}
+
+// ── UDP sockets ──
+const udpSockets = new Map()
+
+function udpCommand(key, host, port, command, data, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let sock = udpSockets.get(key)
+    if (!sock) {
+      const s = dgram.createSocket('udp4')
+      s.on('error', (err) => { log.error(`[udp] ${key}: ${err.message}`) })
+      s.bind()
+      sock = { socket: s, host, port }
+      udpSockets.set(key, sock)
+    }
+
+    const frame = buildFrame(command, data)
+    const timeout = timeoutMs || 5000
+
+    const timer = setTimeout(() => {
+      sock.socket.removeListener('message', onMsg)
+      reject(new PokeTransportError('udp timeout', 'TIMEOUT'))
+    }, timeout)
+
+    function onMsg(msg) {
+      let rxBuf = msg
+      while (rxBuf.length >= 8) {
+        const respIdx = rxBuf.indexOf('RESP')
+        const evntIdx = rxBuf.indexOf('EVNT')
+        let fi = -1, ft = null
+        if (respIdx >= 0 && (evntIdx < 0 || respIdx <= evntIdx)) { fi = respIdx; ft = 'RESP' }
+        else if (evntIdx >= 0) { fi = evntIdx; ft = 'EVNT' }
+        if (fi < 0) break
+        if (fi > 0) rxBuf = rxBuf.slice(fi)
+        if (rxBuf.length < 8) break
+        const plen = rxBuf.readUInt32LE(4)
+        if (rxBuf.length < 8 + plen) break
+        const payload = rxBuf.slice(8, 8 + plen).toString()
+        rxBuf = rxBuf.slice(8 + plen)
+        if (ft === 'RESP') {
+          clearTimeout(timer)
+          sock.socket.removeListener('message', onMsg)
+          resolve(payload)
+          return
+        } else if (ft === 'EVNT' && _onEvent) {
+          try { const evt = JSON.parse(payload); evt._endpoint = `udp://${host}:${port}`; _onEvent(evt) }
+          catch (e) { log.warn(`[udp] EVNT parse error: ${e.message}`) }
+        }
+      }
+    }
+
+    sock.socket.on('message', onMsg)
+    sock.socket.send(frame, 0, frame.length, sock.port, sock.host, (err) => {
+      if (err) { clearTimeout(timer); sock.socket.removeListener('message', onMsg); reject(new PokeTransportError('udp send: ' + err.message, 'WRITE_ERROR')) }
+    })
+  })
 }
 
 function getOrOpenPort(portPath, baud) {
@@ -239,6 +301,11 @@ function serialCommand(endpoint, command, data, timeoutMs) {
   const parsed = parseSerialEndpoint(endpoint)
   if (!parsed) {
     return Promise.reject(new PokeTransportError('invalid endpoint: ' + endpoint, 'INVALID_ENDPOINT'))
+  }
+
+  // UDP: stateless, handle separately
+  if (parsed.isUdp) {
+    return udpCommand(parsed.path, parsed.host, parsed.udpPort, command, data, timeoutMs)
   }
 
   let entry
@@ -354,6 +421,10 @@ function closeAll() {
     } catch {}
   }
   ports.clear()
+  for (const [, entry] of udpSockets) {
+    try { entry.socket.close() } catch {}
+  }
+  udpSockets.clear()
 }
 
 module.exports = {

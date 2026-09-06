@@ -33,6 +33,9 @@ docs/patent-moip.md
 # ESP32 blobs
 libphy.a
 
+# Pi firmware blobs (downloaded at build time)
+edge/kernel/pi4/boot/
+
 # OS junk
 .DS_Store
 Thumbs.db
