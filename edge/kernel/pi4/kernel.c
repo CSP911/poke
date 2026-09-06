@@ -375,16 +375,7 @@ static u64 wall_sec(void) {
 
 static void api_gpio_out(u8 pin, u8 val) { gpio_set_output(pin); gpio_write(pin, val); }
 
-typedef struct {
-    void (*clear)(u32 color);                              /* +0x00 */
-    void (*rect)(int x, int y, int w, int h, u32 color);   /* +0x08 */
-    void (*text)(int x, int y, int scale, u32 color, const char *s); /* +0x10 */
-    u64  (*ms)(void);                                      /* +0x18 ms since boot */
-    u64  (*clock)(void);                                   /* +0x20 epoch sec, 0=unset */
-    void (*gpio_out)(u8 pin, u8 val);                      /* +0x28 */
-    u8   (*gpio_in)(u8 pin);                               /* +0x30 */
-    u32  (*temp_mc)(void);                                 /* +0x38 SoC temp milli-C */
-} api_t;
+#include "poke_api.h"
 
 static const api_t persona_api = {
     fb_clear, fb_rect, fb_text, now_ms, wall_sec,
@@ -393,7 +384,6 @@ static const api_t persona_api = {
 
 /* ── Persona Slot (resident binary, called every tick) ── */
 #define PERSONA_SZ 8192
-#define PERSONA_TICK_MS 50
 static u8 persona_buf[PERSONA_SZ] __attribute__((aligned(4096)));
 static u64 persona_tick = 0;
 static u64 persona_last_ms = 0;
@@ -956,6 +946,34 @@ static void handle_exec(const u8 *code, int clen) {
     poke_resp((const u8 *)rsp, rl);
 }
 
+/* ── Console home screen (boot banner) ── */
+static void print_banner(void) {
+    uprint("\n");
+    uprint("  ____   ___  _  _______ \n");
+    uprint(" |  _ \\ / _ \\| |/ / ____|\n");
+    uprint(" | |_) | | | | ' /|  _|  \n");
+    uprint(" |  __/| |_| | . \\| |___ \n");
+    uprint(" |_|    \\___/|_|\\_\\_____|\n");
+    uprint("\n");
+    uprint("  POKE OS Pi 4 v0.2 (bare-metal ethernet)\n");
+    uprint("  arch: aarch64 (Cortex-A72)\n");
+    uprint("  transport: UDP over GENET v5\n\n");
+}
+
+static void console_home(void) {
+    if (fb_ok) {
+        u32 stride = fb_pitch / 4;
+        for (u32 i = 0; i < stride * fb_h; i++) fb_base[i] = 0;
+        fb_cx = 0; fb_cy = 0;
+    }
+    print_banner();
+    if (eth_up) {
+        uprint("[NET] IP: "); uip(OUR_IP); uprint(":"); udec(POKE_PORT); uputc('\n');
+    }
+    uprint("[PERSONA] none — binary discarded (volatile)\n\n");
+    uprint("poke-pi4> ");
+}
+
 /* ── LE readers for DRAW op stream ── */
 static int gs16(const u8 *p) { return (short)(p[0] | (p[1] << 8)); }
 static u32 gu32(const u8 *p) { return p[0] | (p[1]<<8) | (p[2]<<16) | ((u32)p[3]<<24); }
@@ -1075,7 +1093,7 @@ static void handle_poke(const u8 *payload, int len) {
     else if (mcmp(payload, "PSTP", 4) == 0) {
         persona_stop();
         poke_resp_str("{\"persona\":\"stopped\"}");
-        uprint("[POKE] PSTP\n");
+        console_home();
     }
     else if (mcmp(payload, "TIME", 4) == 0) {
         if (len < 12) { poke_resp_str("{\"error\":\"need epoch_ms u64\"}"); return; }
@@ -1198,16 +1216,7 @@ void kernel_main(void) {
 
     uart_init();
     fb_init();
-    uprint("\n");
-    uprint("  ____   ___  _  _______ \n");
-    uprint(" |  _ \\ / _ \\| |/ / ____|\n");
-    uprint(" | |_) | | | | ' /|  _|  \n");
-    uprint(" |  __/| |_| | . \\| |___ \n");
-    uprint(" |_|    \\___/|_|\\_\\_____|\n");
-    uprint("\n");
-    uprint("  POKE OS Pi 4 v0.2 (bare-metal ethernet)\n");
-    uprint("  arch: aarch64 (Cortex-A72)\n");
-    uprint("  transport: UDP over GENET v5\n\n");
+    print_banner();
 
     /* Stage 2: 2 slow blinks = UART done */
     act_blink(2, 300);

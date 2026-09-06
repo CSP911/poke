@@ -36,6 +36,9 @@ libphy.a
 # Pi firmware blobs (downloaded at build time)
 edge/kernel/pi4/boot/
 
+# LLM-generated persona scratch (recreated by `poke become`)
+edge/kernel/pi4/personas/llm.c
+
 # OS junk
 .DS_Store
 Thumbs.db

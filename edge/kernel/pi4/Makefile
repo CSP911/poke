@@ -37,6 +37,17 @@ kernel8-qemu.img: start.S kernel.c linker.ld
 qemu: kernel8-qemu.img
 	qemu-system-aarch64 -M raspi4b -kernel kernel8-qemu.img -serial stdio
 
+# ── Personas: flat aarch64 binaries injected via PRUN ──
+PERSONAS = personas/clock.bin personas/thermo.bin personas/timer.bin
+
+personas: $(PERSONAS)
+
+personas/%.bin: personas/%.c poke_api.h personas/persona.ld
+	$(CC) $(CFLAGS) -ffunction-sections -c -o personas/$*.o personas/$*.c
+	$(LD) -T personas/persona.ld -nostdlib -o personas/$*.elf personas/$*.o
+	$(OBJCOPY) -O binary personas/$*.elf personas/$*.bin
+	@echo "persona $*: $$(wc -c < personas/$*.bin | tr -d ' ') bytes"
+
 # ── Firmware download (one-time) ──
 $(BOOT_DIR)/start4.elf:
 	@mkdir -p $(BOOT_DIR)

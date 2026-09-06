@@ -1,0 +1,262 @@
+#!/usr/bin/env node
+/* ============================================
+ * poke — CLI for POKE edge devices (UDP)
+ *
+ *   poke ping                     liveness check
+ *   poke info                     edge info (JSON)
+ *   poke temp                     SoC temperature
+ *   poke gpio                     read all GPIO pins
+ *   poke gpio <pin> <0|1>         drive a GPIO pin
+ *   poke time                     sync wall clock (local time)
+ *   poke text <msg>               draw a message on the display
+ *   poke persona <name>           transform: inject persona binary
+ *   poke become "<request>"       LLM writes a persona from natural language,
+ *                                 compiles it, and injects it
+ *   poke persona stop             discard current persona
+ *   poke home                     back to the boot banner screen
+ *   poke personas                 list available personas
+ *
+ * Target: POKE_HOST env or --host <ip> (default 10.0.0.2)
+ * ============================================ */
+const dgram = require('dgram')
+const fs = require('fs')
+const path = require('path')
+
+const PORT = 5555
+const TZ_OFFSET_MS = 9 * 3600 * 1000  /* KST */
+const PERSONA_DIR = path.resolve(__dirname, '../edge/kernel/pi4/personas')
+
+const args = process.argv.slice(2)
+const hostIdx = args.indexOf('--host')
+const HOST = hostIdx >= 0 ? args.splice(hostIdx, 2)[1] : (process.env.POKE_HOST || '10.0.0.2')
+const cmd = args.shift()
+
+function frame(payload) {
+  const pkt = Buffer.alloc(8 + payload.length)
+  pkt.write('POKE', 0)
+  pkt.writeUInt32LE(payload.length, 4)
+  payload.copy(pkt, 8)
+  return pkt
+}
+
+function request(payload, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const sock = dgram.createSocket('udp4')
+    const timer = setTimeout(() => { sock.close(); reject(new Error(`no response from ${HOST}`)) }, timeoutMs)
+    sock.once('message', (m) => {
+      clearTimeout(timer)
+      sock.close()
+      resolve(m.slice(8, 8 + m.readUInt32LE(4)).toString())
+    })
+    sock.send(frame(payload), PORT, HOST)
+  })
+}
+
+function timePayload() {
+  const b = Buffer.alloc(12)
+  b.write('TIME', 0)
+  b.writeBigUInt64LE(BigInt(Date.now() + TZ_OFFSET_MS), 4)
+  return b
+}
+
+/* DRAW op builders */
+const opClear = (color) => { const b = Buffer.alloc(5); b[0] = 1; b.writeUInt32LE(color, 1); return b }
+const opRect = (x, y, w, h, color) => {
+  const b = Buffer.alloc(13); b[0] = 2
+  b.writeInt16LE(x, 1); b.writeInt16LE(y, 3); b.writeInt16LE(w, 5); b.writeInt16LE(h, 7)
+  b.writeUInt32LE(color, 9); return b
+}
+const opText = (x, y, scale, color, s) => {
+  const t = Buffer.from(s)
+  const b = Buffer.alloc(11 + t.length); b[0] = 3
+  b.writeInt16LE(x, 1); b.writeInt16LE(y, 3); b[5] = scale
+  b.writeUInt32LE(color, 6); b[10] = t.length; t.copy(b, 11); return b
+}
+
+/* ── poke become: natural language → LLM → C → aarch64 binary → device ── */
+const { execFileSync } = require('child_process')
+
+function loadEnv() {
+  try {
+    for (const line of fs.readFileSync(path.resolve(__dirname, '../.env'), 'utf8').split('\n')) {
+      const m = line.match(/^([A-Z_]+)=(.*)$/)
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2]
+    }
+  } catch {}
+}
+
+const PI4_DIR = path.resolve(__dirname, '../edge/kernel/pi4')
+
+function personaSystemPrompt() {
+  const api = fs.readFileSync(path.join(PI4_DIR, 'poke_api.h'), 'utf8')
+  const example = fs.readFileSync(path.join(PERSONA_DIR, 'clock.c'), 'utf8')
+  return `You are HEX, the applet generator of POKE — an open-source hobbyist platform
+for the user's own Raspberry Pi 4. POKE's firmware runs display applets called
+"personas": tiny freestanding C programs (no OS, no libc) that the firmware loads
+and calls every 50ms with an API table. A persona turns the device's little LCD
+into a clock, a timer, a thermometer — whatever the user asks for.
+
+The API (poke_api.h):
+${api}
+
+HARD CONSTRAINTS — violating any of these crashes the device or fails the build:
+- Output ONLY the C source file, nothing else. No markdown fences, no explanation.
+- Exactly one entry point:
+    __attribute__((section(".text.main")))
+    unsigned long persona_main(const api_t *api, unsigned long tick)
+- #include "../poke_api.h" and NOTHING else. No libc calls (no printf/memset/etc).
+- NO global or static VARIABLES (the binary has no .data/.bss). static helper
+  FUNCTIONS are fine. All state must be derived from tick, api->ms(), api->clock().
+- Integer arithmetic only. No float, no double.
+- Compiled flat binary must stay under 1400 bytes: keep it minimal, no big arrays,
+  no lookup tables beyond a few bytes.
+- Display: 800x480, 32-bit color 0x00RRGGBB. api->text renders 8px-per-char glyphs
+  scaled by 'scale' (char width = 8*scale px). Screen top-left is (0,0).
+- Draw the static parts (title, background) only once at tick==0. For live values,
+  pace redraws with "if (tick % N) return 0;" and clear just the changed region with
+  api->rect(background color) before re-drawing text — this avoids flicker.
+- api->clock() returns LOCAL wall-clock time as epoch seconds (0 if not set yet).
+  api->ms() is milliseconds since boot. tick increments every 50ms from injection.
+- api->temp_mc() returns SoC temperature in milli-celsius (e.g. 47500 = 47.5C).
+- api->gpio_out(pin, val) drives a GPIO pin; valid pins 2-27 except 14,15.
+
+A reference persona in the exact expected style:
+${example}
+
+Design a clean, legible screen for what the user asks. Title at top, big live value
+in the middle. Respond with the complete C file only.`
+}
+
+async function become(wish) {
+  loadEnv()
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set (.env)')
+  const Anthropic = require(path.resolve(__dirname, '../node_modules/@anthropic-ai/sdk'))
+  const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+  const srcPath = path.join(PERSONA_DIR, 'llm.c')
+  const messages = [{ role: 'user', content: wish }]
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    console.log(`\n[1/4] HEX thinking... (attempt ${attempt})`)
+    const msg = await client.messages.create({
+      /* sonnet-5: best hit-rate for persona codegen (fable-5/opus-5 refuse
+       * or truncate this task via API — override with POKE_MODEL to retest) */
+      model: process.env.POKE_MODEL || 'claude-sonnet-5',
+      max_tokens: 8000,
+      system: personaSystemPrompt(),
+      messages,
+    })
+    const block = msg.content.find((b) => b.type === 'text')
+    if (!block) {
+      console.error(`no text in response (stop_reason=${msg.stop_reason}, blocks=${msg.content.map((b) => b.type).join(',')})`)
+      continue
+    }
+    let code = block.text.trim().replace(/^```\w*\n?/, '').replace(/\n?```$/, '')
+
+    console.log('\n──── generated persona ─────────────────────────')
+    console.log(code)
+    console.log('────────────────────────────────────────────────')
+
+    fs.writeFileSync(srcPath, code + '\n')
+    console.log('\n[2/4] compiling to aarch64 machine code...')
+    try {
+      fs.rmSync(path.join(PERSONA_DIR, 'llm.bin'), { force: true })
+      execFileSync('make', ['-C', PI4_DIR, 'personas/llm.bin'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (e) {
+      const err = (e.stderr || '').toString().slice(0, 2000)
+      console.error('compile failed:\n' + err)
+      messages.push({ role: 'assistant', content: code })
+      messages.push({ role: 'user', content: `Compilation failed:\n${err}\nFix it. Respond with the complete corrected C file only.` })
+      continue
+    }
+
+    const bin = fs.readFileSync(path.join(PERSONA_DIR, 'llm.bin'))
+    console.log(`[3/4] binary ready: ${bin.length} bytes`)
+    if (bin.length > 1400) {
+      messages.push({ role: 'assistant', content: code })
+      messages.push({ role: 'user', content: `Binary is ${bin.length} bytes — over the 1400 byte limit. Make it smaller. Respond with the complete C file only.` })
+      continue
+    }
+
+    console.log('[4/4] loading onto bare metal...')
+    await request(timePayload())
+    const r = JSON.parse(await request(Buffer.concat([Buffer.from('PRUN'), bin])))
+    console.log(`\n✦ device transformed: ${r.persona} (${r.size} bytes of volatile machine code)`)
+    return
+  }
+  throw new Error('failed after 3 attempts')
+}
+
+async function main() {
+  switch (cmd) {
+    case 'ping': {
+      const t0 = Date.now()
+      const r = await request(Buffer.from('PING'))
+      console.log(`${r} (${Date.now() - t0}ms)`)
+      break
+    }
+    case 'info':
+      console.log(JSON.stringify(JSON.parse(await request(Buffer.from('INFO'))), null, 2))
+      break
+    case 'temp': {
+      const j = JSON.parse(await request(Buffer.from('TEMP')))
+      console.log(`${j.celsius}°C`)
+      break
+    }
+    case 'gpio': {
+      if (args.length >= 2) {
+        const p = Buffer.alloc(6)
+        p.write('GPOS', 0); p[4] = parseInt(args[0]); p[5] = parseInt(args[1]) ? 1 : 0
+        console.log(await request(p))
+      } else {
+        console.log(await request(Buffer.from('GPIO')))
+      }
+      break
+    }
+    case 'time':
+      console.log(await request(timePayload()))
+      break
+    case 'home':  /* discard persona, back to the boot banner screen */
+      console.log(await request(Buffer.from('PSTP')))
+      break
+    case 'text': {
+      const msg = args.join(' ') || 'POKE'
+      await request(Buffer.from('PSTP'))  /* take the screen: discard any persona */
+      const scale = Math.max(1, Math.min(8, Math.floor(84 / msg.length)))
+      const ops = [
+        opClear(0x00101828),
+        opText(40, 200, scale, 0x0000FF66, msg),
+        opRect(40, 200 + scale * 8 + 20, 720, 6, 0x0000FF66),
+      ]
+      console.log(await request(Buffer.concat([Buffer.from('DRAW'), ...ops])))
+      break
+    }
+    case 'persona': {
+      const name = args[0]
+      if (!name) { console.error('usage: poke persona <name>|stop'); process.exit(1) }
+      if (name === 'stop') { console.log(await request(Buffer.from('PSTP'))); break }
+      const bin = fs.readFileSync(path.join(PERSONA_DIR, `${name}.bin`))
+      if (bin.length > 1400) throw new Error('persona binary too large for one UDP frame')
+      await request(timePayload())  /* personas may need wall clock */
+      const r = JSON.parse(await request(Buffer.concat([Buffer.from('PRUN'), bin])))
+      console.log(`${name}: ${r.persona} (${r.size} bytes)`)
+      break
+    }
+    case 'become': {
+      const wish = args.join(' ')
+      if (!wish) { console.error('usage: poke become "<request>"'); process.exit(1) }
+      await become(wish)
+      break
+    }
+    case 'personas': {
+      const list = fs.readdirSync(PERSONA_DIR).filter((f) => f.endsWith('.bin')).map((f) => f.replace('.bin', ''))
+      console.log(list.length ? list.join('\n') : '(none — run: make -C edge/kernel/pi4 personas)')
+      break
+    }
+    default:
+      console.error('usage: poke <ping|info|temp|gpio|time|text|persona|personas|home> [--host ip]')
+      process.exit(1)
+  }
+}
+
+main().catch((e) => { console.error('error:', e.message); process.exit(1) })
