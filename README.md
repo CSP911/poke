@@ -41,6 +41,13 @@ aarch64 machine code, and a bare-metal Raspberry Pi 4 transforms into a ramen
 timer — countdown, alarm flash and all. Ask again and it becomes a clock, a
 thermometer, anything. The binary is volatile: power-cycle and it's gone.
 
+> **Known limitation — an open challenge.** Generating the persona takes longer
+> than 30 seconds… for a 30-second timer. LLM code generation + compilation adds
+> tens of seconds of latency, so anything that needs a *real-time* transformation
+> (a timer you need right now, a reaction to a sensor event) exposes the gap.
+> Closing it is a core challenge for POKE: persona caching (generate once, reuse
+> in milliseconds), a pre-warmed persona library, faster/smaller codegen models.
+
 ---
 
 ## Why POKE Exists
