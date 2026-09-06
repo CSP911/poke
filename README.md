@@ -29,8 +29,7 @@ No operating system. No drivers. No apps. Just AI talking directly to hardware.
 ---
 
 ## Demo
-
-**[▶ Watch: a prompt becomes a machine (Poke.mp4)](Poke.mp4)**
+https://github.com/user-attachments/assets/4b450f18-5bbd-4b33-8551-fdb3ebc09ebd
 
 ```
 $ poke become "Turn this device into a 30-second ramen timer"
