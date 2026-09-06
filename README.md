@@ -28,6 +28,21 @@ No operating system. No drivers. No apps. Just AI talking directly to hardware.
 
 ---
 
+## Demo
+
+**[▶ Watch: a prompt becomes a machine (Poke.mp4)](Poke.mp4)**
+
+```
+$ poke become "Turn this device into a 30-second ramen timer"
+```
+
+The LLM writes freestanding C on the spot, the hub compiles it to ~600 bytes of
+aarch64 machine code, and a bare-metal Raspberry Pi 4 transforms into a ramen
+timer — countdown, alarm flash and all. Ask again and it becomes a clock, a
+thermometer, anything. The binary is volatile: power-cycle and it's gone.
+
+---
+
 ## Why POKE Exists
 
 ### The OS was built for humans, not for AI.
