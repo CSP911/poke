@@ -31,8 +31,14 @@ No operating system. No drivers. No apps. Just AI talking directly to hardware.
 ## Demo
 https://github.com/user-attachments/assets/4b450f18-5bbd-4b33-8551-fdb3ebc09ebd
 
-```
-$ poke become "Turn this device into a 30-second ramen timer"
+The commands used in the video ([full quality](Poke.mp4)):
+
+```bash
+./bin/poke become "Turn this device into a 30-second ramen timer. Flash the screen when time is up"
+
+./bin/poke become "Turn this device into a SoC thermometer. Show a warning when it goes over 60 degrees"
+
+./bin/poke become "Turn this device into a clock"
 ```
 
 The LLM writes freestanding C on the spot, the hub compiles it to ~600 bytes of
