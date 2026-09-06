@@ -46,6 +46,26 @@ aarch64 machine code, and a bare-metal Raspberry Pi 4 transforms into a ramen
 timer — countdown, alarm flash and all. Ask again and it becomes a clock, a
 thermometer, anything. The binary is volatile: power-cycle and it's gone.
 
+**LLM writes C. The device receives only machine code.** The C source you see in
+the video exists only on the hub — it is an intermediate representation on the way
+to machine code. The device has no compiler, no loader, no filesystem: it receives
+raw bytes over UDP, places them in memory, and jumps to them.
+
+```
+natural language ──▶ C source (LLM) ──▶ aarch64 machine code (gcc) ──▶ bare metal
+                     dies on the hub     the only thing that travels
+```
+
+The actual bytes on the wire, and what they mean:
+
+```
+fd7b bda9 fd03 0091 f30b 00f9 f303 00aa ...   ← 590 bytes sent over UDP
+
+   0:  a9bd7bfd  stp  x29, x30, [sp,#-48]!    ← function prologue
+  18:  52830500  mov  w0, #0x1828             ← background color 0x101828
+  20:  d63f0020  blr  x1                      ← call api->clear()
+```
+
 > **Known limitation — an open challenge.** Generating the persona takes longer
 > than 30 seconds… for a 30-second timer. LLM code generation + compilation adds
 > tens of seconds of latency, so anything that needs a *real-time* transformation
