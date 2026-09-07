@@ -25,7 +25,7 @@ loadLibrary()
 startHealthCheck()
 
 // ── Serial event listener: edge-initiated events → agentLoop ──
-const { onSerialEvent } = require('./hub/serial')
+const { onSerialEvent } = require('./hub/frame-transport')
 const { agentLoop } = require('./hub/agent')
 const { nodes } = require('./hub/nodes')
 

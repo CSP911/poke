@@ -137,7 +137,7 @@ async function boot() {
 // ── Collect: direct TCP sensor reads (no LLM, fast) ──
 
 async function collectAll() {
-  const serial = require(path.join(ROOT, 'hub', 'serial'))
+  const serial = require(path.join(ROOT, 'hub', 'frame-transport'))
   const siteData = []
 
   for (const hub of config.hubs) {

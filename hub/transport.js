@@ -11,7 +11,7 @@ const { log } = require('./logger')
 // Lazy-load serial to avoid circular dependency
 let _serial = null
 function serial() {
-  if (!_serial) _serial = require('./serial')
+  if (!_serial) _serial = require('./frame-transport')
   return _serial
 }
 

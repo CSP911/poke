@@ -394,7 +394,7 @@ async function handleRequest(req, res) {
     if (!node) { jsonError(res, 404, 'edge not found'); return }
     if (!node.endpoint.startsWith('serial://')) { jsonError(res, 400, 'not a serial edge'); return }
     try {
-      const { serialInfo } = require('./serial')
+      const { serialInfo } = require('./frame-transport')
       const info = await serialInfo(node.endpoint)
       const health = JSON.parse(info)
       node.status = health.status || 'alive'
@@ -415,7 +415,7 @@ async function handleRequest(req, res) {
     if (!node) { jsonError(res, 404, 'edge not found'); return }
     if (!node.endpoint.startsWith('serial://')) { jsonError(res, 400, 'not a serial edge'); return }
     try {
-      const { serialTemp } = require('./serial')
+      const { serialTemp } = require('./frame-transport')
       const data = await serialTemp(node.endpoint)
       res.end(data)
     } catch (e) {

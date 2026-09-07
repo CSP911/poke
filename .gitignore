@@ -45,3 +45,6 @@ Thumbs.db
 
 # Web-compressed demo video (uploaded as GitHub attachment)
 Poke-web.mp4
+
+# Demo video originals (kept local; hosted as GitHub attachment)
+demo/Poke.mp4

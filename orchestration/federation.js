@@ -101,7 +101,7 @@ function httpGet(port, urlPath) {
 
 async function bootEdges() {
   if (!fs.existsSync(RV32_BIN)) {
-    execSync(`make -C ${path.join(ROOT, 'kernel', 'rv32')}`, { stdio: 'pipe' })
+    execSync(`make -C ${path.join(ROOT, 'edge', 'kernel', 'rv32')}`, { stdio: 'pipe' })
   }
 
   for (const hub of config.hubs) {

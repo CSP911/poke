@@ -59,13 +59,13 @@ function assert(condition, msg) {
 const tests = [
   // === Phase 1: Serial Module Direct Tests ===
   test('serial: PING → PONG', async () => {
-    const { serialPing } = require('../hub/serial')
+    const { serialPing } = require('../hub/frame-transport')
     const result = await serialPing(SERIAL_ENDPOINT)
     assert(result === 'PONG', `expected PONG, got "${result}"`)
   }),
 
   test('serial: INFO returns valid JSON', async () => {
-    const { serialInfo } = require('../hub/serial')
+    const { serialInfo } = require('../hub/frame-transport')
     const result = await serialInfo(SERIAL_ENDPOINT)
     const info = JSON.parse(result)
     assert(info.status === 'alive', 'status should be alive')
@@ -77,7 +77,7 @@ const tests = [
   }),
 
   test('serial: GPIO returns pin states', async () => {
-    const { serialGpio } = require('../hub/serial')
+    const { serialGpio } = require('../hub/frame-transport')
     const result = await serialGpio(SERIAL_ENDPOINT)
     const gpio = JSON.parse(result)
     assert(gpio.gpio, 'should have gpio object')
@@ -87,7 +87,7 @@ const tests = [
   // === Phase 2: RISC-V Compile + Serial Execute ===
   test('compile+exec: li a0, 42 / ret → a0=42', async () => {
     const { compileAssemblyRV } = require('../hub/compiler')
-    const { pokeNodeSerial } = require('../hub/serial')
+    const { pokeNodeSerial } = require('../hub/frame-transport')
     const bin = await compileAssemblyRV('li a0, 42\nret')
     assert(bin, 'compilation should succeed')
     const result = await pokeNodeSerial(SERIAL_ENDPOINT, bin)
@@ -96,7 +96,7 @@ const tests = [
 
   test('compile+exec: 3 + 4 = 7', async () => {
     const { compileAssemblyRV } = require('../hub/compiler')
-    const { pokeNodeSerial } = require('../hub/serial')
+    const { pokeNodeSerial } = require('../hub/frame-transport')
     const bin = await compileAssemblyRV('li a0, 3\nli t0, 4\nadd a0, a0, t0\nret')
     const result = await pokeNodeSerial(SERIAL_ENDPOINT, bin)
     assert(result === 'a0=7', `expected "a0=7", got "${result}"`)
@@ -104,7 +104,7 @@ const tests = [
 
   test('compile+exec: 10 * 20 = 200', async () => {
     const { compileAssemblyRV } = require('../hub/compiler')
-    const { pokeNodeSerial } = require('../hub/serial')
+    const { pokeNodeSerial } = require('../hub/frame-transport')
     const bin = await compileAssemblyRV('li a0, 10\nli t0, 20\nmul a0, a0, t0\nret')
     const result = await pokeNodeSerial(SERIAL_ENDPOINT, bin)
     assert(result === 'a0=200', `expected "a0=200", got "${result}"`)
@@ -112,7 +112,7 @@ const tests = [
 
   test('compile+exec: 100 - 37 = 63', async () => {
     const { compileAssemblyRV } = require('../hub/compiler')
-    const { pokeNodeSerial } = require('../hub/serial')
+    const { pokeNodeSerial } = require('../hub/frame-transport')
     const bin = await compileAssemblyRV('li a0, 100\nli t0, 37\nsub a0, a0, t0\nret')
     const result = await pokeNodeSerial(SERIAL_ENDPOINT, bin)
     assert(result === 'a0=63', `expected "a0=63", got "${result}"`)
@@ -120,7 +120,7 @@ const tests = [
 
   test('compile+exec: bitwise AND 0xFF & 0xF0 = 240', async () => {
     const { compileAssemblyRV } = require('../hub/compiler')
-    const { pokeNodeSerial } = require('../hub/serial')
+    const { pokeNodeSerial } = require('../hub/frame-transport')
     const bin = await compileAssemblyRV('li a0, 0xFF\nli t0, 0xF0\nand a0, a0, t0\nret')
     const result = await pokeNodeSerial(SERIAL_ENDPOINT, bin)
     assert(result === 'a0=240', `expected "a0=240", got "${result}"`)
@@ -128,7 +128,7 @@ const tests = [
 
   test('compile+exec: left shift 1 << 8 = 256', async () => {
     const { compileAssemblyRV } = require('../hub/compiler')
-    const { pokeNodeSerial } = require('../hub/serial')
+    const { pokeNodeSerial } = require('../hub/frame-transport')
     const bin = await compileAssemblyRV('li a0, 1\nli t0, 8\nsll a0, a0, t0\nret')
     const result = await pokeNodeSerial(SERIAL_ENDPOINT, bin)
     assert(result === 'a0=256', `expected "a0=256", got "${result}"`)
@@ -136,7 +136,7 @@ const tests = [
 
   test('compile+exec: fibonacci(10) = 55', async () => {
     const { compileAssemblyRV } = require('../hub/compiler')
-    const { pokeNodeSerial } = require('../hub/serial')
+    const { pokeNodeSerial } = require('../hub/frame-transport')
     const asm = `
       li a0, 0
       li a1, 1
@@ -255,7 +255,7 @@ async function run() {
   }
 
   // Close serial
-  try { require('../hub/serial').closeAll() } catch (e) {}
+  try { require('../hub/frame-transport').closeAll() } catch (e) {}
 
   console.log('─'.repeat(60))
   console.log(`${passed} passed, ${failed} failed, ${total} total\n`)

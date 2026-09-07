@@ -156,7 +156,7 @@ async function executeLibraryTool(tool, input) {
   if (!node) return `Error: edge "${nodeId}" not found`
 
   if (op.protocol === 'command' && node.endpoint.startsWith('serial://')) {
-    const serial = require('./serial')
+    const serial = require('./frame-transport')
     const cmd = op.command
 
     if (cmd === 'TEMP') return await serial.serialTemp(node.endpoint)
@@ -219,7 +219,7 @@ async function executeLibraryTool(tool, input) {
     if (!bin) return 'Error: assembly compilation failed'
 
     if (node.endpoint.startsWith('serial://')) {
-      const { pokeNodeSerial } = require('./serial')
+      const { pokeNodeSerial } = require('./frame-transport')
       return await pokeNodeSerial(node.endpoint, bin)
     }
     return await pokeNode(node.endpoint, bin)
@@ -231,7 +231,7 @@ async function executeLibraryTool(tool, input) {
 // ── Probe edge info (works for any connection type) ──
 async function probeEdgeInfo(node) {
   if (node.endpoint.startsWith('serial://')) {
-    const { serialInfo } = require('./serial')
+    const { serialInfo } = require('./frame-transport')
     return JSON.parse(await serialInfo(node.endpoint))
   }
   if (node.endpoint.startsWith('polling:') || node.endpoint.startsWith('tcp:')) {

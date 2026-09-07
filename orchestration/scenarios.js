@@ -142,7 +142,7 @@ async function setup() {
   // Build
   if (!fs.existsSync(RV32_BIN)) {
     console.log('  Building kernel...')
-    execSync(`make -C ${path.join(ROOT, 'rv32')}`, { stdio: 'pipe' })
+    execSync(`make -C ${path.join(ROOT, 'edge', 'kernel', 'rv32')}`, { stdio: 'pipe' })
   }
 
   // Launch edges

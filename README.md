@@ -31,7 +31,7 @@ No operating system. No drivers. No apps. Just AI talking directly to hardware.
 ## Demo
 https://github.com/user-attachments/assets/4b450f18-5bbd-4b33-8551-fdb3ebc09ebd
 
-The commands used in the video ([full quality](demo/Poke.mp4)):
+The commands used in the video:
 
 ```bash
 ./bin/poke become "Turn this device into a 30-second ramen timer. Flash the screen when time is up"

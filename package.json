@@ -35,6 +35,7 @@
   "files": [
     "bin/",
     "index.js",
+    "lib/",
     "hub/",
     "web/",
     "orchestration/",
