@@ -356,6 +356,111 @@ static u8 gpio_read(u8 pin) {
     return (rd32(GPIO_LEV0 + (pin/32)*4) >> (pin%32)) & 1;
 }
 
+/* ═══════════════════════════════════════════
+ * XPT2046 Touch Controller (SPI0)
+ * T_CLK=GPIO11 T_MOSI=GPIO10 T_MISO=GPIO9
+ * T_CS=CE0/CE1 (auto-detect) T_IRQ=GPIO25
+ * ═══════════════════════════════════════════ */
+#define SPI0    (PERI + 0x204000)
+#define PEN_IRQ 25
+
+/* Current panel's touch film is cracked — its Z1 pressure reading floats
+ * high permanently, so pressure detection fires ghost touches. Set to 1
+ * when an intact XPT2046 panel is installed. */
+#define TOUCH_ENABLED 0
+
+/* raw→screen calibration (tune after corner test) */
+#define TC_MIN   200
+#define TC_MAX   3900
+
+static int touch_cs = 1;        /* this panel wires T_CS to CE1 (verified) */
+static int touch_down_f = 0;
+static int touch_new = 0;
+static int touch_sx = 0, touch_sy = 0;
+static u32 touch_rx = 0, touch_ry = 0;
+
+static void touch_init(void) {
+    /* GPIO 7-11 → ALT0 (SPI0: CE1, CE0, MISO, MOSI, SCLK) */
+    for (int pin = 7; pin <= 11; pin++) {
+        u32 reg = rd32(GPIO_FSEL(pin));
+        u32 shift = (pin % 10) * 3;
+        reg &= ~(7u << shift);
+        reg |= (4u << shift);          /* ALT0 */
+        wr32(GPIO_FSEL(pin), reg);
+    }
+    /* GPIO25 input + pull-up (PENIRQ is active low) */
+    u32 reg = rd32(GPIO_FSEL(PEN_IRQ));
+    reg &= ~(7u << ((PEN_IRQ % 10) * 3));
+    wr32(GPIO_FSEL(PEN_IRQ), reg);
+    u32 pull = rd32(GPIO + 0xE8);      /* PUP_PDN reg1: pins 16-31 */
+    pull &= ~(3u << ((PEN_IRQ - 16) * 2));
+    pull |= (1u << ((PEN_IRQ - 16) * 2));  /* 01 = pull-up */
+    wr32(GPIO + 0xE8, pull);
+}
+
+static u8 spi_byte(u8 out) {
+    int t = 100000;
+    while (!(rd32(SPI0 + 0x00) & (1 << 18)) && --t) { }  /* TXD */
+    wr32(SPI0 + 0x04, out);
+    t = 100000;
+    while (!(rd32(SPI0 + 0x00) & (1 << 17)) && --t) { }  /* RXD */
+    return rd32(SPI0 + 0x04) & 0xFF;
+}
+
+static u16 xpt_read(u8 cmd) {
+    u32 cs = (3 << 4) | (u32)touch_cs;      /* clear FIFOs + chip select */
+    wr32(SPI0 + 0x00, cs);
+    wr32(SPI0 + 0x08, 2048);                /* slow, safe clock */
+    wr32(SPI0 + 0x00, cs | (1 << 7));       /* TA: transfer active */
+    spi_byte(cmd);
+    u8 h = spi_byte(0), l = spi_byte(0);
+    int t = 100000;
+    while (!(rd32(SPI0 + 0x00) & (1 << 16)) && --t) { }  /* DONE */
+    wr32(SPI0 + 0x00, (u32)touch_cs);       /* TA off */
+    return (u16)((((h << 8) | l) >> 3) & 0xFFF);
+}
+
+static u16 med3(u16 a, u16 b, u16 c) {
+    if (a > b) { u16 t = a; a = b; b = t; }
+    if (b > c) { u16 t = b; b = c; c = t; }
+    if (a > b) { u16 t = a; a = b; b = t; }
+    return b;
+}
+
+static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static void touch_poll(void) {
+    /* pressure-based detection (Z1) — PENIRQ wiring varies across panels */
+    u16 z1 = xpt_read(0xB0);
+    if (z1 < 80) {                          /* no pressure = not touched */
+        if (touch_down_f) { touch_down_f = 0; uprint("[TOUCH] up\n"); }
+        return;
+    }
+    u32 rx = med3(xpt_read(0xD0), xpt_read(0xD0), xpt_read(0xD0));
+    u32 ry = med3(xpt_read(0x90), xpt_read(0x90), xpt_read(0x90));
+
+    if (rx < 30 || rx > 4070 || ry < 30 || ry > 4070) return;
+    touch_rx = rx; touch_ry = ry;
+    touch_sx = clampi((int)(rx - TC_MIN) * 800 / (TC_MAX - TC_MIN), 0, 799);
+    touch_sy = clampi((int)(ry - TC_MIN) * 480 / (TC_MAX - TC_MIN), 0, 479);
+
+    if (!touch_down_f) {
+        touch_down_f = 1;
+        touch_new = 1;    /* press edge — consumed by api_touch */
+        uprint("[TOUCH] raw="); udec(rx); uputc(','); udec(ry);
+        uprint(" scr="); udec(touch_sx); uputc(','); udec(touch_sy); uputc('\n');
+    }
+}
+
+/* returns 0 = not pressed, 1 = held, 2 = new tap (once per press) */
+static int api_touch(int *x, int *y) {
+    if (x) *x = touch_sx;
+    if (y) *y = touch_sy;
+    if (!touch_down_f) return 0;
+    if (touch_new) { touch_new = 0; return 2; }
+    return 1;
+}
+
 /* ── Wall Clock (set by hub via TIME command) ── */
 static u64 epoch_ms_base = 0;   /* epoch ms at the moment TIME was set */
 static u64 epoch_set_cnt = 0;   /* timer count at that moment */
@@ -380,11 +485,39 @@ static void api_gpio_out(u8 pin, u8 val) { gpio_set_output(pin); gpio_write(pin,
 static u64 persona_params[8];
 static u64 api_param(int idx) { return persona_params[idx & 7]; }
 
+/* ── Autonomous events: persona → hub (EVNT on port 5556) ──
+ * The edge watches its own conditions and speaks only when needed —
+ * no hub polling. Rate-limited per event code. */
+static void send_udp(const u8 *dst_mac, u32 dst_ip, u16 dport, u16 sport,
+                     const u8 *payload, int plen);   /* fwd decl */
+static u8  peer_mac[6];
+static u32 peer_ip = 0;
+static u16 peer_port = 0;
+static int eth_up = 0;
+
+#define POKE_PORT 5555
+#define EVNT_PORT 5556
+
+static void api_emit(unsigned int code, unsigned long value) {
+    static u64 emit_last[4];
+    if (!eth_up || !peer_ip) return;
+    u64 t = now_ms();
+    if (t - emit_last[code & 3] < 10000) return;   /* ≥10s per code */
+    emit_last[code & 3] = t;
+
+    u8 p[16];
+    p[0]='E'; p[1]='V'; p[2]='N'; p[3]='T';
+    for (int i = 0; i < 4; i++) p[4 + i] = (code >> (i * 8)) & 0xFF;
+    for (int i = 0; i < 8; i++) p[8 + i] = (value >> (i * 8)) & 0xFF;
+    send_udp(peer_mac, peer_ip, EVNT_PORT, POKE_PORT, p, 16);
+    uprint("[EVNT] code="); udec(code); uprint(" val="); udec((u32)value); uputc('\n');
+}
+
 #include "poke_api.h"
 
 static const api_t persona_api = {
     fb_clear, fb_rect, fb_text, now_ms, wall_sec,
-    api_gpio_out, gpio_read, get_soc_temp, api_param,
+    api_gpio_out, gpio_read, get_soc_temp, api_param, api_touch, api_emit,
 };
 
 /* ── Persona Slot (resident binary, called every tick) ── */
@@ -438,7 +571,6 @@ static void persona_run(void) {
 /* ── Network Config ── */
 static const u8 our_mac[6] = {0x02, 0x50, 0x4F, 0x4B, 0x45, 0x04};
 #define OUR_IP      0x0A000002U   /* 10.0.0.2 */
-#define POKE_PORT   5555
 
 /* ── Packet Structs ── */
 typedef struct __attribute__((packed)) { u8 dst[6]; u8 src[6]; u16 type; } eth_t;
@@ -537,7 +669,6 @@ static inline void gwr(u32 off, u32 v) { wr32(GENET + off, v); }
 
 static u32 rx_ci = 0;
 static u32 tx_pi = 0;
-static int eth_up = 0;
 static int crc_fwd = 0;
 
 /* ── MDIO ── */
@@ -821,7 +952,6 @@ static void arp_reply(const u8 *req) {
     u32 sip = htonl(OUR_IP); mcpy(a->spa, &sip, 4);
     mcpy(a->tha, ra->sha, 6); mcpy(a->tpa, ra->spa, 4);
     eth_tx(tx_buf, 42);
-    uprint("[ARP] reply\n");
 }
 
 /* Send ARP request (probe the hub — proves TX path independently) */
@@ -867,7 +997,6 @@ static void icmp_reply(const u8 *frame, int len) {
     icmp[2] = icksum & 0xFF; icmp[3] = (icksum >> 8) & 0xFF;
 
     eth_tx(tx_buf, total);
-    uprint("[ICMP] reply\n");
 }
 
 /* Send UDP packet */
@@ -901,10 +1030,6 @@ static void send_udp(const u8 *dst_mac, u32 dst_ip, u16 dport, u16 sport,
 /* ═══════════════════════════════════════════
  * POKE Protocol over UDP
  * ═══════════════════════════════════════════ */
-
-static u8 peer_mac[6];
-static u32 peer_ip;
-static u16 peer_port;
 
 static void poke_resp(const u8 *data, int len) {
     u8 rbuf[1400];
@@ -1030,6 +1155,7 @@ static void handle_poke(const u8 *payload, int len) {
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
         n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         n += scpy(r+n, ",\"display\":"); n += scpy(r+n, fb_ok ? "\"800x480\"" : "null");
+        n += scpy(r+n, ",\"touch\":true");
         n += scpy(r+n, ",\"persona\":"); n += scpy(r+n, persona_active ? "true" : "false");
         n += scpy(r+n, ",\"bare_metal\":true");
         n += scpy(r+n, ",\"temp_mc\":"); n += idec(temp, r+n);
@@ -1139,11 +1265,7 @@ static void process_frame(u8 *frame, int len) {
     if (etype == 0x0806 && len >= 42) {
         arp_t *a = (arp_t *)(frame + 14);
         if (ntohs(a->oper) == 1) arp_reply(frame);
-        else if (ntohs(a->oper) == 2) {
-            uprint("[ARP] peer ");
-            u32 spa; mcpy(&spa, a->spa, 4);
-            uip(ntohl(spa)); uprint(" is alive\n");
-        }
+        /* oper==2 (reply): silent */
         return;
     }
 
@@ -1243,6 +1365,10 @@ void kernel_main(void) {
     u32 t = get_soc_temp();
     uprint("[TEMP] SoC: "); udec(t / 1000); uputc('.'); udec((t % 1000) / 100); uprint("C\n");
 
+    /* Touch controller */
+    touch_init();
+    uprint("[TOUCH] XPT2046 on SPI0, irq=GPIO25\n");
+
 #ifndef NO_ETH
     /* GENET + PHY */
     genet_init();
@@ -1324,9 +1450,9 @@ void kernel_main(void) {
                 arp_request(0x0A000001);  /* 10.0.0.1 */
             }
 
-            /* RX/TX ring diagnostics every 5s */
+            /* RX/TX ring diagnostics every 5s — silenced during CS probe */
             static u64 last_diag = 0;
-            if (now_ms() - last_diag >= 5000) {
+            if (0 && now_ms() - last_diag >= 5000) {
                 last_diag = now_ms();
                 uprint("[RING] rx hw=");
                 udec(grd(RING(G_RDMA, 16, R_PI)) & 0xFFFF);
@@ -1338,6 +1464,15 @@ void kernel_main(void) {
                 uprint(" st="); uhex32(grd(DMA_G(G_RDMA, D_STAT)));
                 uputc('\n');
             }
+        }
+
+        /* Touch poll (every 20ms) */
+        static u64 last_touch = 0;
+        if (TOUCH_ENABLED && now_ms() - last_touch >= 20) {
+            last_touch = now_ms();
+            touch_poll();
+            if (touch_down_f && !persona_active && fb_ok)
+                fb_rect(touch_sx - 3, touch_sy - 3, 6, 6, 0x0000FF66);
         }
 
         /* Resident persona tick */

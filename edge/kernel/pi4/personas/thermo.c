@@ -32,9 +32,12 @@ unsigned long persona_main(const api_t *api, unsigned long tick) {
     api->rect(80, 170, 660, 90, BG);
     api->text(80, 170, 10, t > warn_mc ? 0x00FF4040 : FG, b);
 
-    /* warning banner when over threshold */
+    /* warning banner + autonomous event when over threshold */
     api->rect(400, 40, 340, 40, BG);
-    if (t > warn_mc) api->text(400, 40, 4, 0x00FF4040, "WARNING!");
+    if (t > warn_mc) {
+        api->text(400, 40, 4, 0x00FF4040, "WARNING!");
+        api->emit(1, t);   /* tell the hub (kernel rate-limits) */
+    }
 
     /* bar: 30C..80C mapped to 0..672 px */
     int w = 0;

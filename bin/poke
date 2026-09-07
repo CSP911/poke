@@ -13,6 +13,10 @@
  *   poke become "<request>"       LLM writes a persona from natural language,
  *                                 compiles it, and injects it
  *   poke voice                    speak the request instead (mic → whisper → become)
+ *   poke listen                   daemon: receive autonomous device events
+ *                                 (EVNT :5556) → LLM judges → notification + TTS
+ *   poke hex                      always-on assistant: wake word "헥스야, ..."
+ *                                 + event listener, in one daemon
  *   poke persona stop             discard current persona
  *   poke home                     back to the boot banner screen
  *   poke personas                 list available personas
@@ -117,7 +121,7 @@ async function matchCache(client, wish, catalog) {
     `- ${e.name}: ${e.description}\n  params: ${e.params.map((p, i) => `[${i}] ${p.name} — ${p.desc}`).join('; ') || '(none)'}`
   ).join('\n')
   const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: process.env.POKE_MATCH_MODEL || 'claude-sonnet-5',
     max_tokens: 300,
     system: `You route requests for a transformable display device to a catalog of cached
 "personas". Respond with JSON ONLY, no prose.
@@ -136,6 +140,12 @@ persona provides, respond: {"match":null}. When unsure, prefer null.`,
   try { return JSON.parse(t.text.trim().replace(/^```\w*\n?/, '').replace(/\n?```$/, '')) }
   catch { return { match: null } }
 }
+
+/* hub-side note of which persona the device is running (for hot params) */
+const CUR_FILE = path.resolve(__dirname, '../data/current-persona.txt')
+function getCurrent() { try { return fs.readFileSync(CUR_FILE, 'utf8').trim() } catch { return '' } }
+function setCurrent(name) { try { fs.writeFileSync(CUR_FILE, name) } catch {} }
+function clearCurrent() { try { fs.rmSync(CUR_FILE, { force: true }) } catch {} }
 
 function cacheStore(name, description, params, code, bin) {
   fs.mkdirSync(CACHE_DIR, { recursive: true })
@@ -180,6 +190,15 @@ HARD CONSTRAINTS — violating any of these crashes the device or fails the buil
   api->ms() is milliseconds since boot. tick increments every 50ms from injection.
 - api->temp_mc() returns SoC temperature in milli-celsius (e.g. 47500 = 47.5C).
 - api->gpio_out(pin, val) drives a GPIO pin; valid pins 2-27 except 14,15.
+- api->emit(code, value) fires an autonomous event to the hub — use it when the
+  user asks to be NOTIFIED/ALERTED about a condition ("tell me when...", "warn
+  me if..."). Pick a small integer code per condition; the kernel rate-limits to
+  one event per 10s per code, so it is safe to call every tick while the
+  condition holds. Values: temperatures in milli-celsius, times in seconds.
+- api->touch(&x, &y) fills the touch position in screen coords and returns:
+  0 = not pressed, 1 = held down, 2 = NEW TAP (returned exactly once per press).
+  Use ==2 for buttons/taps, >=1 for dragging. Check it every tick (do not gate
+  touch handling behind "if (tick % N) return").
 - PARAMETERIZE: any user-tunable constant (a duration, a threshold, a target
   value) must NOT be hard-coded. Read it with api->param(i) (returns 0 when
   unset — fall back to a sensible default). This lets the same binary be reused
@@ -200,6 +219,7 @@ async function become(wish) {
   const Anthropic = require(path.resolve(__dirname, '../node_modules/@anthropic-ai/sdk'))
   const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
   const t0 = Date.now()
+  try { fs.writeFileSync(path.resolve(__dirname, '../data/last-wish.txt'), wish) } catch {}
 
   /* ── fast path: cached persona + runtime params ── */
   const catalog = loadCatalog()
@@ -211,10 +231,24 @@ async function become(wish) {
       if (entry && fs.existsSync(binPath)) {
         const values = (m.values || []).map(Number)
         console.log(`\n⚡ cache hit: ${m.match}${values.length ? ` (${entry.params.map((p, i) => `${p.name}=${values[i]}`).join(', ')})` : ''}`)
+
+        /* hot parameters: same persona already running → adjust in place,
+         * no reinjection, running state (e.g. elapsed time) survives */
+        if (values.length && getCurrent() === m.match) {
+          let running = false
+          try { running = JSON.parse(await request(Buffer.from('INFO'))).persona === true } catch {}
+          if (running) {
+            await request(pparPayload(values))
+            console.log(`✦ hot-adjusted in ${((Date.now() - t0) / 1000).toFixed(1)}s — no reinjection, state kept`)
+            return
+          }
+        }
+
         const bin = fs.readFileSync(binPath)
         await request(pparPayload(values.length ? values : [0]))
         await request(timePayload())
         const r = JSON.parse(await request(Buffer.concat([Buffer.from('PRUN'), bin])))
+        setCurrent(m.match)
         console.log(`✦ device transformed in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${r.size} bytes replayed from cache`)
         return
       }
@@ -282,8 +316,9 @@ async function become(wish) {
 
     if (meta && meta.name) {
       const saved = cacheStore(meta.name, meta.description || wish, meta.params || [], code, bin)
+      setCurrent(saved)
       console.log(`  cached as "${saved}" — next time this family is ~2s`)
-    }
+    } else setCurrent('llm')
     return
   }
   throw new Error('failed after 3 attempts')
@@ -298,7 +333,7 @@ const WHISPER_MODEL = path.resolve(__dirname, '../data/models/ggml-small.bin')
  * watches per-100ms RMS levels, and stops after 1.2s of trailing silence
  * (the same energy-VAD + silence-timer endpointing commercial assistants
  * use as their base layer). Enter still works as a manual stop. */
-function recordWithVAD(wavPath) {
+function recordWithVAD(wavPath, opts = {}) {
   return new Promise((resolve, reject) => {
     const SR = 16000
     const FRAME = SR * 2 / 10               /* 100ms of s16le mono = 3200B */
@@ -329,13 +364,13 @@ function recordWithVAD(wavPath) {
       h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34)
       h.write('data', 36); h.writeUInt32LE(pcm.length, 40)
       fs.writeFileSync(wavPath, Buffer.concat([h, pcm]))
-      resolve()
+      resolve(spoken)
     }
 
     rec.on('error', (e) => finish(e))
-    console.log('\n🎤 listening... (stops by itself when you finish speaking)')
+    if (!opts.quiet) console.log('\n🎤 listening... (stops by itself when you finish speaking)')
 
-    if (process.stdin.isTTY) {
+    if (process.stdin.isTTY && !opts.daemon) {
       process.stdin.setRawMode(true)
       process.stdin.resume()
       process.stdin.once('data', () => finish())
@@ -364,7 +399,8 @@ function recordWithVAD(wavPath) {
         if (rms > speechThresh) { spoken = true; silentRun = 0 }
         else if (spoken && rms < silenceThresh && ++silentRun >= 12) return finish()  /* 1.2s */
 
-        if (!spoken && frames > 80) return finish(new Error('heard no speech for 8s'))
+        if (!spoken && frames > 80)
+          return finish(opts.daemon ? null : new Error('heard no speech for 8s'))
         if (frames > 200) return finish()   /* hard cap: 20s */
       }
     })
@@ -380,6 +416,116 @@ function transcribe(wavPath) {
     '--no-timestamps', '--no-prints',
   ], { encoding: 'utf8' })
   return out.trim().replace(/\s+/g, ' ')
+}
+
+/* ── poke listen: the device speaks first ──
+ * Personas fire EVNT packets when a condition the user asked about
+ * happens. The LLM turns the raw event into a human notification. */
+function startEvents(client) {
+  const sock = dgram.createSocket('udp4')
+
+  sock.on('message', async (m, rinfo) => {
+    if (m.length < 16 || m.toString('utf8', 0, 4) !== 'EVNT') return
+    const code = m.readUInt32LE(4)
+    const value = Number(m.readBigUInt64LE(8))
+    let lastWish = ''
+    try { lastWish = fs.readFileSync(path.resolve(__dirname, '../data/last-wish.txt'), 'utf8').trim() } catch {}
+    console.log(`\n⚡ event from ${rinfo.address}: code=${code} value=${value}`)
+
+    try {
+      const msg = await client.messages.create({
+        model: process.env.POKE_MATCH_MODEL || 'claude-sonnet-5',
+        max_tokens: 200,
+        system: `A bare-metal edge device running a user-requested persona fired an
+autonomous event. Interpret it for the user. Respond JSON only:
+{"speak":"<one short Korean sentence to say aloud>","notify":"<short notification text>"}
+Context: the persona was created from this user request: "${lastWish}".
+Event value conventions: temperatures are in milli-celsius (47500 = 47.5°C),
+times in seconds, others are raw numbers.`,
+        messages: [{ role: 'user', content: `event code=${code} value=${value}` }],
+      })
+      const t = msg.content.find((b) => b.type === 'text')
+      const j = JSON.parse(t.text.trim().replace(/^```\w*\n?/, '').replace(/\n?```$/, ''))
+      console.log(`🔔 ${j.notify}`)
+      execFileSync('osascript', ['-e',
+        `display notification ${JSON.stringify(j.notify)} with title "POKE" sound name "Glass"`])
+      execFileSync('say', [j.speak])
+    } catch (e) {
+      console.error('event handling failed:', e.message)
+    }
+  })
+
+  sock.bind(5556, () => {
+    console.log('👂 listening for device events on :5556')
+  })
+  return sock
+}
+
+async function listen() {
+  loadEnv()
+  const Anthropic = require(path.resolve(__dirname, '../node_modules/@anthropic-ai/sdk'))
+  const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
+  startEvents(client)
+  await new Promise(() => {})  /* run forever */
+}
+
+/* ── poke hex: always-on assistant — wake word + autonomous events ── */
+const WAKES = ['헥스', '핵스', '헥사', '헥쓰', '헤스', 'hex']
+
+function stripWake(text) {
+  const norm = text.replace(/[\s.,!?~…'"「」]/g, '')
+  const lower = norm.toLowerCase()
+  for (const w of WAKES) {
+    const i = lower.indexOf(w)
+    if (i >= 0 && i <= 6) {   /* wake word near the start */
+      let rest = norm.slice(i + w.length).replace(/^(야|아|씨|님|,)/, '')
+      return { woke: true, rest }
+    }
+  }
+  return { woke: false, rest: '' }
+}
+
+function speak(t) { try { execFileSync('say', [t]) } catch {} }
+
+async function hexDaemon() {
+  loadEnv()
+  const Anthropic = require(path.resolve(__dirname, '../node_modules/@anthropic-ai/sdk'))
+  const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
+  startEvents(client)
+  console.log('🤖 HEX standing by — say "헥스야, ..." (Ctrl+C to stop)')
+
+  const wav = path.join(require('os').tmpdir(), 'poke-hex.wav')
+  let awaitUntil = 0
+
+  while (true) {
+    let spoke = false
+    try { spoke = await recordWithVAD(wav, { daemon: true, quiet: true }) } catch { continue }
+    if (!spoke) continue
+
+    let text = ''
+    try { text = transcribe(wav) } catch { continue }
+    if (!text || text.length < 2) continue
+    console.log(`\n🗣  "${text}"`)
+
+    const { woke, rest } = stripWake(text)
+    let cmdText = ''
+    if (woke) {
+      if (rest.length >= 2) cmdText = rest
+      else { speak('네?'); awaitUntil = Date.now() + 15000; continue }
+    } else if (Date.now() < awaitUntil) {
+      cmdText = text
+    } else continue
+
+    awaitUntil = 0
+    speak('네')
+    try {
+      await become(cmdText)
+      speak('완료했습니다')
+    } catch (e) {
+      console.error('become failed:', e.message)
+      speak('실패했어요')
+    }
+  }
 }
 
 async function voice() {
@@ -423,10 +569,12 @@ async function main() {
       console.log(await request(timePayload()))
       break
     case 'home':  /* discard persona, back to the boot banner screen */
+      clearCurrent()
       console.log(await request(Buffer.from('PSTP')))
       break
     case 'text': {
       const msg = args.join(' ') || 'POKE'
+      clearCurrent()
       await request(Buffer.from('PSTP'))  /* take the screen: discard any persona */
       const scale = Math.max(1, Math.min(8, Math.floor(84 / msg.length)))
       const ops = [
@@ -440,16 +588,23 @@ async function main() {
     case 'persona': {
       const name = args[0]
       if (!name) { console.error('usage: poke persona <name>|stop'); process.exit(1) }
-      if (name === 'stop') { console.log(await request(Buffer.from('PSTP'))); break }
+      if (name === 'stop') { clearCurrent(); console.log(await request(Buffer.from('PSTP'))); break }
       const bin = fs.readFileSync(path.join(PERSONA_DIR, `${name}.bin`))
       if (bin.length > 1400) throw new Error('persona binary too large for one UDP frame')
       await request(timePayload())  /* personas may need wall clock */
       const r = JSON.parse(await request(Buffer.concat([Buffer.from('PRUN'), bin])))
+      setCurrent(name)
       console.log(`${name}: ${r.persona} (${r.size} bytes)`)
       break
     }
     case 'voice':
       await voice()
+      break
+    case 'listen':
+      await listen()
+      break
+    case 'hex':
+      await hexDaemon()
       break
     case 'become': {
       const wish = args.join(' ')
