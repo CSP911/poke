@@ -12,6 +12,7 @@
  *   poke persona <name>           transform: inject persona binary
  *   poke become "<request>"       LLM writes a persona from natural language,
  *                                 compiles it, and injects it
+ *   poke voice                    speak the request instead (mic → whisper → become)
  *   poke persona stop             discard current persona
  *   poke home                     back to the boot banner screen
  *   poke personas                 list available personas
@@ -87,6 +88,66 @@ function loadEnv() {
 
 const PI4_DIR = path.resolve(__dirname, '../edge/kernel/pi4')
 
+/* ── Persona cache: generated once, replayed in milliseconds ──
+ * catalog.json entries: { name, description, params:[{name,desc}] }
+ * Runtime values are passed via PPAR, so one cached binary serves
+ * "a 30-second timer" and "a 5-minute timer" alike. */
+const CACHE_DIR = path.resolve(__dirname, '../data/persona-cache')
+
+function loadCatalog() {
+  try { return JSON.parse(fs.readFileSync(path.join(CACHE_DIR, 'catalog.json'), 'utf8')) }
+  catch { return [] }
+}
+
+function saveCatalog(cat) {
+  fs.mkdirSync(CACHE_DIR, { recursive: true })
+  fs.writeFileSync(path.join(CACHE_DIR, 'catalog.json'), JSON.stringify(cat, null, 2))
+}
+
+function pparPayload(values) {
+  const b = Buffer.alloc(5 + values.length * 8)
+  b.write('PPAR', 0)
+  b[4] = values.length
+  values.forEach((v, i) => b.writeBigUInt64LE(BigInt(Math.max(0, Math.round(v))), 5 + i * 8))
+  return b
+}
+
+async function matchCache(client, wish, catalog) {
+  const listing = catalog.map((e) =>
+    `- ${e.name}: ${e.description}\n  params: ${e.params.map((p, i) => `[${i}] ${p.name} — ${p.desc}`).join('; ') || '(none)'}`
+  ).join('\n')
+  const msg = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 300,
+    system: `You route requests for a transformable display device to a catalog of cached
+"personas". Respond with JSON ONLY, no prose.
+
+Catalog:
+${listing}
+
+If one cached persona can FULLY serve the request by choosing parameter values,
+respond: {"match":"<name>","values":[<numbers in declared param order>]}
+Convert units: durations to seconds, temperatures to celsius. Use 0 to keep a
+parameter's default. If the request needs behavior or a look that no cached
+persona provides, respond: {"match":null}. When unsure, prefer null.`,
+    messages: [{ role: 'user', content: wish }],
+  })
+  const t = msg.content.find((b) => b.type === 'text')
+  try { return JSON.parse(t.text.trim().replace(/^```\w*\n?/, '').replace(/\n?```$/, '')) }
+  catch { return { match: null } }
+}
+
+function cacheStore(name, description, params, code, bin) {
+  fs.mkdirSync(CACHE_DIR, { recursive: true })
+  const safe = name.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 40) || 'persona'
+  fs.writeFileSync(path.join(CACHE_DIR, `${safe}.c`), code)
+  fs.writeFileSync(path.join(CACHE_DIR, `${safe}.bin`), bin)
+  const cat = loadCatalog().filter((e) => e.name !== safe)
+  cat.push({ name: safe, description, params, created: new Date().toISOString() })
+  saveCatalog(cat)
+  return safe
+}
+
 function personaSystemPrompt() {
   const api = fs.readFileSync(path.join(PI4_DIR, 'poke_api.h'), 'utf8')
   const example = fs.readFileSync(path.join(PERSONA_DIR, 'clock.c'), 'utf8')
@@ -119,6 +180,12 @@ HARD CONSTRAINTS — violating any of these crashes the device or fails the buil
   api->ms() is milliseconds since boot. tick increments every 50ms from injection.
 - api->temp_mc() returns SoC temperature in milli-celsius (e.g. 47500 = 47.5C).
 - api->gpio_out(pin, val) drives a GPIO pin; valid pins 2-27 except 14,15.
+- PARAMETERIZE: any user-tunable constant (a duration, a threshold, a target
+  value) must NOT be hard-coded. Read it with api->param(i) (returns 0 when
+  unset — fall back to a sensible default). This lets the same binary be reused
+  with different values later.
+- The VERY FIRST line of the file must be a metadata comment on one line:
+  // POKE-META {"name":"<kebab-name>","description":"<one line, generic — describe the persona family, not this request>","params":[{"name":"<param>","desc":"<meaning, unit, default>"}],"values":[<the values THIS request needs, in order>]}
 
 A reference persona in the exact expected style:
 ${example}
@@ -132,6 +199,28 @@ async function become(wish) {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set (.env)')
   const Anthropic = require(path.resolve(__dirname, '../node_modules/@anthropic-ai/sdk'))
   const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const t0 = Date.now()
+
+  /* ── fast path: cached persona + runtime params ── */
+  const catalog = loadCatalog()
+  if (catalog.length) {
+    const m = await matchCache(client, wish, catalog)
+    if (m && m.match) {
+      const entry = catalog.find((e) => e.name === m.match)
+      const binPath = path.join(CACHE_DIR, `${m.match}.bin`)
+      if (entry && fs.existsSync(binPath)) {
+        const values = (m.values || []).map(Number)
+        console.log(`\n⚡ cache hit: ${m.match}${values.length ? ` (${entry.params.map((p, i) => `${p.name}=${values[i]}`).join(', ')})` : ''}`)
+        const bin = fs.readFileSync(binPath)
+        await request(pparPayload(values.length ? values : [0]))
+        await request(timePayload())
+        const r = JSON.parse(await request(Buffer.concat([Buffer.from('PRUN'), bin])))
+        console.log(`✦ device transformed in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${r.size} bytes replayed from cache`)
+        return
+      }
+    }
+    console.log('(no cached persona fits — generating fresh)')
+  }
 
   const srcPath = path.join(PERSONA_DIR, 'llm.c')
   const messages = [{ role: 'user', content: wish }]
@@ -178,13 +267,130 @@ async function become(wish) {
       continue
     }
 
+    /* parse POKE-META header (for caching + initial params) */
+    let meta = null
+    const metaLine = code.split('\n')[0]
+    const mm = metaLine.match(/POKE-META\s+(\{.*\})/)
+    if (mm) { try { meta = JSON.parse(mm[1]) } catch {} }
+
     console.log('[4/4] loading onto bare metal...')
+    const values = (meta && meta.values || []).map(Number)
+    await request(pparPayload(values.length ? values : [0]))
     await request(timePayload())
     const r = JSON.parse(await request(Buffer.concat([Buffer.from('PRUN'), bin])))
-    console.log(`\n✦ device transformed: ${r.persona} (${r.size} bytes of volatile machine code)`)
+    console.log(`\n✦ device transformed in ${((Date.now() - t0) / 1000).toFixed(1)}s (${r.size} bytes of volatile machine code)`)
+
+    if (meta && meta.name) {
+      const saved = cacheStore(meta.name, meta.description || wish, meta.params || [], code, bin)
+      console.log(`  cached as "${saved}" — next time this family is ~2s`)
+    }
     return
   }
   throw new Error('failed after 3 attempts')
+}
+
+/* ── poke voice: mic → whisper (local STT) → become ── */
+const { spawn } = require('child_process')
+
+const WHISPER_MODEL = path.resolve(__dirname, '../data/models/ggml-small.bin')
+
+/* Record with voice-activity detection: streams raw PCM from the mic,
+ * watches per-100ms RMS levels, and stops after 1.2s of trailing silence
+ * (the same energy-VAD + silence-timer endpointing commercial assistants
+ * use as their base layer). Enter still works as a manual stop. */
+function recordWithVAD(wavPath) {
+  return new Promise((resolve, reject) => {
+    const SR = 16000
+    const FRAME = SR * 2 / 10               /* 100ms of s16le mono = 3200B */
+    const rec = spawn('ffmpeg', [
+      '-y', '-f', 'avfoundation', '-i', ':0',
+      '-ar', String(SR), '-ac', '1', '-f', 's16le', '-',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] })
+
+    const chunks = []
+    let pending = Buffer.alloc(0)
+    let frames = 0, spoken = false, silentRun = 0
+    let noise = 0, noiseFrames = 0
+    let done = false
+
+    const finish = (err) => {
+      if (done) return
+      done = true
+      if (process.stdin.isTTY) { process.stdin.setRawMode(false); process.stdin.pause() }
+      rec.kill('SIGKILL')
+      process.stdout.write('\n')
+      if (err) return reject(err)
+      /* wrap raw PCM in a 44-byte WAV header */
+      const pcm = Buffer.concat(chunks)
+      const h = Buffer.alloc(44)
+      h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVE', 8)
+      h.write('fmt ', 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20)
+      h.writeUInt16LE(1, 22); h.writeUInt32LE(SR, 24); h.writeUInt32LE(SR * 2, 28)
+      h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34)
+      h.write('data', 36); h.writeUInt32LE(pcm.length, 40)
+      fs.writeFileSync(wavPath, Buffer.concat([h, pcm]))
+      resolve()
+    }
+
+    rec.on('error', (e) => finish(e))
+    console.log('\n🎤 listening... (stops by itself when you finish speaking)')
+
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true)
+      process.stdin.resume()
+      process.stdin.once('data', () => finish())
+    }
+
+    rec.stdout.on('data', (d) => {
+      chunks.push(d)
+      pending = Buffer.concat([pending, d])
+      while (pending.length >= FRAME) {
+        const frame = pending.subarray(0, FRAME)
+        pending = pending.subarray(FRAME)
+        frames++
+
+        let sum = 0
+        for (let i = 0; i < FRAME; i += 2) { const s = frame.readInt16LE(i); sum += s * s }
+        const rms = Math.sqrt(sum / (FRAME / 2))
+
+        /* first 0.5s calibrates the noise floor */
+        if (noiseFrames < 5) { noise = (noise * noiseFrames + rms) / ++noiseFrames; continue }
+        const speechThresh = Math.max(noise * 3.5, 350)
+        const silenceThresh = Math.max(noise * 2.0, 250)
+
+        const level = Math.min(30, Math.round(rms / 100))
+        process.stdout.write('\r  ' + '█'.repeat(level).padEnd(30) + (spoken ? ' ●' : '  '))
+
+        if (rms > speechThresh) { spoken = true; silentRun = 0 }
+        else if (spoken && rms < silenceThresh && ++silentRun >= 12) return finish()  /* 1.2s */
+
+        if (!spoken && frames > 80) return finish(new Error('heard no speech for 8s'))
+        if (frames > 200) return finish()   /* hard cap: 20s */
+      }
+    })
+  })
+}
+
+function transcribe(wavPath) {
+  if (!fs.existsSync(WHISPER_MODEL)) {
+    throw new Error('whisper model missing — see data/models/ (ggml-small.bin)')
+  }
+  const out = execFileSync('whisper-cli', [
+    '-m', WHISPER_MODEL, '-l', 'ko', '-f', wavPath,
+    '--no-timestamps', '--no-prints',
+  ], { encoding: 'utf8' })
+  return out.trim().replace(/\s+/g, ' ')
+}
+
+async function voice() {
+  const wav = path.join(require('os').tmpdir(), 'poke-voice.wav')
+  await recordWithVAD(wav)
+  console.log('… transcribing (local whisper)')
+  const wish = transcribe(wav)
+  fs.rmSync(wav, { force: true })
+  if (!wish) throw new Error('heard nothing — try again closer to the mic')
+  console.log(`\n🗣  "${wish}"`)
+  await become(wish)
 }
 
 async function main() {
@@ -242,10 +448,22 @@ async function main() {
       console.log(`${name}: ${r.persona} (${r.size} bytes)`)
       break
     }
+    case 'voice':
+      await voice()
+      break
     case 'become': {
       const wish = args.join(' ')
       if (!wish) { console.error('usage: poke become "<request>"'); process.exit(1) }
       await become(wish)
+      break
+    }
+    case 'cache': {
+      const cat = loadCatalog()
+      if (!cat.length) { console.log('(cache empty)'); break }
+      for (const e of cat) {
+        console.log(`${e.name} — ${e.description}`)
+        console.log(`  params: ${e.params.map((p, i) => `[${i}] ${p.name}: ${p.desc}`).join('; ') || '(none)'}`)
+      }
       break
     }
     case 'personas': {
@@ -254,7 +472,7 @@ async function main() {
       break
     }
     default:
-      console.error('usage: poke <ping|info|temp|gpio|time|text|persona|personas|home> [--host ip]')
+      console.error('usage: poke <ping|info|temp|gpio|time|text|persona|personas|home|become|voice> [--host ip]')
       process.exit(1)
   }
 }

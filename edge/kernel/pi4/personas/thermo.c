@@ -7,6 +7,11 @@
 
 __attribute__((section(".text.main")))
 unsigned long persona_main(const api_t *api, unsigned long tick) {
+    /* param[0] = warning threshold in celsius (0 → 60) */
+    unsigned long warn_c = api->param(0);
+    if (!warn_c) warn_c = 60;
+    unsigned int warn_mc = (unsigned int)warn_c * 1000;
+
     if (tick == 0) {
         api->clear(BG);
         api->text(80, 40, 4, FG, "THERMO");
@@ -25,13 +30,17 @@ unsigned long persona_main(const api_t *api, unsigned long tick) {
     b[2] = '.'; b[3] = '0' + frac; b[4] = ' '; b[5] = 'C'; b[6] = 0;
 
     api->rect(80, 170, 660, 90, BG);
-    api->text(80, 170, 10, FG, b);
+    api->text(80, 170, 10, t > warn_mc ? 0x00FF4040 : FG, b);
+
+    /* warning banner when over threshold */
+    api->rect(400, 40, 340, 40, BG);
+    if (t > warn_mc) api->text(400, 40, 4, 0x00FF4040, "WARNING!");
 
     /* bar: 30C..80C mapped to 0..672 px */
     int w = 0;
     if (t > 30000) w = (int)((t - 30000) / 74);   /* 50000/672 ≈ 74 */
     if (w > 672) w = 672;
     api->rect(64, 310, 672, 30, 0x00202838);
-    api->rect(64, 310, w, 30, (t > 60000) ? 0x00FF4040 : 0x0000FF66);
+    api->rect(64, 310, w, 30, (t > warn_mc) ? 0x00FF4040 : 0x0000FF66);
     return 0;
 }

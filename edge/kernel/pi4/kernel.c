@@ -375,11 +375,16 @@ static u64 wall_sec(void) {
 
 static void api_gpio_out(u8 pin, u8 val) { gpio_set_output(pin); gpio_write(pin, val); }
 
+/* Runtime parameters set by the hub (PPAR) — lets one cached persona
+ * binary serve many requests ("3-minute timer" = timer + param[0]=180) */
+static u64 persona_params[8];
+static u64 api_param(int idx) { return persona_params[idx & 7]; }
+
 #include "poke_api.h"
 
 static const api_t persona_api = {
     fb_clear, fb_rect, fb_text, now_ms, wall_sec,
-    api_gpio_out, gpio_read, get_soc_temp,
+    api_gpio_out, gpio_read, get_soc_temp, api_param,
 };
 
 /* ── Persona Slot (resident binary, called every tick) ── */
@@ -1023,7 +1028,7 @@ static void handle_poke(const u8 *payload, int len) {
         n += scpy(r+n, "{\"status\":\"alive\",\"arch\":\"aarch64\",\"chip\":\"bcm2711\"");
         n += scpy(r+n, ",\"kernel\":\"poke-os\",\"transport\":\"udp\"");
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
-        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"TIME\"]");
+        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         n += scpy(r+n, ",\"display\":"); n += scpy(r+n, fb_ok ? "\"800x480\"" : "null");
         n += scpy(r+n, ",\"persona\":"); n += scpy(r+n, persona_active ? "true" : "false");
         n += scpy(r+n, ",\"bare_metal\":true");
@@ -1094,6 +1099,19 @@ static void handle_poke(const u8 *payload, int len) {
         persona_stop();
         poke_resp_str("{\"persona\":\"stopped\"}");
         console_home();
+    }
+    else if (mcmp(payload, "PPAR", 4) == 0) {
+        if (len < 5) { poke_resp_str("{\"error\":\"need count\"}"); return; }
+        int np = payload[4]; if (np > 8) np = 8;
+        if (len < 5 + np * 8) { poke_resp_str("{\"error\":\"short\"}"); return; }
+        for (int i = 0; i < np; i++) {
+            u64 v = 0;
+            for (int b = 7; b >= 0; b--) v = (v << 8) | payload[5 + i*8 + b];
+            persona_params[i] = v;
+        }
+        char r[32]; int rn = scpy(r, "{\"params\":"); rn += idec(np, r+rn); r[rn++] = '}';
+        poke_resp((const u8 *)r, rn);
+        uprint("[POKE] PPAR "); udec(np); uputc('\n');
     }
     else if (mcmp(payload, "TIME", 4) == 0) {
         if (len < 12) { poke_resp_str("{\"error\":\"need epoch_ms u64\"}"); return; }

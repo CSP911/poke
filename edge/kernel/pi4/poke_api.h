@@ -20,6 +20,8 @@ typedef struct {
     void (*gpio_out)(unsigned char pin, unsigned char val);              /* +0x28 */
     unsigned char (*gpio_in)(unsigned char pin);                         /* +0x30 */
     unsigned int (*temp_mc)(void);        /* +0x38 SoC temp in milli-celsius */
+    unsigned long (*param)(int idx);      /* +0x40 hub-set runtime parameter (idx 0-7,
+                                             0 when unset — personas must default) */
 } api_t;
 
 #define PERSONA_TICK_MS 50   /* persona_main is called every 50ms */
