@@ -31,7 +31,7 @@ No operating system. No drivers. No apps. Just AI talking directly to hardware.
 ## Demo
 https://github.com/user-attachments/assets/4b450f18-5bbd-4b33-8551-fdb3ebc09ebd
 
-The commands used in the video ([full quality](Poke.mp4)):
+The commands used in the video ([full quality](demo/Poke.mp4)):
 
 ```bash
 ./bin/poke become "Turn this device into a 30-second ramen timer. Flash the screen when time is up"
@@ -468,7 +468,8 @@ poke/
 │   │   ├── arm64/            ARM64 (QEMU virt) — PL011 UART
 │   │   ├── rv32/             RISC-V 32 (QEMU virt) — NS16550 UART
 │   │   ├── pi0w/             Pi Zero W (real HW + QEMU) — Mini UART
-│   │   ├── pi4/              Pi 4 (real HW) — PL011 UART
+│   │   ├── pi4/              Pi 4 (real HW) — GENET ethernet + UDP, display,
+│   │   │   └── personas/       personas (LLM-generated resident applets)
 │   │   └── esp32c3/          ESP32-C3 (Direct Boot) — USB-Serial/JTAG
 │   └── library/              Device library (17 entries, architecture-neutral)
 │
@@ -487,10 +488,12 @@ poke/
 │   ├── simulator.js          Live event simulation
 │   └── scenarios.js          LLM decision tests (8 scenarios)
 │
-├── test/                     480+ automated tests
+├── bin/poke                  CLI — ping/become/voice/hex/persona over UDP
+├── test/                     490+ automated tests
 ├── web/                      Dashboard UI
-├── docs/                     Documentation + patents
-└── index.js                  Hub entry point
+├── demo/                     Demo video + serial pipeline demo
+├── docs/                     Evidence logs (+ private patent material)
+└── index.js                  Hub entry point (`poke-hub`)
 ```
 
 ---
