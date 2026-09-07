@@ -21,6 +21,10 @@
  *   poke home                     back to the boot banner screen
  *   poke personas                 list available personas
  *   poke cache                    list the self-growing persona cache
+ *   poke burst "<task>"           distributed compute: LLM splits a CPU-burst
+ *                                 job, one parameterized worker runs across a
+ *                                 bare-metal x86 fleet, results are reduced
+ *                                 (--edges N, --chunks M)
  *
  * Target: POKE_HOST env or --host <ip> (default 10.0.0.2)
  * Implementation lives in lib/cli/.
@@ -107,6 +111,18 @@ async function main() {
     case 'hex':
       await hexDaemon(request)
       break
+    case 'burst': {
+      const flag = (name, dflt) => {
+        const i = args.indexOf(name)
+        return i >= 0 ? parseInt(args.splice(i, 2)[1]) : dflt
+      }
+      const nEdges = flag('--edges', 4)
+      const nChunks = flag('--chunks', 0)
+      const task = args.join(' ')
+      if (!task) { console.error('usage: poke burst "<task>" [--edges N] [--chunks M]'); process.exit(1) }
+      await require('../lib/cli/burst').burst(task, nEdges, nChunks)
+      break
+    }
     case 'become': {
       const wish = args.join(' ')
       if (!wish) { console.error('usage: poke become "<request>"'); process.exit(1) }
