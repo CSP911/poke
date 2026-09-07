@@ -234,7 +234,7 @@ async function setup() {
   }
 
   // Hub
-  hubProc = spawn('node', ['-e', `require('dotenv').config({path:'${path.join(ROOT,'.env')}'}); require('${path.join(ROOT,'src','hub.js')}')`], {
+  hubProc = spawn('node', ['-e', `require('dotenv').config({path:'${path.join(ROOT,'.env')}'}); require('${path.join(ROOT,'index.js')}')`], {
     stdio: ['pipe', 'pipe', 'pipe'], cwd: ROOT,
   })
   hubProc.stderr.on('data', () => {})

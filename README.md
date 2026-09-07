@@ -559,7 +559,7 @@ Same library entry works on x86, ARM64, ARMv6, RISC-V.
 - [x] Distributed computing (parallel_execute + load balancing)
 - [x] HEX CLI + federation + autonomous orchestrator
 - [x] Autonomous event loop (edge monitors → LLM auto-decision → corrective action)
-- [x] JARVIS memory system (monthly files, keyword index, edge sync)
+- [x] HEX memory system (monthly files, keyword index, edge sync)
 - [x] VirtIO-blk disk driver + persistent context store (survives reboot)
 - [x] Preemptive multitasking (IDT + PIT timer + context switching)
 - [x] Resident binaries (persistent control loops, 4 slots, disk-backed)

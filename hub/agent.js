@@ -401,7 +401,7 @@ The assembly code must return a sensor/computed value in EAX. The condition comp
     description: 'List all cached assembly templates with their keys, parameters, and usage counts.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
-  // ── Memory tools (JARVIS-style persistent memory) ──
+  // ── Memory tools (HEX persistent memory) ──
   {
     name: 'memory_save',
     description: 'Save an important fact to persistent memory. Use this when the user tells you something worth remembering (preferences, names, project context, device nicknames, etc.).',
@@ -1435,7 +1435,7 @@ async function agentLoop(command, fromId, targetHint) {
   // ── Build memory context ──
   const memoryContext = memory.buildMemoryContext(command)
 
-  const systemPrompt = `You are JARVIS — the POKE hub agent. You control edge devices by generating and executing machine code.
+  const systemPrompt = `You are HEX — the POKE hub agent. You control edge devices by generating and executing machine code.
 You have persistent memory. You remember past conversations and user preferences.
 When the user tells you something personal or important, save it with memory_save.
 When the user references past work ("last time", "before", "remember"), use your memory context below.

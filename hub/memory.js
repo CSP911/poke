@@ -1,5 +1,5 @@
 /**
- * POKE Hub — Memory System (JARVIS-style persistent memory)
+ * POKE Hub — Memory System (HEX persistent memory)
  *
  * Scalable design:
  * - Monthly file rotation: history-2026-06.json, history-2026-07.json, ...

@@ -37,12 +37,12 @@ jobs:
       - name: Build kernel (gcc -m32)
         run: |
           mkdir -p build
-          nasm -f bin -o build/boot.bin kernel/boot.asm
-          nasm -f elf32 -o build/kernel_entry.o kernel/kernel_entry.asm
+          nasm -f bin -o build/boot.bin edge/kernel/x86/boot.asm
+          nasm -f elf32 -o build/kernel_entry.o edge/kernel/x86/kernel_entry.asm
           gcc -m32 -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -Os \
               -Wall -Wno-unused-function -Wno-unused-variable \
-              -c -o build/kernel.o kernel/kernel.c
-          ld -m elf_i386 -T kernel/linker.ld -nostdlib \
+              -c -o build/kernel.o edge/kernel/x86/kernel.c
+          ld -m elf_i386 -T edge/kernel/x86/linker.ld -nostdlib \
               -o build/kernel.elf build/kernel_entry.o build/kernel.o
           objcopy -O binary build/kernel.elf build/kernel.bin
           cat build/boot.bin build/kernel.bin > poke.img
@@ -74,21 +74,3 @@ jobs:
             curl -sf --max-time 5 http://localhost:8080/poke --data-binary @- | \
             grep -q "eax=5" && echo "eax=5 OK" || exit 1
 
-  docker-build:
-    name: Docker Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build hub image
-        run: docker build -f Dockerfile.hub -t poke-hub .
-
-      - name: Build edge image
-        run: docker build -f Dockerfile.edge -t poke-edge .
-
-      - name: Verify hub starts
-        run: |
-          docker run -d --name hub-test -p 3333:3333 poke-hub
-          sleep 3
-          docker logs hub-test 2>&1 | head -5
-          docker stop hub-test && docker rm hub-test

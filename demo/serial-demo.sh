@@ -31,7 +31,7 @@ echo "────────────────────────�
 sleep 1
 
 cd /Users/bagcheonsu/poke
-PORT=3333 LOG_LEVEL=warn node src/hub.js &
+PORT=3333 LOG_LEVEL=warn node index.js &
 HUB_PID=$!
 sleep 2
 

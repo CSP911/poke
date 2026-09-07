@@ -109,7 +109,7 @@ async function boot() {
     const p = spawn('node', ['-e', `
       process.env.PORT='${hub.port}'; process.env.HUB_SECRET='${HUB_SECRET}';
       process.env.LOG_LEVEL='error'; process.env.ANTHROPIC_API_KEY='${process.env.ANTHROPIC_API_KEY}';
-      require('${path.join(ROOT, 'src', 'hub.js')}');
+      require('${path.join(ROOT, 'index.js')}');
     `], { stdio: ['pipe', 'pipe', 'pipe'], cwd: ROOT })
     p.stderr.on('data', () => {})
     p.stdout.on('data', () => {})

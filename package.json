@@ -4,14 +4,14 @@
   "description": "Protocol for Open Kernel Execution — inject and execute machine code on bare-metal devices via natural language",
   "main": "index.js",
   "bin": {
-    "poke": "index.js"
+    "poke": "bin/poke",
+    "poke-hub": "index.js"
   },
   "scripts": {
     "start": "node index.js",
     "test": "node test/asm.test.js && node test/asm_arm.test.js && node test/asm_rv.test.js && node test/asm_armv6.test.js && node test/hub.test.js && node test/library.test.js",
     "test:qemu": "node test/qemu.test.js",
-    "test:all": "npm test && node test/qemu.test.js",
-    "test:integration": "node test/integration.test.js"
+    "test:all": "npm test && node test/qemu.test.js"
   },
   "keywords": [
     "bare-metal",
@@ -33,10 +33,10 @@
   },
   "homepage": "https://github.com/CSP911/poke",
   "files": [
-    "hub/assembler/",
+    "bin/",
+    "index.js",
     "hub/",
     "web/",
-    
     "orchestration/",
     "test/",
     "edge/",

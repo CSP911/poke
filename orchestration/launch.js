@@ -20,8 +20,8 @@ const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), '
 // Binary paths
 const BINS = {
   rv32:  path.join(ROOT, 'edge', 'kernel', 'rv32', 'poke-rv32.bin'),
-  arm64: path.join(ROOT, 'kernel', 'arm64', 'poke-arm.bin'),
-  armv6: path.join(ROOT, 'kernel', 'pi0w', 'poke-pi0w-qemu.bin'),
+  arm64: path.join(ROOT, 'edge', 'kernel', 'arm64', 'poke-arm.bin'),
+  armv6: path.join(ROOT, 'edge', 'kernel', 'pi0w', 'poke-pi0w-qemu.bin'),
 }
 
 // QEMU commands per arch
@@ -56,9 +56,9 @@ const QEMU_CMD = {
 // Build missing binaries
 function ensureBinaries() {
   const builds = {
-    rv32:  { dir: path.join(ROOT, 'rv32'), target: '' },
-    arm64: { dir: path.join(ROOT, 'arm'), target: '' },
-    armv6: { dir: path.join(ROOT, 'pi0w'), target: 'qemu' },
+    rv32:  { dir: path.join(ROOT, 'edge', 'kernel', 'rv32'), target: '' },
+    arm64: { dir: path.join(ROOT, 'edge', 'kernel', 'arm64'), target: '' },
+    armv6: { dir: path.join(ROOT, 'edge', 'kernel', 'pi0w'), target: 'qemu' },
   }
   for (const [arch, bin] of Object.entries(BINS)) {
     if (!fs.existsSync(bin)) {
