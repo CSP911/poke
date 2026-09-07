@@ -42,3 +42,6 @@ edge/kernel/pi4/personas/llm.c
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Web-compressed demo video (uploaded as GitHub attachment)
+Poke-web.mp4
