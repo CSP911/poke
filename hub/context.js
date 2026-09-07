@@ -124,27 +124,6 @@ async function storeCommand(edgeId, command, result) {
 }
 
 /**
- * Store a monitor/autonomous event.
- */
-async function storeEvent(edgeId, event) {
-  return store(edgeId, TYPES.EVENT, typeof event === 'string' ? event : JSON.stringify(event))
-}
-
-/**
- * Store a fact/preference.
- */
-async function storeFact(edgeId, fact) {
-  return store(edgeId, TYPES.FACT, fact)
-}
-
-/**
- * Store a metric reading.
- */
-async function storeMetric(edgeId, metric) {
-  return store(edgeId, TYPES.METRIC, typeof metric === 'string' ? metric : JSON.stringify(metric))
-}
-
-/**
  * Store a goal cycle result.
  */
 async function storeGoal(edgeId, goalData) {
@@ -152,14 +131,8 @@ async function storeGoal(edgeId, goalData) {
 }
 
 module.exports = {
-  TYPES,
-  TYPE_NAMES,
-  store,
   read,
   getIndex,
   storeCommand,
-  storeEvent,
-  storeFact,
-  storeMetric,
   storeGoal,
 }

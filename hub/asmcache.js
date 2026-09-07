@@ -107,15 +107,6 @@ function simpleHash(str) {
 }
 
 /**
- * Find templates by tag.
- */
-function findByTag(tag) {
-  return Object.entries(registry)
-    .filter(([_, v]) => v.tags.includes(tag))
-    .map(([k, v]) => ({ key: k, ...v, compiled: undefined }))
-}
-
-/**
  * List all cached templates.
  */
 function list() {
@@ -163,4 +154,4 @@ function loadSketches() {
 loadRegistry()
 loadSketches()
 
-module.exports = { register, resolve, findByTag, list, get, loadSketches }
+module.exports = { register, resolve, list, get, loadSketches }

@@ -25,7 +25,6 @@ function enrollNode(nodeData) {
 // ── Device profiles (deprecated — use library/ instead) ──
 const profiles = new Map()
 function loadProfiles() { /* no-op: profiles/ replaced by library/ */ }
-function getProfileSummary() { return 'Profiles deprecated. Use library.' }
 
 // ── Health check + resource monitoring (every 5s) ──
 const edgeHistory = new Map()
@@ -109,7 +108,6 @@ module.exports = {
   edgeHistory,
   enrollNode,
   loadProfiles,
-  getProfileSummary,
   startHealthCheck,
   stopHealthCheck,
   setMonitorTriggerCallback,

@@ -450,6 +450,5 @@ module.exports = {
   executeLibraryTool,
   getLibrarySummary,
   incubateEdge,
-  probeEdgeInfo,
   entries,
 }

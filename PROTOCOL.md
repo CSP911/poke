@@ -192,6 +192,57 @@ GET /serial/ports
 
 ---
 
+## 10. UDP Protocol (bare-metal ethernet)
+
+For edges with a native network stack (e.g. Raspberry Pi 4, GENET ethernet).
+Same framing as serial, carried in a single UDP datagram to port 5555.
+
+```
+Request:  "POKE" (4) + payload_len (4 LE) + payload
+Response: "RESP" (4) + payload_len (4 LE) + payload
+
+Payload commands:
+  "PING"                          → "PONG"
+  "INFO"                          → JSON device info (commands, display, persona)
+  "EXEC" + code_bytes             → run once, return result (volatile)
+  "GPIO"                          → JSON GPIO states
+  "GPOS" + pin(1) + val(1)        → drive a GPIO pin
+  "TEMP"                          → JSON SoC temperature
+  "TIME" + epoch_ms(8 LE)         → set wall clock (local time)
+  "DRAW" + op stream              → render on the display
+  "PPAR" + count(1) + u64[count]  → set runtime parameters (param 0-7)
+  "PRUN" + code_bytes             → load a persona: resident binary called
+                                    every 50ms with an API table (draw/clock/
+                                    gpio/temp/param/touch/emit)
+  "PSTP"                          → discard persona, back to home screen
+
+DRAW op stream (concatenated ops):
+  0x01 + color(4)                              clear screen
+  0x02 + x(2) y(2) w(2) h(2) + color(4)        filled rect
+  0x03 + x(2) y(2) scale(1) color(4) len(1)+s  scaled 8px-font text
+  (i16/u32 little-endian; color 0x00RRGGBB; display 800x480)
+```
+
+### Autonomous Events
+
+A persona may call `api->emit(code, value)`. The edge then sends — on its own
+initiative, rate-limited to one per 10s per code — a datagram to the hub,
+port 5556:
+
+```
+"EVNT" (4) + code (4 LE) + value (8 LE)
+```
+
+The hub interprets the event (LLM) and acts: notification, TTS, follow-up
+commands. The edge watches its own conditions; the hub never polls.
+
+Persona parameterization: one cached persona binary serves many requests —
+"a 30-second timer" and "a 5-minute timer" are the same binary with a
+different `PPAR` value (`api->param(0)`), so a cache hit transforms the
+device in ~1s with no code generation.
+
+---
+
 ## Device Profile
 
 A profile describes what a device can do — its registers, peripherals, and capabilities. Profiles enable LLM to generate correct machine code for any device.

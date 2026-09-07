@@ -272,16 +272,6 @@ function addFact(fact, source = 'agent', category = 'general') {
   return entry
 }
 
-function removeFact(factId) {
-  const facts = loadFacts()
-  const idx = facts.findIndex(f => f.id === factId)
-  if (idx >= 0) {
-    facts.splice(idx, 1)
-    saveFacts(facts)
-    return true
-  }
-  return false
-}
 
 // ── Patterns ──
 function loadPatterns() {
@@ -621,28 +611,6 @@ async function syncToEdge(entry) {
   }
 }
 
-// ── Recover context from edges (on hub startup) ──
-async function recoverFromEdges() {
-  try {
-    const { nodes } = require('./nodes')
-    const { readEdgeContext } = require('./transport')
-
-    for (const [id, node] of nodes) {
-      if (node.status !== 'alive' || node.endpoint.startsWith('polling:') || node.endpoint.startsWith('tcp:')) continue
-      try {
-        const ctx = await readEdgeContext(node.endpoint)
-        if (ctx.entries && ctx.entries.length > 0) {
-          log.info(`[memory] recovered ${ctx.entries.length} entries from edge ${id}`)
-          for (const entry of ctx.entries) {
-            addFact(`[edge:${id}] ${entry.data}`, 'edge-recovery', 'context')
-          }
-        }
-      } catch (e) {
-        log.debug(`[memory] recovery from ${id} failed: ${e.message}`)
-      }
-    }
-  } catch (e) { /* nodes not loaded */ }
-}
 
 // ── Auto-migrate on load ──
 try { migrateIfNeeded() } catch (e) { /* ignore */ }
@@ -650,8 +618,6 @@ try { migrateIfNeeded() } catch (e) { /* ignore */ }
 module.exports = {
   addHistory,
   addFact,
-  removeFact,
-  recall,
   buildMemoryContext,
   searchHistory,
   loadFacts,
@@ -661,5 +627,4 @@ module.exports = {
   rebuildIndex,
   compressOldEntries,
   syncToEdge,
-  recoverFromEdges,
 }

@@ -63,19 +63,6 @@ Rules:
   }
 }
 
-// ── Generate text answer (no code execution) ──
-async function generateAnswer(task) {
-  const client = getClient()
-
-  const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    system: `You are the POKE hub assistant. Answer briefly in the same language as the question. Keep answers under 2 sentences.`,
-    messages: [{ role: 'user', content: task }],
-  })
-  return msg.content[0].type === 'text' ? msg.content[0].text.trim() : ''
-}
-
 // ── Generate assembly (architecture-specific) ──
 async function generateAssembly(task, arch) {
   const client = getClient()
@@ -129,32 +116,6 @@ Example:
   return text.replace(/^```\w*\n?/, '').replace(/\n?```$/, '').trim()
 }
 
-// ── Generate device code (profile-aware) ──
-async function generateDeviceCode(task, arch, profileCtx) {
-  const client = getClient()
-
-  const isARM = arch === 'aarch64'
-  const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1000,
-    system: `You generate ${isARM ? 'ARM64 (AArch64) assembly (GNU as syntax)' : 'x86 (i386) NASM assembly'} for hardware device control.
-
-Known devices on this system:
-${profileCtx}
-
-Rules:
-${isARM ? '- Return result in X0, end with RET, no directives.' : '- BITS 32, return in EAX, end with RET.'}
-- Use MMIO (memory-mapped I/O) or port I/O as appropriate for the device.
-- For MMIO: read/write directly to memory addresses.
-- For I/O ports (x86): use in/out with dx for port.
-- Output ONLY assembly code, no explanation.`,
-    messages: [{ role: 'user', content: task }],
-  })
-
-  const text = msg.content[0].type === 'text' ? msg.content[0].text.trim() : ''
-  return text.replace(/^```\w*\n?/, '').replace(/\n?```$/, '').trim()
-}
-
 // ── Generate image code ──
 async function generateImageCode(task) {
   const client = getClient()
@@ -188,8 +149,6 @@ Output ONLY the Node.js code, no explanation, no markdown.`,
 
 module.exports = {
   planCommand,
-  generateAnswer,
   generateAssembly,
-  generateDeviceCode,
   generateImageCode,
 }

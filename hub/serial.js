@@ -23,13 +23,7 @@ function onSerialEvent(callback) {
   _onEvent = callback
 }
 
-class PokeTransportError extends Error {
-  constructor(message, code) {
-    super(message)
-    this.name = 'PokeTransportError'
-    this.code = code
-  }
-}
+const { PokeTransportError } = require('./transport')
 
 // Lazy-load serialport (optional dependency)
 let SerialPort = null
@@ -436,9 +430,7 @@ module.exports = {
   serialGpioSet,
   serialEventMonitor,
   serialEventStop,
-  serialCommand,
   listSerialPorts,
-  parseSerialEndpoint,
   onSerialEvent,
   closeAll,
 }
