@@ -374,6 +374,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). The easiest way to start:
 
 ---
 
+## Contact
+
+Business inquiries, collaboration, or just curious: **qct8377@gmail.com**
+Bug reports and questions → [GitHub Issues](https://github.com/CSP911/poke/issues)
+
+---
+
 ## License
 
 [Apache 2.0](LICENSE)
