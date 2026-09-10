@@ -15,8 +15,9 @@
  *   poke voice                    speak the request instead (mic → whisper → become)
  *   poke listen                   daemon: receive autonomous device events
  *                                 (EVNT :5556) → LLM judges → notification + TTS
- *   poke hex                      always-on assistant: wake word "헥스야, ..."
+ *   poke hex                      always-on assistant: wake word "hex, ..."
  *                                 + event listener, in one daemon
+ *                                 (POKE_LANG=ko for Korean: "헥스야, ...")
  *   poke persona stop             discard current persona
  *   poke home                     back to the boot banner screen
  *   poke personas                 list available personas
