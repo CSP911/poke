@@ -239,11 +239,11 @@ async function main() {
   printFederation()
 
   console.log('  Commands:')
-  console.log('    "전체 시설 온도"         → 3개 허브 동시 조회')
-  console.log('    "@factory 라인1 온도"    → 특정 허브 지정')
-  console.log('    "@warehouse 냉장고 팬"   → 특정 허브 제어')
-  console.log('    "status"                → 연합 상태 보기')
-  console.log('    "exit"                  → 종료')
+  console.log('    "temperature of every site"     → query all 3 hubs at once')
+  console.log('    "@factory line-1 temperature"   → target a specific hub')
+  console.log('    "@warehouse cold-room fan"      → control via a specific hub')
+  console.log('    "status"                        → federation status')
+  console.log('    "exit"                          → quit')
   console.log('')
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: '  You: ' })

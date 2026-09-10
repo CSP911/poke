@@ -108,10 +108,10 @@ POST /voice?from=arm-device&hint=optional+text
 Body: WAV audio (8kHz, 16-bit, mono)
 
 → {
-  "transcript": "100 곱하기 7",
+  "transcript": "100 times 7",
   "plan": { "type": "compute", "target": "x86-qemu", ... },
   "result": "eax=700\n",
-  "reply_text": "결과는 700입니다",
+  "reply_text": "The result is 700",
   "reply_audio_base64": "UklGR...",
   "reply_audio_size": 27734
 }

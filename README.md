@@ -144,7 +144,7 @@ The LLM monitors all sites and acts on its own:
 ```
 ═══ Cycle 2 ═══
   server-room: 31C!
-  HEX: "위험! 쿨링팬 켠다"
+  HEX: "Danger! Turning the cooling fan on"
   >>> ACTION: office-server-room GPIO 0 = 1 — {"pin":0,"value":1} ✅
 ```
 
@@ -377,6 +377,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). The easiest way to start:
 ## Contact
 
 Business inquiries, collaboration, or just curious: **qct8377@gmail.com**
+LinkedIn → [linkedin.com/in/cspark911](https://www.linkedin.com/in/cspark911/)
 Bug reports and questions → [GitHub Issues](https://github.com/CSP911/poke/issues)
 
 ---

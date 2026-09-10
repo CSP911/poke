@@ -59,44 +59,44 @@ const world = {
 
 const SCENARIOS = [
   // Tick 2: Someone arrives at work
-  { tick: 2, name: '출근 감지', action: () => {
+  { tick: 2, name: 'Arrival detected', action: () => {
     world.rooms['entrance'].motion = true
     world.rooms['lobby'].motion = true
-    return '현관과 로비에서 모션 감지. 아침 9시, 누군가 출근한 것 같습니다.'
+    return 'Motion at the entrance and lobby. 9am — looks like someone arrived at work.'
   }},
 
   // Tick 5: Server room heating up
-  { tick: 5, name: '서버룸 과열 시작', action: () => {
+  { tick: 5, name: 'Server room heating up', action: () => {
     world.rooms['server-room'].trend = 0.8  // faster heating
-    return `서버룸 온도가 ${world.rooms['server-room'].temp.toFixed(1)}°C로 상승 중입니다. 냉각 확인 필요.`
+    return `Server room temperature rising: ${world.rooms['server-room'].temp.toFixed(1)}°C. Check the cooling.`
   }},
 
   // Tick 8: Meeting starts
-  { tick: 8, name: '회의 시작', action: () => {
+  { tick: 8, name: 'Meeting starts', action: () => {
     world.rooms['meeting'].motion = true
-    return '회의실에서 모션 감지. 회의가 시작된 것 같습니다. 조명과 디스플레이를 켜야 할까요?'
+    return 'Motion in the meeting room — a meeting seems to be starting. Should the lights and display go on?'
   }},
 
   // Tick 12: Kitchen gas spike!
-  { tick: 12, name: '주방 가스 경보!', action: () => {
+  { tick: 12, name: 'Kitchen gas alert!', action: () => {
     world.rooms['kitchen'].gas_level = 800
     world.rooms['kitchen'].temp += 5
-    return '⚠️ 주방 가스 센서 급상승! (800ppm) 온도도 상승 중. 즉시 환기 필요!'
+    return '⚠️ Kitchen gas sensor spiking! (800ppm) Temperature rising too. Ventilate immediately!'
   }},
 
   // Tick 16: Server room critical
-  { tick: 16, name: '서버룸 위험', action: () => {
-    return `서버룸 온도 ${world.rooms['server-room'].temp.toFixed(1)}°C — 30도 초과 위험! 쿨링 상태를 확인하고 조치해주세요.`
+  { tick: 16, name: 'Server room critical', action: () => {
+    return `Server room at ${world.rooms['server-room'].temp.toFixed(1)}°C — above the 30°C danger line! Check the cooling and act.`
   }},
 
   // Tick 20: Evening — people leaving
-  { tick: 20, name: '퇴근 시간', action: () => {
+  { tick: 20, name: 'End of the workday', action: () => {
     world.time.hour = 18
     world.rooms['entrance'].motion = true
     world.rooms['workspace-1'].motion = false
     world.rooms['workspace-2'].motion = false
     world.rooms['meeting'].motion = false
-    return '오후 6시, 작업실과 회의실에서 모션이 사라졌습니다. 퇴근 시간인 것 같습니다. 절전 모드로 전환할까요?'
+    return '6pm — no more motion in the workspaces or the meeting room. Looks like everyone left. Switch to energy-saving mode?'
   }},
 ]
 

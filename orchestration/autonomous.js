@@ -172,7 +172,7 @@ async function collectAll() {
 async function orchestrate(siteData) {
   // Build situation report
   let report = `[HEX Orchestrator — Cycle ${cycle}]\n\n`
-  report += `너는 전체 연합 시스템의 오케스트레이터다. 3개 사이트의 데이터를 보고 판단하라.\n\n`
+  report += `You are the orchestrator of the whole federation. Judge from the data of all 3 sites.\n\n`
 
   for (const site of siteData) {
     report += `Site: ${site.name} (hub: ${site.hub}, port: ${site.port})\n`
@@ -184,14 +184,14 @@ async function orchestrate(siteData) {
     report += '\n'
   }
 
-  report += `규칙:
-- 28C 이상 = 주의, 30C 이상 = 위험
-- 위험한 엣지에 relay가 있으면 → set_gpio target=엣지ID pin=0 value=1 로 팬을 켜라
-- relay가 없으면 → "수동 조치 필요" 보고
-- 정상이면 → "All clear" 한 줄
+  report += `Rules:
+- 28C or above = caution, 30C or above = danger
+- If a dangerous edge has a relay → turn its fan on with set_gpio target=<edgeId> pin=0 value=1
+- If it has no relay → report "manual action required"
+- If everything is normal → a single "All clear" line
 
-중요: 조치가 필요하면 해당 엣지의 set_gpio를 직접 호출하라!
-한국어로 간결하게 답변.`
+Important: when action is needed, call set_gpio on that edge directly!
+Answer concisely.`
 
   // Single LLM call via the orchestrator hub (first hub)
   const orchHub = config.hubs[0]

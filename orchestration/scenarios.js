@@ -207,7 +207,7 @@ async function runScenarios() {
   // 1. Multi-edge temperature survey
   await scenario(
     'Building-wide temperature check',
-    '전체 건물의 온도를 확인하고 요약해줘',
+    'Check the temperature of the whole building and summarize it',
     [
       { type: 'min_steps', value: 5 },
       { type: 'multi_edge', value: 3 },
@@ -220,10 +220,10 @@ async function runScenarios() {
   // 2. Targeted action — turn on specific relay
   await scenario(
     'Turn on meeting room lights',
-    '회의실 조명 켜줘. GPIO 핀 2번을 HIGH로 설정해.',
+    'Turn on the meeting room lights. Set GPIO pin 2 HIGH.',
     [
       { type: 'used_tool', value: 'set_gpio' },
-      { type: 'response_includes', value: '회의' },
+      { type: 'response_includes', value: 'meeting' },
     ]
   )
 
@@ -232,7 +232,7 @@ async function runScenarios() {
   // 3. Cross-room comparison
   await scenario(
     'Compare indoor vs rooftop temperature',
-    '작업실 온도와 옥상 온도를 비교해서 환기가 필요한지 판단해줘',
+    'Compare the workspace and rooftop temperatures and decide whether we need ventilation',
     [
       { type: 'multi_edge', value: 2 },
       { type: 'result_includes', value: 'celsius' },
@@ -244,7 +244,7 @@ async function runScenarios() {
   // 4. Emergency scenario
   await scenario(
     'Kitchen gas alert response',
-    '주방에서 가스 센서 값이 급상승했어! 환기팬 켜고 상황 보고해줘.',
+    'The kitchen gas sensor is spiking! Turn on the ventilation fan and report the situation.',
     [
       { type: 'used_tool', value: 'set_gpio' },
       { type: 'min_steps', value: 1 },
@@ -256,10 +256,10 @@ async function runScenarios() {
   // 5. Energy saving
   await scenario(
     'Night mode — save energy',
-    '지금 밤 11시야. 사람이 없는 공간의 릴레이를 전부 꺼서 절전해줘.',
+    'It is 11pm. Turn off every relay in unoccupied rooms to save energy.',
     [
       { type: 'min_steps', value: 3 },
-      { type: 'response_includes', value: '절전' },
+      { type: 'response_includes', value: 'energy' },
     ]
   )
 
@@ -268,7 +268,7 @@ async function runScenarios() {
   // 6. Compute on edge
   await scenario(
     'Execute computation on edge',
-    'workspace-1 엣지에서 15 곱하기 7을 계산해줘. RISC-V 어셈블리로.',
+    'Compute 15 times 7 on the workspace-1 edge, in RISC-V assembly.',
     [
       { type: 'used_tool', value: 'execute_rv' },
       { type: 'response_includes', value: '105' },
@@ -280,9 +280,9 @@ async function runScenarios() {
   // 7. Server room monitoring setup
   await scenario(
     'Deploy temperature monitor',
-    '서버룸 온도가 30도 넘으면 알려줘. 모니터 설정해줘.',
+    'Tell me when the server room goes above 30 degrees. Set up a monitor.',
     [
-      { type: 'response_includes', value: '모니터' },
+      { type: 'response_includes', value: 'monitor' },
     ]
   )
 
@@ -291,7 +291,7 @@ async function runScenarios() {
   // 8. Multi-room status report
   await scenario(
     'Security status check',
-    '현관, 주차장, 로비의 모션 센서 상태를 확인하고 보안 상황 보고해줘',
+    'Check the motion sensors at the entrance, parking lot and lobby, and report the security situation',
     [
       { type: 'multi_edge', value: 2 },
     ]

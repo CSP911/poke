@@ -1,6 +1,6 @@
 #!/bin/bash
 # POKE Serial Pipeline Demo
-# 녹화: asciinema rec --command="bash demo/serial-demo.sh" demo/serial-pipeline.cast
+# Record: asciinema rec --command="bash demo/serial-demo.sh" demo/serial-pipeline.cast
 
 set -e
 

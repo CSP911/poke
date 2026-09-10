@@ -22,7 +22,7 @@ LLM (Claude) ── agentLoop
   ▼  │
 execute_rv tool
   │
-  ├─ compileAssemblyRV() ── 내장 JS RISC-V 어셈블러 (RV32IM)
+  ├─ compileAssemblyRV() ── built-in JS RISC-V assembler (RV32IM)
   │
   ▼
 pokeNodeSerial()
@@ -32,14 +32,14 @@ USB Serial (/dev/cu.usbmodem1101)
   │
   ▼
 ESP32-C3 (bare-metal)
-  ├─ POKE 프레임 파싱
-  ├─ IRAM 코드 버퍼에 복사
+  ├─ POKE frame parsing
+  ├─ copy into IRAM code buffer
   ├─ fence.i (instruction cache flush)
-  ├─ 코드 실행 (RV32IM)
-  └─ RESP frame: "RESP" + len + "a0=결과"
+  ├─ execute code (RV32IM)
+  └─ RESP frame: "RESP" + len + "a0=result"
   │
   ▼
-Hub ← 결과 수신 → LLM → 사용자 응답
+Hub ← receives result → LLM → user reply
 ```
 
 ---
@@ -224,7 +224,7 @@ Hub port: 3335
 ### Design
 
 ```
-사용자: "36도 이상이면 알려줘"
+User: "Tell me when it goes above 36 degrees"
   │
   ▼
 LLM agentLoop
@@ -265,7 +265,7 @@ Payload examples:
 Request:
 ```
 POST /relay
-{ "command": "ESP32-C3 칩 온도가 36도 이상이면 알려줘." }
+{ "command": "Tell me when the ESP32-C3 chip temperature goes above 36 degrees." }
 ```
 
 Agent steps:
@@ -276,9 +276,9 @@ Step 1: deploy_serial_monitor
 
 LLM response:
 ```
-✅ 온도 모니터 배포 완료!
-- 감지 조건: 온도가 36°C 이상일 때
-- 확인 간격: 5초마다 체크
+✅ Temperature monitor deployed!
+- Trigger condition: temperature at or above 36°C
+- Check interval: every 5 seconds
 ```
 
 ### Event Trigger — Hub Log
@@ -293,13 +293,13 @@ LLM response:
 
 | Step | Actor | Action |
 |------|-------|--------|
-| 1 | 사용자 | "36도 이상이면 알려줘" |
-| 2 | LLM | `deploy_serial_monitor(temp, above, 36°C)` 결정 |
-| 3 | Hub | EMON config → ESP32 시리얼 전송 |
-| 4 | ESP32 | FreeRTOS 태스크에서 5초마다 온도 체크 |
-| 5 | ESP32 | 37.1°C > 36°C → EVNT 프레임 자발 전송 |
-| 6 | Hub | EVNT 수신 → agentLoop 자동 실행 |
-| 7 | LLM | "임계값 초과 확인" 자율 판단 |
+| 1 | User | "Tell me when it goes above 36 degrees" |
+| 2 | LLM | decides `deploy_serial_monitor(temp, above, 36°C)` |
+| 3 | Hub | EMON config → sent to ESP32 over serial |
+| 4 | ESP32 | checks temperature every 5s in a FreeRTOS task |
+| 5 | ESP32 | 37.1°C > 36°C → sends an EVNT frame on its own |
+| 6 | Hub | receives EVNT → agentLoop runs automatically |
+| 7 | LLM | autonomously judges "threshold exceeded" |
 
 No human intervention between steps 3-7.
 
