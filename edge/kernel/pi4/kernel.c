@@ -246,13 +246,18 @@ static void fb_putc(char c) {
     if (fb_cy >= rows) { fb_scroll(); fb_cy = rows - 1; }
 }
 
+/* Panel resolution — Waveshare 7" HDMI LCD is 1024x600.
+ * Must match hdmi_cvt in config.txt. */
+#define FB_W 1024
+#define FB_H 600
+
 static void fb_init(void) {
     mbox_buf[0] = 30 * 4;
     mbox_buf[1] = 0;
     mbox_buf[2] = 0x00048003; mbox_buf[3] = 8; mbox_buf[4] = 0;
-    mbox_buf[5] = 800; mbox_buf[6] = 480;
+    mbox_buf[5] = FB_W; mbox_buf[6] = FB_H;
     mbox_buf[7] = 0x00048004; mbox_buf[8] = 8; mbox_buf[9] = 0;
-    mbox_buf[10] = 800; mbox_buf[11] = 480;
+    mbox_buf[10] = FB_W; mbox_buf[11] = FB_H;
     mbox_buf[12] = 0x00048005; mbox_buf[13] = 4; mbox_buf[14] = 0;
     mbox_buf[15] = 32;
     mbox_buf[16] = 0x00048006; mbox_buf[17] = 4; mbox_buf[18] = 0;
@@ -267,7 +272,7 @@ static void fb_init(void) {
     if (!mbox_buf[23]) return;
     fb_base = (volatile u32 *)(u64)(mbox_buf[23] & 0x3FFFFFFF);
     fb_pitch = mbox_buf[28];
-    fb_w = 800; fb_h = 480;
+    fb_w = FB_W; fb_h = FB_H;
     fb_cx = 0; fb_cy = 0;
     for (u32 i = 0; i < fb_pitch * fb_h / 4; i++) fb_base[i] = 0;
     fb_ok = 1;
