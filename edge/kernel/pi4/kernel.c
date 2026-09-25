@@ -1354,6 +1354,116 @@ static u64 demo_persona(const api_t *api, u64 tick) {
 }
 #endif
 
+/* ═══════════════════════════════════════════
+ * Bare-metal USB: PCIe root complex + VL805 xHCI
+ * Setup sequence proven via EXEC probes (see memory pi4-usb-pcie).
+ * ═══════════════════════════════════════════ */
+#define PCIE      0xFD500000ULL
+#define XHCI      0x600000000ULL   /* CPU phys → outbound win → PCIe 0xF8000000 → VL805 BAR0 */
+#define USB_DCBAA 0x02200000ULL    /* xHCI DMA structs (identity-mapped inbound) */
+#define USB_CMDR  0x02201000ULL
+#define USB_EVTR  0x02202000ULL
+#define USB_ERST  0x02203000ULL
+#define USB_SPAD_ARR 0x02208000ULL /* scratchpad buffer array */
+#define USB_SPAD_BUF 0x02210000ULL /* scratchpad buffers (31 × 4KB → ...0x0222F000) */
+#define RING_TRBS 16
+
+static u32  prd(u32 o) { return rd32(PCIE + o); }
+static void pwr(u32 o, u32 v) { wr32(PCIE + o, v); }
+static void pwr8(u32 o, u8 v)  { *(volatile u8 *)(PCIE + o) = v; }
+static void pwr16(u32 o, u16 v){ *(volatile u16 *)(PCIE + o) = v; }
+static void pwrfld(u32 o, u32 m, u32 v) { u32 s=__builtin_ctz(m); u32 t=prd(o); t=(t&~m)|((v<<s)&m); pwr(o,t); (void)prd(o); }
+static u32  vcrd(u32 reg) { pwr(0x9000, 0x100000); return rd32(PCIE + 0x8000 + reg); }
+static void vcwr(u32 reg, u32 v) { pwr(0x9000, 0x100000); wr32(PCIE + 0x8000 + reg, v); }
+
+static int pcie_init(void) {
+    pwrfld(0x9210,0x2,1); pwrfld(0x9210,0x1,1); delay_us(200); pwrfld(0x9210,0x2,0);
+    pwrfld(0x4204,0x08000000,0); delay_us(200);
+    u32 mc=prd(0x4008); mc|=0x1000; mc|=0x2000; mc&=~0x300000; pwr(0x4008,mc);
+    pwr(0x4034,0x11); pwr(0x4038,0); pwrfld(0x4008,0xf8000000,0x11);
+    pwrfld(0x9210,0x1,0); delay_ms(100);
+    int up=0; for(int k=0;k<30&&!up;k++){u32 st=prd(0x4068); up=((st&0x20)&&(st&0x10)); if(!up)delay_ms(5);}
+    if(!up) return -1;
+    pwrfld(0x043c,0xffffff,0x060400);
+    pwr8(0x19,1); pwr8(0x1a,1); pwr16(0xac+0x1c,0x0010); (void)prd(0x18);
+    pwr(0x400c,0xF8000000); pwr(0x4010,0);
+    pwr(0x4070,0x00300000); pwr(0x4080,0x6); pwr(0x4084,0x6);
+    pwr16(0x20,0xF800); pwr16(0x22,0xF800); pwr16(0x04,0x0006);
+    vcwr(0x10,0xF8000004); vcwr(0x14,0); vcwr(0x04,0x0006);
+    mbox_buf[0]=7*4; mbox_buf[1]=0; mbox_buf[2]=0x00030058; mbox_buf[3]=4; mbox_buf[4]=0; mbox_buf[5]=0x00100000; mbox_buf[6]=0;
+    mbox_call(); delay_ms(300);
+    return (vcrd(0)==0x34831106) ? 0 : -2;
+}
+
+static u32  xrd(u64 a) { return *(volatile u32 *)a; }
+static void xwr(u64 a, u32 v) { *(volatile u32 *)a = v; }
+static void xwr64(u64 a, u64 v) { *(volatile u32 *)a=(u32)v; *(volatile u32 *)(a+4)=(u32)(v>>32); }
+static void xzero(u64 a, int n) { for(int i=0;i<n/4;i++) *(volatile u32 *)(a+i*4)=0; }
+
+static u64 xhci_op, xhci_rt, xhci_db;
+static int xhci_slots, xhci_ports, xhci_spad;
+
+static int xhci_init(void) {
+    int caplen = xrd(XHCI+0) & 0xFF;
+    xhci_op = XHCI + caplen;
+    u32 hcs1 = xrd(XHCI+4);
+    xhci_slots = hcs1 & 0xFF;
+    xhci_ports = (hcs1 >> 24) & 0xFF;
+    xhci_db = XHCI + (xrd(XHCI+0x14) & ~3u);
+    xhci_rt = XHCI + (xrd(XHCI+0x18) & ~0x1fu);
+    int t;
+    t=1000; while((xrd(xhci_op+0x04)&(1<<11))&&t--)delay_ms(1);      /* CNR */
+    xwr(xhci_op+0x00, xrd(xhci_op+0x00)|(1<<1));                     /* HCRST */
+    t=1000; while((xrd(xhci_op+0x00)&(1<<1))&&t--)delay_ms(1);
+    t=1000; while((xrd(xhci_op+0x04)&(1<<11))&&t--)delay_ms(1);
+    xwr(xhci_op+0x38, xhci_slots);                                  /* CONFIG MaxSlotsEn */
+    xzero(USB_DCBAA,(xhci_slots+1)*8);
+    /* Scratchpad buffers (HCSPARAMS2 Max Scratchpad Bufs) — controller
+     * needs these before start or Address Device hangs the bus. */
+    u32 hcs2 = xrd(XHCI+8);
+    int nspb = (((hcs2>>21)&0x1f)<<5) | ((hcs2>>27)&0x1f);
+    xhci_spad = nspb;
+    if (nspb) {
+        for (int i=0;i<nspb;i++) {
+            u64 buf = USB_SPAD_BUF + (u64)i*0x1000;
+            xzero(buf, 0x1000);
+            xwr64(USB_SPAD_ARR + i*8, buf);
+        }
+        xwr64(USB_DCBAA + 0, USB_SPAD_ARR);   /* DCBAA[0] = scratchpad array */
+    }
+    xwr64(xhci_op+0x30, USB_DCBAA);                                 /* DCBAAP */
+    xzero(USB_CMDR, RING_TRBS*16);                                  /* command ring + link TRB */
+    xwr(USB_CMDR+(RING_TRBS-1)*16+0,(u32)USB_CMDR);
+    xwr(USB_CMDR+(RING_TRBS-1)*16+12,(6<<10)|(1<<1)|1);             /* Link TRB, TC=1, C=1 */
+    xwr64(xhci_op+0x18, USB_CMDR|1);                               /* CRCR, RCS=1 */
+    xzero(USB_EVTR, RING_TRBS*16);                                  /* event ring + ERST */
+    xzero(USB_ERST, 16);
+    xwr(USB_ERST+0,(u32)USB_EVTR); xwr(USB_ERST+8, RING_TRBS);
+    xwr(xhci_rt+0x20+0x08, 1);                                      /* ERSTSZ */
+    xwr64(xhci_rt+0x20+0x10, USB_ERST);                            /* ERSTBA */
+    xwr64(xhci_rt+0x20+0x18, USB_EVTR);                            /* ERDP */
+    xwr(xhci_op+0x00, xrd(xhci_op+0x00)|1);                        /* R/S start */
+    t=1000; while((xrd(xhci_op+0x04)&1)&&t--)delay_ms(1);          /* wait HCH clear */
+    return (xrd(xhci_op+0x04)&1) ? -1 : 0;
+}
+
+static void usb_init(void) {
+    uprint("[USB] PCIe bring-up...\n");
+    if (pcie_init()) { uprint("[USB] PCIe FAILED\n"); if(fb_ok) fb_text(40,520,3,0x00FF4040,"USB: PCIe failed"); return; }
+    uprint("[USB] VL805 enumerated (xHCI). init...\n");
+    if (xhci_init()) { uprint("[USB] xHCI start FAILED\n"); if(fb_ok) fb_text(40,520,3,0x00FF4040,"USB: xHCI start failed"); return; }
+    char b[96]; int n=scpy(b,"USB xHCI running  slots="); n+=idec(xhci_slots,b+n); n+=scpy(b+n," ports="); n+=idec(xhci_ports,b+n); n+=scpy(b+n," spad="); n+=idec(xhci_spad,b+n); b[n]=0;
+    uprint("[USB] "); uprint(b); uputc('\n');
+    if(fb_ok) fb_text(40,520,2,0x0000FF66,b);
+    int y=548;
+    for (int p=1; p<=xhci_ports; p++) {
+        u32 sc = xrd(xhci_op + 0x400 + (p-1)*0x10);
+        char c[48]; int m=scpy(c,"port "); m+=idec(p,c+m); m+=scpy(c+m,(sc&1)?" CONNECTED":" -"); c[m]=0;
+        uprint("[USB] "); uprint(c); uprint(" sc="); uhex32(sc); uputc('\n');
+        if((sc&1)&&fb_ok){ fb_text(40,y,2,0x00FFFF00,c); y+=28; }
+    }
+}
+
 void kernel_main(void) {
     /* Stage 1: ACT LED — fast blink = kernel alive */
     act_init();
@@ -1393,6 +1503,11 @@ void kernel_main(void) {
     persona_tick = 0;
     persona_last_ms = now_ms();
     persona_active = 1;
+#endif
+
+#ifndef NO_ETH
+    /* Bare-metal USB: PCIe root complex + VL805 xHCI */
+    usb_init();
 #endif
 
     uprint("poke-pi4> ");
