@@ -97,9 +97,9 @@ async function main() {
       if (!name) { console.error('usage: poke persona <name>|stop'); process.exit(1) }
       if (name === 'stop') { clearCurrent(); console.log(await request(Buffer.from('PSTP'))); break }
       const bin = fs.readFileSync(path.join(PERSONA_DIR, `${name}.bin`))
-      if (bin.length > 1400) throw new Error('persona binary too large for one UDP frame')
+      if (bin.length > proto.PERSONA_MAX) throw new Error(`persona binary too large (${bin.length} > ${proto.PERSONA_MAX})`)
       await request(timePayload())  /* personas may need wall clock */
-      const r = JSON.parse(await request(Buffer.concat([Buffer.from('PRUN'), bin])))
+      const r = JSON.parse(await proto.upload(request, 'PRUN', bin))
       setCurrent(name)
       console.log(`${name}: ${r.persona} (${r.size} bytes)`)
       break

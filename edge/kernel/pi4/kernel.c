@@ -1110,23 +1110,53 @@ static void handle_exec(const u8 *code, int clen) {
     run_staged(clen);
 }
 
-/* EXLD: stage a chunk into code_buf at an offset. Payload = off(4 LE) + bytes.
- * Lets a probe larger than one MTU frame be uploaded in pieces (no reliance on
- * IP fragment reassembly, which the bare-metal stack does not do). */
+/* ── Chunked upload ──
+ * A binary larger than one MTU frame is uploaded in pieces: EXLD chunks land
+ * in stage_buf, then EXRN (run as probe) or PRST (load as persona) consumes
+ * it. No reliance on IP fragment reassembly, which the bare-metal stack does
+ * not do. The run/load commands carry the total length and a Fletcher-32
+ * checksum so a lost chunk is refused instead of executed. Single-frame
+ * EXEC / PRUN stay as they are for small binaries. */
+#define STAGE_SZ 8192
+static u8  stage_buf[STAGE_SZ] __attribute__((aligned(64)));
+static u32 stage_hi = 0;            /* highest staged end offset */
+
+static u32 ld32(const u8 *p) { return p[0] | (p[1]<<8) | (p[2]<<16) | ((u32)p[3]<<24); }
+static u32 fletcher32(const u8 *d, u32 n) {
+    u32 s1 = 0, s2 = 0;
+    for (u32 i = 0; i < n; i++) { s1 = (s1 + d[i]) % 65535; s2 = (s2 + s1) % 65535; }
+    return (s2 << 16) | s1;
+}
+
 static void handle_exld(const u8 *p, int len) {
     if (len < 4) { poke_resp_str("error: exld short"); return; }
-    u32 off = p[0] | (p[1]<<8) | (p[2]<<16) | ((u32)p[3]<<24);
+    u32 off = ld32(p);
     int nb = len - 4;
-    if (off > CODE_SZ || nb < 0 || off + (u32)nb > CODE_SZ) { poke_resp_str("error: exld range"); return; }
-    mcpy(code_buf + off, p + 4, nb);
+    if (off > STAGE_SZ || nb < 0 || off + (u32)nb > STAGE_SZ) { poke_resp_str("error: exld range"); return; }
+    if (off == 0) stage_hi = 0;                 /* a new upload starts at 0 */
+    mcpy(stage_buf + off, p + 4, nb);
+    if (off + (u32)nb > stage_hi) stage_hi = off + (u32)nb;
     char r[24]; int n = scpy(r, "ok "); n += idec(off + (u32)nb, r + n);
     poke_resp((const u8 *)r, n);
 }
 
-/* EXRN: run the code_buf staged by prior EXLD chunks. Payload = total_len(4 LE). */
+/* Validate a staged upload: payload = total_len(4 LE) [+ fletcher32(4 LE)].
+ * Returns the length, or 0 after sending the error reply. */
+static u32 stage_check(const u8 *p, int len, const char *who) {
+    if (len < 4) { poke_resp_str("{\"error\":\"short\"}"); return 0; }
+    u32 clen = ld32(p);
+    if (clen == 0 || clen > STAGE_SZ || clen > stage_hi) { poke_resp_str("{\"error\":\"stage length\"}"); return 0; }
+    if (len >= 8 && ld32(p + 4) != fletcher32(stage_buf, clen)) {
+        uprint("[POKE] "); uprint(who); uprint(" checksum mismatch\n");
+        poke_resp_str("{\"error\":\"checksum\"}"); return 0;
+    }
+    return clen;
+}
+
 static void handle_exrn(const u8 *p, int len) {
-    if (len < 4) { poke_resp_str("error: exrn short"); return; }
-    u32 clen = p[0] | (p[1]<<8) | (p[2]<<16) | ((u32)p[3]<<24);
+    u32 clen = stage_check(p, len, "EXRN"); if (!clen) return;
+    if (clen > CODE_SZ) { poke_resp_str("error: size"); return; }
+    mcpy(code_buf, stage_buf, clen);
     run_staged((int)clen);
 }
 
@@ -1212,7 +1242,7 @@ static void handle_poke(const u8 *payload, int len) {
         n += scpy(r+n, "{\"status\":\"alive\",\"arch\":\"aarch64\",\"chip\":\"bcm2711\"");
         n += scpy(r+n, ",\"kernel\":\"poke-os\",\"transport\":\"udp\"");
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
-        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
+        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         if (fb_ok) {
             n += scpy(r+n, ",\"display\":\""); n += idec(fb_w, r+n); r[n++] = 'x'; n += idec(fb_h, r+n); r[n++] = '"';
             n += scpy(r+n, ",\"fb_base\":"); n += idec((u32)(u64)fb_base, r+n);
@@ -1295,6 +1325,20 @@ static void handle_poke(const u8 *payload, int len) {
             uprint("[POKE] PRUN "); udec(len-4); uprint(" bytes\n");
         } else {
             poke_resp_str(rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
+        }
+    }
+    else if (mcmp(payload, "PRST", 4) == 0) {      /* persona from staged chunks */
+        u32 clen = stage_check(payload + 4, len - 4, "PRST");
+        if (clen) {
+            int rc = persona_load(stage_buf, (int)clen);
+            if (rc == 0) {
+                char r[64]; int n = scpy(r, "{\"persona\":\"running\",\"size\":");
+                n += idec(clen, r+n); r[n++] = '}';
+                poke_resp((const u8 *)r, n);
+                uprint("[POKE] PRST "); udec(clen); uprint(" bytes\n");
+            } else {
+                poke_resp_str(rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
+            }
         }
     }
     else if (mcmp(payload, "PSTP", 4) == 0) {
