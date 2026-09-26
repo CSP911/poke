@@ -54,6 +54,27 @@ static int mbox_call(void) {
 
 /* touch state served to personas through api->svc->touch */
 static int touch_down_f = 0, touch_new = 0, touch_sx = 0, touch_sy = 0;
+/* every sample (~130/s) since the persona last asked — lets a 20 Hz tick draw
+ * a 130 Hz drag as connected segments */
+#define TRACE_N 128
+static u32 trace_buf[TRACE_N]; static int trace_w = 0, trace_r = 0;
+static void trace_push(int x, int y, int tip) {
+    trace_buf[trace_w] = (u32)(x & 0xffff) | ((u32)(y & 0x7fff) << 16) | (tip ? 0x80000000u : 0);
+    trace_w = (trace_w + 1) % TRACE_N;
+    if (trace_w == trace_r) trace_r = (trace_r + 1) % TRACE_N;   /* overflow: drop oldest */
+}
+/* The last sample handed out is repeated as the first element of the next
+ * call while the finger stays down, so a persona (which has no memory across
+ * ticks) can join segments across tick boundaries without gaps. */
+static u32 trace_last = 0; static int trace_have = 0;
+static int res_touch_trace(unsigned int *out, int max) {
+    int n = 0;
+    if (trace_r == trace_w) return 0;
+    if (trace_have && (trace_last >> 31) && n < max) out[n++] = trace_last;
+    while (trace_r != trace_w && n < max) { out[n++] = trace_buf[trace_r]; trace_r = (trace_r + 1) % TRACE_N; }
+    trace_last = out[n-1]; trace_have = 1;
+    return n;
+}
 static int res_touch(int *x, int *y) {
     if (x) *x = touch_sx;
     if (y) *y = touch_sy;
@@ -271,7 +292,8 @@ static void touch_event(u32 t0, u32 t2) {
         if (tip) {
             touch_sx = clampi(x, 0, (int)fb_w - 1); touch_sy = clampi(y, 0, (int)fb_h - 1);
             if (!touch_down_f) { touch_down_f = 1; touch_new = 1; }
-        } else touch_down_f = 0;
+            trace_push(touch_sx, touch_sy, 1);
+        } else if (touch_down_f) { touch_down_f = 0; trace_push(touch_sx, touch_sy, 0); }
         usb_ir_enqueue(); dsb(); xwr(xhci_db + dev_slot*4, (u32)dci);
     } else { usb_touch_errs++; ep_err = 1; }
 }
@@ -447,8 +469,9 @@ static int attach_child(int p) {
     usb_ir_pi = 0; usb_ir_pc = 1;
     for (int i = 0; i < 8; i++) usb_ir_enqueue();
     dsb(); xwr(xhci_db + dev_slot*4, (u32)dci);
-    touch_ok = 1; ep_err = 0; touch_down_f = 0;
+    touch_ok = 1; ep_err = 0; touch_down_f = 0; trace_w = trace_r = 0; trace_have = 0;
     A->svc->touch = res_touch;
+    A->svc->touch_trace = res_touch_trace;
     char b[96]; int n = scpy(b, "USB touch: "); n += scpy(b+n, dspd==3?"HS":dspd==2?"LS":"FS");
     n += scpy(b+n, " HID "); n += uhex16s(usb_touch_vid, b+n); b[n++] = ':'; n += uhex16s(usb_touch_pid, b+n);
     n += scpy(b+n, " via hub port "); n += idec(p, b+n); b[n] = 0;
@@ -460,7 +483,7 @@ fail:
 }
 
 static void detach_child(const char *why) {
-    if (A->svc) A->svc->touch = 0;
+    if (A->svc) { A->svc->touch = 0; A->svc->touch_trace = 0; }
     touch_ok = 0; touch_down_f = 0; ep_err = 0;
     if (dev_slot) { usb_disable_slot(dev_slot); dev_slot = 0; }
     char b[64]; int n = scpy(b, "USB touch: "); n += scpy(b+n, why); b[n] = 0;

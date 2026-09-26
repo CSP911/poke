@@ -14,7 +14,8 @@
 /* Services a resident driver can provide. Slots are ABI: append only. */
 typedef struct {
     int (*touch)(int *x, int *y);         /* same contract as api->touch */
-    void *reserved[7];
+    int (*touch_trace)(unsigned int *out, int max);   /* same contract as api->touch_trace */
+    void *reserved[6];
 } poke_svc_t;
 
 typedef struct {
@@ -40,6 +41,12 @@ typedef struct {
                                              register here; personas never touch it */
     void (*log)(const char *s);           /* +0x60 UART log line (residents/diagnostics) */
     unsigned int (*screen)(void);         /* +0x68 (width << 16) | height, 0 = no display */
+    int (*touch_trace)(unsigned int *out, int max);
+                                          /* +0x70 every touch sample since the last call
+                                             (up to max), oldest first, as
+                                             x | y << 16 | (finger down) << 31 —
+                                             returns the count. Use it to draw drags
+                                             smoothly: samples arrive ~130/s, ticks are 20/s */
 } api_t;
 
 #define PERSONA_TICK_MS 50   /* persona_main is called every 50ms */

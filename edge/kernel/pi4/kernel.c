@@ -391,6 +391,10 @@ static int api_touch(int *x, int *y) {
     if (y) *y = 0;
     return 0;
 }
+static int api_touch_trace(unsigned int *out, int max) {
+    if (svc.touch_trace) return svc.touch_trace(out, max);
+    return 0;
+}
 
 /* ── Wall Clock (set by hub via TIME command) ── */
 static u64 epoch_ms_base = 0;   /* epoch ms at the moment TIME was set */
@@ -450,7 +454,7 @@ static unsigned int api_screen(void) { return fb_ok ? ((fb_w << 16) | fb_h) : 0;
 static const api_t persona_api = {
     fb_clear, fb_rect, fb_text, now_ms, wall_sec,
     api_gpio_out, gpio_read, get_soc_temp, api_param, api_touch, api_emit,
-    &svc, api_log, api_screen,
+    &svc, api_log, api_screen, api_touch_trace,
 };
 
 /* ── Persona Slot (resident binary, called every tick) ── */
