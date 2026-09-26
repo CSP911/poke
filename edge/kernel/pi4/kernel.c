@@ -251,7 +251,12 @@ static void fb_putc(char c) {
 #define FB_W 1024
 #define FB_H 600
 
-static void fb_init(void) {
+/* Allocate the framebuffer via the mailbox. The Waveshare 7" HDMI LCD is
+ * self-powered (separate USB), so on a cold boot HDMI/EDID can come up later
+ * than the kernel — a single mailbox alloc then returns base 0 and the GPU's
+ * rainbow test pattern stays on screen. Retry with a settle delay so we catch
+ * the display once it's ready instead of giving up after one try. */
+static int fb_alloc_once(void) {
     mbox_buf[0] = 30 * 4;
     mbox_buf[1] = 0;
     mbox_buf[2] = 0x00048003; mbox_buf[3] = 8; mbox_buf[4] = 0;
@@ -268,14 +273,24 @@ static void fb_init(void) {
     mbox_buf[28] = 0;
     mbox_buf[29] = 0;
     dsb();
-    if (!mbox_call()) return;
-    if (!mbox_buf[23]) return;
+    if (!mbox_call()) return 0;
+    if (!mbox_buf[23]) return 0;
     fb_base = (volatile u32 *)(u64)(mbox_buf[23] & 0x3FFFFFFF);
     fb_pitch = mbox_buf[28];
-    fb_w = FB_W; fb_h = FB_H;
-    fb_cx = 0; fb_cy = 0;
-    for (u32 i = 0; i < fb_pitch * fb_h / 4; i++) fb_base[i] = 0;
-    fb_ok = 1;
+    return 1;
+}
+
+static void fb_init(void) {
+    for (int try = 0; try < 20; try++) {   /* up to ~2s for HDMI to settle */
+        if (fb_alloc_once()) {
+            fb_w = FB_W; fb_h = FB_H;
+            fb_cx = 0; fb_cy = 0;
+            for (u32 i = 0; i < fb_pitch * fb_h / 4; i++) fb_base[i] = 0;
+            fb_ok = 1;
+            return;
+        }
+        delay_ms(100);
+    }
 }
 
 /* ── Graphics Primitives (DRAW / persona API) ── */
@@ -1052,9 +1067,10 @@ static u8 code_buf[CODE_SZ] __attribute__((aligned(4096)));
 static char res_buf[256];
 static int res_len = 0;
 
-static void handle_exec(const u8 *code, int clen) {
+/* Run whatever is already staged in code_buf[0..clen). Shared by the
+ * single-frame EXEC path and the chunked EXLD/EXRN path. */
+static void run_staged(int clen) {
     if (clen <= 0 || clen > CODE_SZ) { poke_resp_str("error: size"); return; }
-    mcpy(code_buf, code, clen);
 
     int has_ret = 0;
     for (int i = 0; i <= clen - 4; i += 4) {
@@ -1067,8 +1083,12 @@ static void handle_exec(const u8 *code, int clen) {
     u64 ret = 0;
 
     if (has_ret) {
-        __asm__ volatile("dc civac, %0" :: "r"(code_buf));
-        __asm__ volatile("dsb sy"); __asm__ volatile("ic ivau, %0" :: "r"(code_buf));
+        /* Flush the whole staged range, not just the first line — a chunked
+         * upload can be several KB. */
+        for (u32 o = 0; o < (u32)clen; o += 64) {
+            __asm__ volatile("dc civac, %0" :: "r"(code_buf + o));
+            __asm__ volatile("ic ivau, %0" :: "r"(code_buf + o));
+        }
         __asm__ volatile("dsb sy"); __asm__ volatile("isb");
         u64 (*fn)(char *, int *) = (u64 (*)(char *, int *))code_buf;
         ret = fn(res_buf, &res_len);
@@ -1079,6 +1099,32 @@ static void handle_exec(const u8 *code, int clen) {
     else if (res_len > 0) { mcpy(rsp, res_buf, res_len); rl = res_len; }
     else { rl = scpy(rsp, "x0="); rl += idec((u32)ret, rsp + rl); }
     poke_resp((const u8 *)rsp, rl);
+}
+
+static void handle_exec(const u8 *code, int clen) {
+    if (clen <= 0 || clen > CODE_SZ) { poke_resp_str("error: size"); return; }
+    mcpy(code_buf, code, clen);
+    run_staged(clen);
+}
+
+/* EXLD: stage a chunk into code_buf at an offset. Payload = off(4 LE) + bytes.
+ * Lets a probe larger than one MTU frame be uploaded in pieces (no reliance on
+ * IP fragment reassembly, which the bare-metal stack does not do). */
+static void handle_exld(const u8 *p, int len) {
+    if (len < 4) { poke_resp_str("error: exld short"); return; }
+    u32 off = p[0] | (p[1]<<8) | (p[2]<<16) | ((u32)p[3]<<24);
+    int nb = len - 4;
+    if (off > CODE_SZ || nb < 0 || off + (u32)nb > CODE_SZ) { poke_resp_str("error: exld range"); return; }
+    mcpy(code_buf + off, p + 4, nb);
+    char r[24]; int n = scpy(r, "ok "); n += idec(off + (u32)nb, r + n);
+    poke_resp((const u8 *)r, n);
+}
+
+/* EXRN: run the code_buf staged by prior EXLD chunks. Payload = total_len(4 LE). */
+static void handle_exrn(const u8 *p, int len) {
+    if (len < 4) { poke_resp_str("error: exrn short"); return; }
+    u32 clen = p[0] | (p[1]<<8) | (p[2]<<16) | ((u32)p[3]<<24);
+    run_staged((int)clen);
 }
 
 /* ── Console home screen (boot banner) ── */
@@ -1158,8 +1204,14 @@ static void handle_poke(const u8 *payload, int len) {
         n += scpy(r+n, "{\"status\":\"alive\",\"arch\":\"aarch64\",\"chip\":\"bcm2711\"");
         n += scpy(r+n, ",\"kernel\":\"poke-os\",\"transport\":\"udp\"");
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
-        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
-        n += scpy(r+n, ",\"display\":"); n += scpy(r+n, fb_ok ? "\"800x480\"" : "null");
+        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
+        if (fb_ok) {
+            n += scpy(r+n, ",\"display\":\""); n += idec(fb_w, r+n); r[n++] = 'x'; n += idec(fb_h, r+n); r[n++] = '"';
+            n += scpy(r+n, ",\"fb_base\":"); n += idec((u32)(u64)fb_base, r+n);
+            n += scpy(r+n, ",\"fb_pitch\":"); n += idec(fb_pitch, r+n);
+        } else {
+            n += scpy(r+n, ",\"display\":null");
+        }
         n += scpy(r+n, ",\"touch\":true");
         n += scpy(r+n, ",\"persona\":"); n += scpy(r+n, persona_active ? "true" : "false");
         n += scpy(r+n, ",\"bare_metal\":true");
@@ -1171,6 +1223,13 @@ static void handle_poke(const u8 *payload, int len) {
     else if (mcmp(payload, "EXEC", 4) == 0) {
         uprint("[POKE] EXEC "); udec(len-4); uprint(" bytes\n");
         handle_exec(payload + 4, len - 4);
+    }
+    else if (mcmp(payload, "EXLD", 4) == 0) {
+        handle_exld(payload + 4, len - 4);
+    }
+    else if (mcmp(payload, "EXRN", 4) == 0) {
+        uprint("[POKE] EXRN\n");
+        handle_exrn(payload + 4, len - 4);
     }
     else if (mcmp(payload, "GPIO", 4) == 0) {
         char r[256]; int n = 0;
