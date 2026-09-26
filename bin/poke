@@ -20,6 +20,9 @@
  *                                 (POKE_LANG=ko for Korean: "헥스야, ...")
  *   poke persona stop             discard current persona
  *   poke home                     back to the boot banner screen
+ *   poke resident <name>|stop     inject a resident driver from edge/library
+ *                                 (device stacks live there, not in the kernel)
+ *   poke residents                list resident drivers in the library
  *   poke personas                 list available personas
  *   poke cache                    list the self-growing persona cache
  *   poke burst "<task>"           distributed compute: LLM splits a CPU-burst
@@ -37,6 +40,7 @@ const path = require('path')
 const proto = require('../lib/cli/proto')
 const { PERSONA_DIR, loadCatalog, become, setCurrent, clearCurrent } = require('../lib/cli/persona')
 const { listen, voice, hexDaemon } = require('../lib/cli/daemon')
+const residents = require('../lib/cli/residents')
 
 const args = process.argv.slice(2)
 const hostIdx = args.indexOf('--host')
@@ -99,6 +103,8 @@ async function main() {
       const bin = fs.readFileSync(path.join(PERSONA_DIR, `${name}.bin`))
       if (bin.length > proto.PERSONA_MAX) throw new Error(`persona binary too large (${bin.length} > ${proto.PERSONA_MAX})`)
       await request(timePayload())  /* personas may need wall clock */
+      const srcPath = path.join(PERSONA_DIR, `${name}.c`)
+      await residents.ensureServices(request, residents.servicesUsed(null, fs.existsSync(srcPath) ? fs.readFileSync(srcPath, 'utf8') : ''))
       const r = JSON.parse(await proto.upload(request, 'PRUN', bin))
       setCurrent(name)
       console.log(`${name}: ${r.persona} (${r.size} bytes)`)
@@ -155,13 +161,27 @@ async function main() {
       }
       break
     }
+    case 'resident': {   /* inject a resident driver from the library, or stop it */
+      const name = args[0]
+      if (!name) { console.error('usage: poke resident <name>|stop'); process.exit(1) }
+      if (name === 'stop') { console.log(await residents.stopResident(request)); break }
+      const r = await residents.ensureResident(request, name)
+      console.log(r.already ? `${name}: already running` : `${name}: running (${r.size} bytes)`)
+      break
+    }
+    case 'residents': {  /* library index */
+      const list = residents.list()
+      if (!list.length) { console.log('(no residents in edge/library)'); break }
+      for (const e of list) console.log(`${e.name} — provides ${(e.provides || []).join(', ')} — ${e.description}`)
+      break
+    }
     case 'personas': {
       const list = fs.readdirSync(PERSONA_DIR).filter((f) => f.endsWith('.bin')).map((f) => f.replace('.bin', ''))
       console.log(list.length ? list.join('\n') : '(none — run: make -C edge/kernel/pi4 personas)')
       break
     }
     default:
-      console.error('usage: poke <ping|info|temp|gpio|time|text|persona|personas|home|become|voice|listen|hex|cache> [--host ip]')
+      console.error('usage: poke <ping|info|temp|gpio|time|text|persona|personas|resident|residents|home|become|voice|listen|hex|cache|burst|workers> [--host ip]')
       process.exit(1)
   }
 }

@@ -11,6 +11,12 @@
 #ifndef POKE_API_H
 #define POKE_API_H
 
+/* Services a resident driver can provide. Slots are ABI: append only. */
+typedef struct {
+    int (*touch)(int *x, int *y);         /* same contract as api->touch */
+    void *reserved[7];
+} poke_svc_t;
+
 typedef struct {
     void (*clear)(unsigned int color);                                   /* +0x00 */
     void (*rect)(int x, int y, int w, int h, unsigned int color);        /* +0x08 */
@@ -24,14 +30,31 @@ typedef struct {
                                              0 when unset — personas must default) */
     int (*touch)(int *x, int *y);         /* +0x48 0 = not pressed, 1 = held,
                                              2 = new tap (returned once per press);
-                                             fills screen coords (800x480) */
+                                             fills panel pixel coords */
     void (*emit)(unsigned int code, unsigned long value);
                                           /* +0x50 fire an autonomous event to the
                                              hub (rate-limited to 1 per 10s per
                                              code) — call when a condition the
                                              user asked about happens */
+    poke_svc_t *svc;                      /* +0x58 service table — resident drivers
+                                             register here; personas never touch it */
+    void (*log)(const char *s);           /* +0x60 UART log line (residents/diagnostics) */
+    unsigned int (*screen)(void);         /* +0x68 (width << 16) | height, 0 = no display */
 } api_t;
 
 #define PERSONA_TICK_MS 50   /* persona_main is called every 50ms */
+
+/* ── Resident drivers ──
+ * A resident is an injected binary that keeps state and is ticked every main
+ * loop iteration. It provides services by filling api->svc.
+ *   u64 resident_main(const api_t *api, u64 op, u64 arg)
+ *   RES_NAME → returns const char* (name), RES_INIT → 0 on success,
+ *   RES_TICK → poll, RES_STOP → quiesce hardware (services are cleared by the kernel).
+ * Sources live in edge/library/<arch>/<device>/, linked with resident.ld
+ * (unlike personas, .data/.bss are kept). */
+#define RES_INIT 1
+#define RES_TICK 2
+#define RES_STOP 3
+#define RES_NAME 4
 
 #endif

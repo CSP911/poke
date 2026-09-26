@@ -1,0 +1,31 @@
+{
+  "name": "usb-touch-egalax",
+  "arch": "pi4",
+  "kind": "resident",
+  "provides": ["touch"],
+  "binary": "resident.bin",
+  "source": "usb_touch.c",
+  "description": "Pi 4 bare-metal USB host: PCIe root complex + VL805 xHCI + VL805 internal USB 2.0 hub + eGalax (0eef:0005) full-speed HID touch on a hub port. Fills api->svc->touch with panel-pixel coordinates.",
+  "hardware": {
+    "panel": "Waveshare 7\" HDMI LCD 1024x600, capacitive USB touch",
+    "touch_controller": { "vid": "0x0eef", "pid": "0x0005", "vendor": "D-WAV/eGalax", "speed": "full", "ep0_mps": 64, "interrupt_in": "0x82", "report_bytes": 11, "report_hz": 130 },
+    "hub": { "vid": "0x2109", "pid": "0x3431", "vendor": "VIA VL805 internal USB 2.0 hub", "ports": 4, "tt": "single", "ttt": 3 },
+    "cabling": "touch USB must go into a USB-A jack (all four are behind the VL805 hub); the USB-C port is a different controller (DWC2) and is not served here"
+  },
+  "registers": {
+    "pcie_host_bridge": "0xFD500000 (on-SoC, safe to read without link)",
+    "xhci_mmio_cpu": "0x600000000 (outbound window → PCIe 0xF8000000 = VL805 BAR0); reading it before link-up hangs the CPU",
+    "dma_region": "0x02200000-0x0222FFFF identity-mapped: DCBAA 0x02200000, cmd ring 0x02201000, event ring 0x02202000, ERST 0x02203000, hub ctx/ring 0x02204000-0x02207000, spad array 0x02208000, dev ctx/ring 0x02209000-0x0220C000, intr ring 0x0220D000, reports 0x0220E000, spad buffers 0x02210000+",
+    "mailbox_vl805_firmware": "tag 0x00030058 arg 0x00100000 — only succeeds after secondary bus / BAR / window setup"
+  },
+  "report_format": { "0": "report id 0x01", "1": "bit0 = tip (finger down)", "4-5": "X little-endian, 0..1023 (panel pixels)", "6-7": "Y little-endian, 0..599 (panel pixels)" },
+  "lessons": [
+    "single-TT hub: child slot context TT Port Number must be 0 (only multi-TT hubs use the real port) — else Address Device returns Parameter Error (17)",
+    "hub slot must be marked with Hub bit / NbrPorts / TTT via Configure Endpoint before addressing a child",
+    "learn EP0 max packet size from the first 8 descriptor bytes and apply it with Evaluate Context (this device: 64 despite full speed)",
+    "~50 ms settle after Address Device on this full-speed device or the first control transfer fails",
+    "never SET_IDLE: the device STALLs, EP0 halts and the single TT wedges (interrupt split error 36)",
+    "event ring is 16 entries: wrap the dequeue index, toggle the cycle state, and keep ERDP advancing",
+    "EXEC probes over ~1460 bytes must use chunked upload (EXLD) — the sender's IP fragments are not reassembled"
+  ]
+}

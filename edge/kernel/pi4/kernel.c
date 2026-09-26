@@ -377,108 +377,19 @@ static u8 gpio_read(u8 pin) {
 }
 
 /* ═══════════════════════════════════════════
- * XPT2046 Touch Controller (SPI0)
- * T_CLK=GPIO11 T_MOSI=GPIO10 T_MISO=GPIO9
- * T_CS=CE0/CE1 (auto-detect) T_IRQ=GPIO25
+ * Services — filled by injected resident drivers (see edge/library/<arch>/).
+ * The kernel owns no device stacks; it only forwards to whatever a resident
+ * registered. api_touch() is the persona-facing entry; a resident sets
+ * svc.touch to serve it.
  * ═══════════════════════════════════════════ */
-#define SPI0    (PERI + 0x204000)
-#define PEN_IRQ 25
+#include "poke_api.h"
+static poke_svc_t svc;                 /* zero = service not provided */
 
-/* Current panel's touch film is cracked — its Z1 pressure reading floats
- * high permanently, so pressure detection fires ghost touches. Set to 1
- * when an intact XPT2046 panel is installed. */
-#define TOUCH_ENABLED 0
-
-/* raw→screen calibration (tune after corner test) */
-#define TC_MIN   200
-#define TC_MAX   3900
-
-static int touch_cs = 1;        /* this panel wires T_CS to CE1 (verified) */
-static int touch_down_f = 0;
-static int touch_new = 0;
-static int touch_sx = 0, touch_sy = 0;
-static u32 touch_rx = 0, touch_ry = 0;
-
-static void touch_init(void) {
-    /* GPIO 7-11 → ALT0 (SPI0: CE1, CE0, MISO, MOSI, SCLK) */
-    for (int pin = 7; pin <= 11; pin++) {
-        u32 reg = rd32(GPIO_FSEL(pin));
-        u32 shift = (pin % 10) * 3;
-        reg &= ~(7u << shift);
-        reg |= (4u << shift);          /* ALT0 */
-        wr32(GPIO_FSEL(pin), reg);
-    }
-    /* GPIO25 input + pull-up (PENIRQ is active low) */
-    u32 reg = rd32(GPIO_FSEL(PEN_IRQ));
-    reg &= ~(7u << ((PEN_IRQ % 10) * 3));
-    wr32(GPIO_FSEL(PEN_IRQ), reg);
-    u32 pull = rd32(GPIO + 0xE8);      /* PUP_PDN reg1: pins 16-31 */
-    pull &= ~(3u << ((PEN_IRQ - 16) * 2));
-    pull |= (1u << ((PEN_IRQ - 16) * 2));  /* 01 = pull-up */
-    wr32(GPIO + 0xE8, pull);
-}
-
-static u8 spi_byte(u8 out) {
-    int t = 100000;
-    while (!(rd32(SPI0 + 0x00) & (1 << 18)) && --t) { }  /* TXD */
-    wr32(SPI0 + 0x04, out);
-    t = 100000;
-    while (!(rd32(SPI0 + 0x00) & (1 << 17)) && --t) { }  /* RXD */
-    return rd32(SPI0 + 0x04) & 0xFF;
-}
-
-static u16 xpt_read(u8 cmd) {
-    u32 cs = (3 << 4) | (u32)touch_cs;      /* clear FIFOs + chip select */
-    wr32(SPI0 + 0x00, cs);
-    wr32(SPI0 + 0x08, 2048);                /* slow, safe clock */
-    wr32(SPI0 + 0x00, cs | (1 << 7));       /* TA: transfer active */
-    spi_byte(cmd);
-    u8 h = spi_byte(0), l = spi_byte(0);
-    int t = 100000;
-    while (!(rd32(SPI0 + 0x00) & (1 << 16)) && --t) { }  /* DONE */
-    wr32(SPI0 + 0x00, (u32)touch_cs);       /* TA off */
-    return (u16)((((h << 8) | l) >> 3) & 0xFFF);
-}
-
-static u16 med3(u16 a, u16 b, u16 c) {
-    if (a > b) { u16 t = a; a = b; b = t; }
-    if (b > c) { u16 t = b; b = c; c = t; }
-    if (a > b) { u16 t = a; a = b; b = t; }
-    return b;
-}
-
-static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
-
-static void touch_poll(void) {
-    /* pressure-based detection (Z1) — PENIRQ wiring varies across panels */
-    u16 z1 = xpt_read(0xB0);
-    if (z1 < 80) {                          /* no pressure = not touched */
-        if (touch_down_f) { touch_down_f = 0; uprint("[TOUCH] up\n"); }
-        return;
-    }
-    u32 rx = med3(xpt_read(0xD0), xpt_read(0xD0), xpt_read(0xD0));
-    u32 ry = med3(xpt_read(0x90), xpt_read(0x90), xpt_read(0x90));
-
-    if (rx < 30 || rx > 4070 || ry < 30 || ry > 4070) return;
-    touch_rx = rx; touch_ry = ry;
-    touch_sx = clampi((int)(rx - TC_MIN) * 800 / (TC_MAX - TC_MIN), 0, 799);
-    touch_sy = clampi((int)(ry - TC_MIN) * 480 / (TC_MAX - TC_MIN), 0, 479);
-
-    if (!touch_down_f) {
-        touch_down_f = 1;
-        touch_new = 1;    /* press edge — consumed by api_touch */
-        uprint("[TOUCH] raw="); udec(rx); uputc(','); udec(ry);
-        uprint(" scr="); udec(touch_sx); uputc(','); udec(touch_sy); uputc('\n');
-    }
-}
-
-/* returns 0 = not pressed, 1 = held, 2 = new tap (once per press) */
 static int api_touch(int *x, int *y) {
-    if (x) *x = touch_sx;
-    if (y) *y = touch_sy;
-    if (!touch_down_f) return 0;
-    if (touch_new) { touch_new = 0; return 2; }
-    return 1;
+    if (svc.touch) return svc.touch(x, y);
+    if (x) *x = 0;
+    if (y) *y = 0;
+    return 0;
 }
 
 /* ── Wall Clock (set by hub via TIME command) ── */
@@ -533,11 +444,13 @@ static void api_emit(unsigned int code, unsigned long value) {
     uprint("[EVNT] code="); udec(code); uprint(" val="); udec((u32)value); uputc('\n');
 }
 
-#include "poke_api.h"
+static void api_log(const char *m) { uprint(m); }
+static unsigned int api_screen(void) { return fb_ok ? ((fb_w << 16) | fb_h) : 0; }
 
 static const api_t persona_api = {
     fb_clear, fb_rect, fb_text, now_ms, wall_sec,
     api_gpio_out, gpio_read, get_soc_temp, api_param, api_touch, api_emit,
+    &svc, api_log, api_screen,
 };
 
 /* ── Persona Slot (resident binary, called every tick) ── */
@@ -1117,7 +1030,7 @@ static void handle_exec(const u8 *code, int clen) {
  * not do. The run/load commands carry the total length and a Fletcher-32
  * checksum so a lost chunk is refused instead of executed. Single-frame
  * EXEC / PRUN stay as they are for small binaries. */
-#define STAGE_SZ 8192
+#define STAGE_SZ 32768
 static u8  stage_buf[STAGE_SZ] __attribute__((aligned(64)));
 static u32 stage_hi = 0;            /* highest staged end offset */
 
@@ -1223,10 +1136,11 @@ static void handle_draw(const u8 *p, int rem) {
     poke_resp((const u8 *)r, n);
 }
 
-/* USB HID touch state (defined in the USB module below; INFO reports it) */
-static int usb_touch_ok;
-static u32 usb_touch_vid, usb_touch_pid, usb_touch_reports;
-static int uhex16s(u32 v, char *b);
+/* resident slot state (defined with the resident mechanism below; INFO reports it) */
+static int res_active;
+static char res_name[32];
+static void resident_stop(void);
+static int resident_load(u32 clen);
 
 /* ── POKE Command Router ── */
 static void handle_poke(const u8 *payload, int len) {
@@ -1242,7 +1156,7 @@ static void handle_poke(const u8 *payload, int len) {
         n += scpy(r+n, "{\"status\":\"alive\",\"arch\":\"aarch64\",\"chip\":\"bcm2711\"");
         n += scpy(r+n, ",\"kernel\":\"poke-os\",\"transport\":\"udp\"");
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
-        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
+        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         if (fb_ok) {
             n += scpy(r+n, ",\"display\":\""); n += idec(fb_w, r+n); r[n++] = 'x'; n += idec(fb_h, r+n); r[n++] = '"';
             n += scpy(r+n, ",\"fb_base\":"); n += idec((u32)(u64)fb_base, r+n);
@@ -1250,11 +1164,8 @@ static void handle_poke(const u8 *payload, int len) {
         } else {
             n += scpy(r+n, ",\"display\":null");
         }
-        n += scpy(r+n, ",\"touch\":"); n += scpy(r+n, usb_touch_ok ? "true" : "false");
-        if (usb_touch_ok) {
-            n += scpy(r+n, ",\"touch_dev\":\""); n += uhex16s(usb_touch_vid, r+n); r[n++] = ':'; n += uhex16s(usb_touch_pid, r+n); r[n++] = '"';
-            n += scpy(r+n, ",\"touch_reports\":"); n += idec(usb_touch_reports, r+n);
-        }
+        n += scpy(r+n, ",\"touch\":"); n += scpy(r+n, svc.touch ? "true" : "false");
+        n += scpy(r+n, ",\"resident\":"); if (res_active) { r[n++]='"'; n += scpy(r+n, res_name); r[n++]='"'; } else n += scpy(r+n, "null");
         n += scpy(r+n, ",\"persona\":"); n += scpy(r+n, persona_active ? "true" : "false");
         n += scpy(r+n, ",\"bare_metal\":true");
         n += scpy(r+n, ",\"temp_mc\":"); n += idec(temp, r+n);
@@ -1340,6 +1251,24 @@ static void handle_poke(const u8 *payload, int len) {
                 poke_resp_str(rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
             }
         }
+    }
+    else if (mcmp(payload, "RSLD", 4) == 0) {      /* resident driver from staged chunks */
+        u32 clen = stage_check(payload + 4, len - 4, "RSLD");
+        if (clen) {
+            int rc = resident_load(clen);
+            if (rc == 0) {
+                char r[80]; int n = scpy(r, "{\"resident\":\""); n += scpy(r+n, res_name); n += scpy(r+n, "\",\"size\":");
+                n += idec(clen, r+n); r[n++] = '}';
+                poke_resp((const u8 *)r, n);
+                uprint("[POKE] RSLD "); uprint(res_name); uputc('\n');
+            } else {
+                poke_resp_str(rc == -3 ? "{\"error\":\"init failed\"}" : rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
+            }
+        }
+    }
+    else if (mcmp(payload, "RSTP", 4) == 0) {
+        resident_stop();
+        poke_resp_str("{\"resident\":\"stopped\"}");
     }
     else if (mcmp(payload, "PSTP", 4) == 0) {
         persona_stop();
@@ -1470,379 +1399,45 @@ static u64 demo_persona(const api_t *api, u64 tick) {
 #endif
 
 /* ═══════════════════════════════════════════
- * Bare-metal USB: PCIe root complex + VL805 xHCI
- * Setup sequence proven via EXEC probes (see memory pi4-usb-pcie).
+ * Resident slot — an injected driver that keeps state and gets a tick.
+ * Loaded from the chunk stage (RSLD), stopped with RSTP. Device knowledge
+ * lives in edge/library/<arch>/<device>/, never here.
+ *   u64 resident_main(const api_t *api, u64 op, u64 arg)
  * ═══════════════════════════════════════════ */
-#define PCIE      0xFD500000ULL
-#define XHCI      0x600000000ULL   /* CPU phys → outbound win → PCIe 0xF8000000 → VL805 BAR0 */
-#define USB_DCBAA 0x02200000ULL    /* xHCI DMA structs (identity-mapped inbound) */
-#define USB_CMDR  0x02201000ULL
-#define USB_EVTR  0x02202000ULL
-#define USB_ERST  0x02203000ULL
-#define USB_SPAD_ARR 0x02208000ULL /* scratchpad buffer array */
-#define USB_SPAD_BUF 0x02210000ULL /* scratchpad buffers (31 × 4KB → ...0x0222F000) */
-#define RING_TRBS 16
+#define RES_SZ 32768
+typedef u64 (*res_fn_t)(const api_t *, u64, u64);
+static u8 rsd_buf[RES_SZ] __attribute__((aligned(4096)));
+static res_fn_t res_fn = 0;
+static int res_active = 0;
+static char res_name[32] = "";
 
-static u32  prd(u32 o) { return rd32(PCIE + o); }
-static void pwr(u32 o, u32 v) { wr32(PCIE + o, v); }
-static void pwr8(u32 o, u8 v)  { *(volatile u8 *)(PCIE + o) = v; }
-static void pwr16(u32 o, u16 v){ *(volatile u16 *)(PCIE + o) = v; }
-static void pwrfld(u32 o, u32 m, u32 v) { u32 s=__builtin_ctz(m); u32 t=prd(o); t=(t&~m)|((v<<s)&m); pwr(o,t); (void)prd(o); }
-static u32  vcrd(u32 reg) { pwr(0x9000, 0x100000); return rd32(PCIE + 0x8000 + reg); }
-static void vcwr(u32 reg, u32 v) { pwr(0x9000, 0x100000); wr32(PCIE + 0x8000 + reg, v); }
-
-static int pcie_init(void) {
-    pwrfld(0x9210,0x2,1); pwrfld(0x9210,0x1,1); delay_us(200); pwrfld(0x9210,0x2,0);
-    pwrfld(0x4204,0x08000000,0); delay_us(200);
-    u32 mc=prd(0x4008); mc|=0x1000; mc|=0x2000; mc&=~0x300000; pwr(0x4008,mc);
-    pwr(0x4034,0x11); pwr(0x4038,0); pwrfld(0x4008,0xf8000000,0x11);
-    pwrfld(0x9210,0x1,0); delay_ms(100);
-    int up=0; for(int k=0;k<30&&!up;k++){u32 st=prd(0x4068); up=((st&0x20)&&(st&0x10)); if(!up)delay_ms(5);}
-    if(!up) return -1;
-    pwrfld(0x043c,0xffffff,0x060400);
-    pwr8(0x19,1); pwr8(0x1a,1); pwr16(0xac+0x1c,0x0010); (void)prd(0x18);
-    pwr(0x400c,0xF8000000); pwr(0x4010,0);
-    pwr(0x4070,0x00300000); pwr(0x4080,0x6); pwr(0x4084,0x6);
-    pwr16(0x20,0xF800); pwr16(0x22,0xF800); pwr16(0x04,0x0006);
-    vcwr(0x10,0xF8000004); vcwr(0x14,0); vcwr(0x04,0x0006);
-    mbox_buf[0]=7*4; mbox_buf[1]=0; mbox_buf[2]=0x00030058; mbox_buf[3]=4; mbox_buf[4]=0; mbox_buf[5]=0x00100000; mbox_buf[6]=0;
-    mbox_call(); delay_ms(300);
-    return (vcrd(0)==0x34831106) ? 0 : -2;
+static void resident_stop(void) {
+    if (res_active && res_fn) res_fn(&persona_api, RES_STOP, 0);
+    res_active = 0; res_fn = 0; res_name[0] = 0;
+    mset(&svc, 0, sizeof svc);          /* whatever it registered is gone with it */
 }
 
-static u32  xrd(u64 a) { return *(volatile u32 *)a; }
-static void xwr(u64 a, u32 v) { *(volatile u32 *)a = v; }
-static void xwr64(u64 a, u64 v) { *(volatile u32 *)a=(u32)v; *(volatile u32 *)(a+4)=(u32)(v>>32); }
-static void xzero(u64 a, int n) { for(int i=0;i<n/4;i++) *(volatile u32 *)(a+i*4)=0; }
-
-static u64 xhci_op, xhci_rt, xhci_db;
-static int xhci_slots, xhci_ports, xhci_spad;
-
-static int xhci_init(void) {
-    int caplen = xrd(XHCI+0) & 0xFF;
-    xhci_op = XHCI + caplen;
-    u32 hcs1 = xrd(XHCI+4);
-    xhci_slots = hcs1 & 0xFF;
-    xhci_ports = (hcs1 >> 24) & 0xFF;
-    xhci_db = XHCI + (xrd(XHCI+0x14) & ~3u);
-    xhci_rt = XHCI + (xrd(XHCI+0x18) & ~0x1fu);
-    int t;
-    t=1000; while((xrd(xhci_op+0x04)&(1<<11))&&t--)delay_ms(1);      /* CNR */
-    xwr(xhci_op+0x00, xrd(xhci_op+0x00)|(1<<1));                     /* HCRST */
-    t=1000; while((xrd(xhci_op+0x00)&(1<<1))&&t--)delay_ms(1);
-    t=1000; while((xrd(xhci_op+0x04)&(1<<11))&&t--)delay_ms(1);
-    xwr(xhci_op+0x38, xhci_slots);                                  /* CONFIG MaxSlotsEn */
-    xzero(USB_DCBAA,(xhci_slots+1)*8);
-    /* Scratchpad buffers (HCSPARAMS2 Max Scratchpad Bufs) — controller
-     * needs these before start or Address Device hangs the bus. */
-    u32 hcs2 = xrd(XHCI+8);
-    int nspb = (((hcs2>>21)&0x1f)<<5) | ((hcs2>>27)&0x1f);
-    xhci_spad = nspb;
-    if (nspb) {
-        for (int i=0;i<nspb;i++) {
-            u64 buf = USB_SPAD_BUF + (u64)i*0x1000;
-            xzero(buf, 0x1000);
-            xwr64(USB_SPAD_ARR + i*8, buf);
-        }
-        xwr64(USB_DCBAA + 0, USB_SPAD_ARR);   /* DCBAA[0] = scratchpad array */
+/* Load resident from stage_buf[0..clen). Returns 0 ok, -1 size, -2 no RET, -3 init failed. */
+static int resident_load(u32 clen) {
+    if (clen == 0 || clen > RES_SZ) return -1;
+    resident_stop();
+    mset(rsd_buf, 0, RES_SZ);
+    mcpy(rsd_buf, stage_buf, clen);
+    int has_ret = 0;
+    for (u32 i = 0; i + 4 <= clen; i += 4)
+        if ((rsd_buf[i] | (rsd_buf[i+1]<<8) | (rsd_buf[i+2]<<16) | ((u32)rsd_buf[i+3]<<24)) == 0xD65F03C0) { has_ret = 1; break; }
+    if (!has_ret) return -2;
+    for (u64 a = (u64)rsd_buf; a < (u64)rsd_buf + RES_SZ; a += 64) {
+        __asm__ volatile("dc civac, %0" :: "r"(a));
+        __asm__ volatile("ic ivau, %0" :: "r"(a));
     }
-    xwr64(xhci_op+0x30, USB_DCBAA);                                 /* DCBAAP */
-    xzero(USB_CMDR, RING_TRBS*16);                                  /* command ring + link TRB */
-    xwr(USB_CMDR+(RING_TRBS-1)*16+0,(u32)USB_CMDR);
-    xwr(USB_CMDR+(RING_TRBS-1)*16+12,(6<<10)|(1<<1)|1);             /* Link TRB, TC=1, C=1 */
-    xwr64(xhci_op+0x18, USB_CMDR|1);                               /* CRCR, RCS=1 */
-    xzero(USB_EVTR, RING_TRBS*16);                                  /* event ring + ERST */
-    xzero(USB_ERST, 16);
-    xwr(USB_ERST+0,(u32)USB_EVTR); xwr(USB_ERST+8, RING_TRBS);
-    xwr(xhci_rt+0x20+0x08, 1);                                      /* ERSTSZ */
-    xwr64(xhci_rt+0x20+0x10, USB_ERST);                            /* ERSTBA */
-    xwr64(xhci_rt+0x20+0x18, USB_EVTR);                            /* ERDP */
-    xwr(xhci_op+0x00, xrd(xhci_op+0x00)|1);                        /* R/S start */
-    t=1000; while((xrd(xhci_op+0x04)&1)&&t--)delay_ms(1);          /* wait HCH clear */
-    return (xrd(xhci_op+0x04)&1) ? -1 : 0;
-}
-
-static void usb_init(void) {
-    uprint("[USB] PCIe bring-up...\n");
-    if (pcie_init()) { uprint("[USB] PCIe FAILED\n"); if(fb_ok) fb_text(40,520,3,0x00FF4040,"USB: PCIe failed"); return; }
-    uprint("[USB] VL805 enumerated (xHCI). init...\n");
-    if (xhci_init()) { uprint("[USB] xHCI start FAILED\n"); if(fb_ok) fb_text(40,520,3,0x00FF4040,"USB: xHCI start failed"); return; }
-    char b[96]; int n=scpy(b,"USB xHCI running  slots="); n+=idec(xhci_slots,b+n); n+=scpy(b+n," ports="); n+=idec(xhci_ports,b+n); n+=scpy(b+n," spad="); n+=idec(xhci_spad,b+n); b[n]=0;
-    uprint("[USB] "); uprint(b); uputc('\n');
-    if(fb_ok) fb_text(40,520,2,0x0000FF66,b);
-    int y=548;
-    for (int p=1; p<=xhci_ports; p++) {
-        u32 sc = xrd(xhci_op + 0x400 + (p-1)*0x10);
-        char c[48]; int m=scpy(c,"port "); m+=idec(p,c+m); m+=scpy(c+m,(sc&1)?" CONNECTED":" -"); c[m]=0;
-        uprint("[USB] "); uprint(c); uprint(" sc="); uhex32(sc); uputc('\n');
-        if((sc&1)&&fb_ok){ fb_text(40,y,2,0x00FFFF00,c); y+=28; }
-    }
-}
-
-/* ═══════════════════════════════════════════
- * USB enumeration: root port → (hub → downstream port) → HID touch.
- * Sequence proven step by step with EXEC probes; every wait is bounded so a
- * missing/odd device can never hang boot — we just come up without touch.
- * Lessons baked in (see memory pi4-usb-pcie):
- *  - event ring wraps at RING_TRBS with cycle toggle, ERDP advanced on read
- *  - hub slot must carry Hub bit / NbrPorts / TTT (Configure Endpoint)
- *  - single-TT hub: child TT Port Number = 0 (else Parameter Error)
- *  - child EP0 MPS learned from the first 8 descriptor bytes (Evaluate Ctx)
- *  - ~50ms settle after Address Device on FS devices
- *  - never SET_IDLE (some HIDs STALL → EP0 halts, TT wedges)
- * ═══════════════════════════════════════════ */
-#define USB_INCTX   0x02204000ULL   /* hub: input ctx / device ctx / EP0 ring (4KB) / data */
-#define USB_DEVCTX  0x02205000ULL
-#define USB_EP0R    0x02206000ULL
-#define USB_DBUF    0x02207000ULL
-#define USB_INCTX2  0x02209000ULL   /* touch device: same set */
-#define USB_DEVCTX2 0x0220a000ULL
-#define USB_EP0R2   0x0220b000ULL
-#define USB_DBUF2   0x0220c000ULL
-#define USB_EPIR    0x0220d000ULL   /* interrupt IN ring: 15 TRBs + Link */
-#define USB_RBUF    0x0220e000ULL   /* 15 × 64B report buffers */
-#define USB_IR_TRBS 15
-#define USB_ERDP    (xhci_rt + 0x20 + 0x18)
-
-static int usb_ci = 0, usb_cc = 1;      /* command ring enqueue index / cycle */
-static int usb_ei = 0, usb_ec = 1;      /* event ring dequeue index / cycle */
-static int usb_ir_pi = 0, usb_ir_pc = 1;/* interrupt ring producer */
-static int usb_touch_ok = 0, usb_touch_slot = 0, usb_touch_dci = 0;
-static u32 usb_touch_vid = 0, usb_touch_pid = 0;
-static u32 usb_touch_reports = 0, usb_touch_errs = 0;
-
-static u32 xrb(u64 a) { return *(volatile u8 *)a; }
-static int uhex16s(u32 v, char *b) { const char h[] = "0123456789abcdef"; for (int i = 0; i < 4; i++) b[i] = h[(v >> (12 - i*4)) & 0xF]; return 4; }
-
-/* Wait for an event of type `want`; other events are consumed and dropped. */
-static int usb_event(int want, u32 *l0, u32 *l2, u32 *l3, int tmo_ms) {
-    for (int s = 0; s < tmo_ms; s++) {
-        u32 c = xrd(USB_EVTR + usb_ei*16 + 12);
-        if ((c & 1) == (u32)usb_ec) {
-            if (l0) *l0 = xrd(USB_EVTR + usb_ei*16);
-            if (l2) *l2 = xrd(USB_EVTR + usb_ei*16 + 8);
-            if (l3) *l3 = c;
-            usb_ei++; if (usb_ei == RING_TRBS) { usb_ei = 0; usb_ec ^= 1; }
-            xwr64(USB_ERDP, (USB_EVTR + usb_ei*16) | 8);
-            if (((c >> 10) & 0x3f) == want) return 1;
-            continue;
-        }
-        delay_ms(1);
-    }
+    __asm__ volatile("dsb sy"); __asm__ volatile("isb");
+    res_fn = (res_fn_t)rsd_buf;
+    const char *nm = (const char *)res_fn(&persona_api, RES_NAME, 0);
+    int n = 0; if (nm) while (nm[n] && n < 31) { res_name[n] = nm[n]; n++; } res_name[n] = 0;
+    if (res_fn(&persona_api, RES_INIT, 0) != 0) { mset(&svc, 0, sizeof svc); res_fn = 0; res_name[0] = 0; return -3; }
+    res_active = 1;
     return 0;
-}
-
-/* Queue one command TRB, ring doorbell 0, return completion code (-1 timeout). */
-static int usb_cmd(u64 ptr, u32 d3, u32 *ev3) {
-    u64 t = USB_CMDR + usb_ci*16;
-    xwr(t+0, (u32)ptr); xwr(t+4, (u32)(ptr >> 32)); xwr(t+8, 0); xwr(t+12, (d3 & ~1u) | (u32)usb_cc);
-    usb_ci++;
-    if (usb_ci == RING_TRBS-1) {            /* Link TRB at the end: give it our cycle, wrap */
-        xwr(USB_CMDR + (RING_TRBS-1)*16 + 12, (6<<10) | (1<<1) | (u32)usb_cc);
-        usb_ci = 0; usb_cc ^= 1;
-    }
-    dsb(); xwr(xhci_db, 0);
-    u32 l2 = 0, l3 = 0;
-    if (!usb_event(33, 0, &l2, &l3, 1000)) return -1;
-    if (ev3) *ev3 = l3;
-    return (l2 >> 24) & 0xff;
-}
-
-/* Control transfer on a slot's EP0 ring (no Link TRB: 4KB ring, boot-only use). */
-static int usb_ctrl(int slot, u64 ring, int *e, u32 sd0, u32 sd1, u64 buf, int dlen, int din) {
-    if (*e > 240) return -2;
-    u64 b = ring + (*e)*16; int trt = dlen ? (din ? 3 : 2) : 0;
-    xwr(b+0, sd0); xwr(b+4, sd1); xwr(b+8, 8); xwr(b+12, (trt<<16)|(2<<10)|(1<<6)|1); (*e)++;
-    if (dlen > 0) { b = ring + (*e)*16; xwr(b+0, (u32)buf); xwr(b+4, 0); xwr(b+8, dlen); xwr(b+12, (3<<10)|((din?1:0)<<16)|1); (*e)++; }
-    int sdir = dlen ? (din ? 0 : 1) : 1;
-    b = ring + (*e)*16; xwr(b+0, 0); xwr(b+4, 0); xwr(b+8, 0); xwr(b+12, (4<<10)|(sdir<<16)|(1<<5)|1); (*e)++;
-    dsb(); xwr(xhci_db + slot*4, 1);
-    u32 l2 = 0;
-    if (!usb_event(32, 0, &l2, 0, 1000)) return -1;
-    return (l2 >> 24) & 0xff;
-}
-
-static int usb_enable_slot(void) {
-    u32 ev3 = 0;
-    if (usb_cmd(0, (9<<10), &ev3) != 1) return 0;
-    return (ev3 >> 24) & 0xff;
-}
-
-/* Address Device with the given slot context dwords + EP0 max packet size. */
-static int usb_address(int slot, u64 inctx, u64 devctx, u64 ep0r, u32 s0, u32 s1, u32 s2, u32 mps) {
-    xzero(inctx, 2048); xzero(devctx, 2048); xzero(ep0r, 4096);
-    xwr(inctx+0x04, 0x3);
-    xwr(inctx+0x20, s0); xwr(inctx+0x24, s1); xwr(inctx+0x28, s2);
-    xwr(inctx+0x44, (mps<<16)|(4<<3)|(3<<1)); xwr64(inctx+0x48, ep0r|1); xwr(inctx+0x50, 8);
-    xwr64(USB_DCBAA + slot*8, devctx); dsb();
-    return usb_cmd(inctx, (slot<<24)|(11<<10), 0);
-}
-
-static void usb_ir_enqueue(void) {
-    u64 t = USB_EPIR + usb_ir_pi*16;
-    xwr(t+0, (u32)(USB_RBUF + usb_ir_pi*64)); xwr(t+4, 0); xwr(t+8, 64);
-    xwr(t+12, (1u<<10)|(1u<<5)|(1u<<2)|(u32)usb_ir_pc);
-    usb_ir_pi++;
-    if (usb_ir_pi == USB_IR_TRBS) {
-        u64 L = USB_EPIR + USB_IR_TRBS*16;
-        xwr(L+0, (u32)USB_EPIR); xwr(L+4, 0); xwr(L+8, 0); xwr(L+12, (6u<<10)|(1u<<1)|(u32)usb_ir_pc);
-        usb_ir_pi = 0; usb_ir_pc ^= 1;
-    }
-}
-
-static void usb_status(const char *s, u32 color) {
-    uprint("[USB] "); uprint(s); uputc('\n');
-    if (fb_ok) fb_text(40, 576, 2, color, s);
-}
-
-static void usb_enumerate(void) {
-    if (!xhci_op) return;
-    /* 1. first connected root port */
-    int rp = 0;
-    for (int p = 1; p <= xhci_ports; p++) if (xrd(xhci_op + 0x400 + (p-1)*0x10) & 1) { rp = p; break; }
-    if (!rp) { usb_status("USB: nothing on root ports", 0x00FFFF00); return; }
-    u64 psc = xhci_op + 0x400 + (rp-1)*0x10;
-    xwr(psc, (xrd(psc) & ~0x00fe0000u) | 0x10); delay_ms(120);          /* port reset */
-    u32 sc = xrd(psc); int rspd = (sc >> 10) & 0xf;
-    if (!(sc & 2)) { usb_status("USB: root port reset failed", 0x00FF4040); return; }
-
-    /* 2. address whatever sits on the root port */
-    int s1 = usb_enable_slot(); if (!s1) { usb_status("USB: enable slot failed", 0x00FF4040); return; }
-    if (usb_address(s1, USB_INCTX, USB_DEVCTX, USB_EP0R, (1u<<27)|((u32)rspd<<20), (u32)rp<<16, 0, rspd==3?64:8) != 1) {
-        usb_status("USB: address (root) failed", 0x00FF4040); return; }
-    int e1 = 0; delay_ms(50);
-    xzero(USB_DBUF, 64);                                                /* 8 bytes: class/proto, safe for any MPS0 */
-    if (usb_ctrl(s1, USB_EP0R, &e1, 0x80|(0x06<<8)|(0x0100<<16), 8<<16, USB_DBUF, 8, 1) != 1) {
-        usb_status("USB: root descriptor failed", 0x00FF4040); return; }
-    int cls = xrb(USB_DBUF+4), proto = xrb(USB_DBUF+6);
-
-    int dev = s1, dport = 0, dspd = rspd; u64 inctx = USB_INCTX, devctx = USB_DEVCTX, ep0r = USB_EP0R, dbuf = USB_DBUF;
-    int *ep = &e1; int e2 = 0;
-    if (cls == 9) {
-        /* 3. hub: configure, mark as hub, power ports, find the device */
-        int hub = s1, mtt = (proto == 2);
-        if (usb_ctrl(hub, USB_EP0R, &e1, 0x00|(0x09<<8)|(1<<16), 0, 0, 0, 0) != 1) { usb_status("USB: hub set_config failed", 0x00FF4040); return; }
-        xzero(USB_DBUF, 32);
-        if (usb_ctrl(hub, USB_EP0R, &e1, 0xA0|(0x06<<8)|(0x2900<<16), 16<<16, USB_DBUF, 16, 1) != 1) { usb_status("USB: hub descriptor failed", 0x00FF4040); return; }
-        int nports = xrb(USB_DBUF+2); u32 ttt = (xrb(USB_DBUF+3) >> 5) & 3;
-        xzero(USB_INCTX, 2048); xwr(USB_INCTX+0x04, 0x1);
-        xwr(USB_INCTX+0x20, (1u<<27)|((u32)rspd<<20)|(1u<<26)|(mtt?(1u<<25):0));
-        xwr(USB_INCTX+0x24, ((u32)rp<<16)|((u32)nports<<24)); xwr(USB_INCTX+0x28, ttt<<16); dsb();
-        if (usb_cmd(USB_INCTX, (hub<<24)|(12<<10), 0) != 1) { usb_status("USB: hub configure failed", 0x00FF4040); return; }
-        for (int p = 1; p <= nports; p++) usb_ctrl(hub, USB_EP0R, &e1, 0x23|(0x03<<8)|(8<<16), p, 0, 0, 0);
-        delay_ms(150);
-        for (int p = 1; p <= nports && !dport; p++) {
-            xzero(USB_DBUF, 8);
-            if (usb_ctrl(hub, USB_EP0R, &e1, 0xA3, p|(4<<16), USB_DBUF, 4, 1) == 1 && (xrd(USB_DBUF) & 1)) dport = p;
-        }
-        if (!dport) { usb_status("USB: hub up, no device on its ports", 0x00FFFF00); return; }
-        usb_ctrl(hub, USB_EP0R, &e1, 0x23|(0x03<<8)|(4<<16), dport, 0, 0, 0); delay_ms(60);   /* PORT_RESET */
-        xzero(USB_DBUF, 8); usb_ctrl(hub, USB_EP0R, &e1, 0xA3, dport|(4<<16), USB_DBUF, 4, 1);
-        u32 ps = xrd(USB_DBUF);
-        dspd = (ps & (1<<9)) ? 2 : (ps & (1<<10)) ? 3 : 1;
-        usb_ctrl(hub, USB_EP0R, &e1, 0x23|(0x01<<8)|(16<<16), dport, 0, 0, 0);
-        usb_ctrl(hub, USB_EP0R, &e1, 0x23|(0x01<<8)|(20<<16), dport, 0, 0, 0);
-        dev = usb_enable_slot(); if (!dev) { usb_status("USB: enable slot (dev) failed", 0x00FF4040); return; }
-        inctx = USB_INCTX2; devctx = USB_DEVCTX2; ep0r = USB_EP0R2; dbuf = USB_DBUF2; ep = &e2;
-        u32 tt = (dspd == 3) ? 0 : ((u32)hub | (mtt ? ((u32)dport<<8) : 0));   /* single-TT: port 0 */
-        if (usb_address(dev, inctx, devctx, ep0r, (1u<<27)|((u32)dspd<<20)|(u32)dport, (u32)rp<<16, tt, dspd==3?64:8) != 1) {
-            usb_status("USB: address (dev) failed", 0x00FF4040); return; }
-        delay_ms(50);
-    }
-
-    /* 4. device descriptor: learn EP0 MPS, then the full 18 bytes */
-    xzero(dbuf, 64);
-    if (usb_ctrl(dev, ep0r, ep, 0x80|(0x06<<8)|(0x0100<<16), 8<<16, dbuf, 8, 1) != 1) { usb_status("USB: dev descriptor(8) failed", 0x00FF4040); return; }
-    u32 mps0 = xrb(dbuf+7);
-    if (mps0 != (u32)(dspd==3?64:8) && mps0 >= 8) {                     /* Evaluate Context: EP0 MPS */
-        xzero(inctx, 2048); xwr(inctx+0x04, 0x2);
-        xwr(inctx+0x44, (mps0<<16)|(4<<3)|(3<<1)); dsb();
-        if (usb_cmd(inctx, (dev<<24)|(13<<10), 0) != 1) { usb_status("USB: evaluate ctx failed", 0x00FF4040); return; }
-    }
-    if (usb_ctrl(dev, ep0r, ep, 0x80|(0x06<<8)|(0x0100<<16), 18<<16, dbuf, 18, 1) != 1) { usb_status("USB: dev descriptor failed", 0x00FF4040); return; }
-    usb_touch_vid = xrd(dbuf+8) & 0xffff; usb_touch_pid = (xrd(dbuf+8) >> 16) & 0xffff;
-
-    /* 5. config descriptor → HID interface + interrupt IN endpoint */
-    xzero(dbuf, 16);
-    if (usb_ctrl(dev, ep0r, ep, 0x80|(0x06<<8)|(0x0200<<16), 9<<16, dbuf, 9, 1) != 1) { usb_status("USB: config(9) failed", 0x00FF4040); return; }
-    u32 wtot = xrb(dbuf+2) | (xrb(dbuf+3) << 8); if (wtot < 9 || wtot > 1024) wtot = 9;
-    xzero(dbuf, wtot + 16);
-    if (usb_ctrl(dev, ep0r, ep, 0x80|(0x06<<8)|(0x0200<<16), wtot<<16, dbuf, (int)wtot, 1) != 1) { usb_status("USB: config descriptor failed", 0x00FF4040); return; }
-    u32 cfgv = xrb(dbuf+5); int ifcls = -1, epa = -1, epmps = 64, epiv = 3;
-    for (u32 o = 0; o + 2 <= wtot; ) {
-        u32 l = xrb(dbuf+o), ty = xrb(dbuf+o+1); if (!l) break;
-        if (ty == 4 && ifcls < 0) ifcls = xrb(dbuf+o+5);
-        else if (ty == 5 && epa < 0) { u32 a = xrb(dbuf+o+2), at = xrb(dbuf+o+3);
-            if ((a & 0x80) && (at & 3) == 3) { epa = a; epmps = xrb(dbuf+o+4) | (xrb(dbuf+o+5)<<8); epiv = xrb(dbuf+o+6); } }
-        o += l;
-    }
-    if (ifcls != 3 || epa < 0) { usb_status("USB: device is not a HID with interrupt IN", 0x00FFFF00); return; }
-
-    /* 6. Configure Endpoint (interrupt IN), SET_CONFIGURATION, prime the ring */
-    int dci = ((epa & 0xf) * 2) + 1;
-    u32 interval;                                                   /* xHCI: 2^interval × 125µs */
-    if (dspd == 3) { interval = epiv ? epiv - 1 : 0; }                /* HS: bInterval is 2^(n-1) µframes */
-    else { u32 f = 0; while ((2u << f) <= (epiv ? epiv : 1)) f++; interval = f + 3; }   /* FS/LS: ms → µframes */
-    if (interval > 15) interval = 15;
-    xzero(inctx, 2048); xzero(USB_EPIR, 4096);
-    xwr(inctx+0x04, 1u | (1u << dci));
-    xwr(inctx+0x20, ((u32)dci<<27) | ((u32)dspd<<20) | (u32)dport);
-    xwr(inctx+0x24, (u32)rp<<16);
-    xwr(inctx+0x28, (dspd == 3) ? 0 : (xrd(devctx+8) & 0xffff));     /* keep TT fields from the addressed slot */
-    u64 ec = inctx + 0x20 + (u64)dci*0x20;
-    xwr(ec+0x00, interval<<16);
-    xwr(ec+0x04, ((u32)epmps<<16)|(7u<<3)|(3u<<1));
-    xwr64(ec+0x08, USB_EPIR|1);
-    xwr(ec+0x10, ((u32)epmps<<16)|(u32)epmps);
-    dsb();
-    if (usb_cmd(inctx, (dev<<24)|(12<<10), 0) != 1) { usb_status("USB: configure endpoint failed", 0x00FF4040); return; }
-    if (usb_ctrl(dev, ep0r, ep, 0x00|(0x09<<8)|(cfgv<<16), 0, 0, 0, 0) != 1) { usb_status("USB: set_configuration failed", 0x00FF4040); return; }
-    delay_ms(50);
-    xzero(USB_RBUF, USB_IR_TRBS*64);
-    usb_ir_pi = 0; usb_ir_pc = 1;
-    for (int i = 0; i < 8; i++) usb_ir_enqueue();
-    dsb(); xwr(xhci_db + dev*4, (u32)dci);
-    usb_touch_slot = dev; usb_touch_dci = dci; usb_touch_ok = 1;
-
-    char b[96]; int n = scpy(b, "USB touch: "); n += scpy(b+n, dspd==3?"HS":dspd==2?"LS":"FS");
-    n += scpy(b+n, " HID "); n += uhex16s(usb_touch_vid, b+n); b[n++] = ':'; n += uhex16s(usb_touch_pid, b+n);
-    if (dport) { n += scpy(b+n, " via hub port "); n += idec(dport, b+n); }
-    b[n] = 0;
-    usb_status(b, 0x0000FF66);
-}
-
-/* Main-loop poll: drain the event ring, turn touch reports into touch_* state.
- * Report layout (eGalax 0eef:0005, measured): [0]=id [1]=tip [4..5]=X [6..7]=Y,
- * both already in panel pixels (0..1023 / 0..599). */
-static void usb_touch_poll(void) {
-    if (!usb_touch_ok) return;
-    for (int k = 0; k < 16; k++) {
-        u32 c = xrd(USB_EVTR + usb_ei*16 + 12);
-        if ((c & 1) != (u32)usb_ec) break;
-        u32 t0 = xrd(USB_EVTR + usb_ei*16), t2 = xrd(USB_EVTR + usb_ei*16 + 8);
-        usb_ei++; if (usb_ei == RING_TRBS) { usb_ei = 0; usb_ec ^= 1; }
-        xwr64(USB_ERDP, (USB_EVTR + usb_ei*16) | 8);
-        if (((c >> 10) & 0x3f) != 32 || (int)((c >> 16) & 0x1f) != usb_touch_dci) continue;
-        u32 cc = (t2 >> 24) & 0xff; int i = (int)((t0 - (u32)USB_EPIR) / 16);
-        if ((cc == 1 || cc == 13) && i >= 0 && i < USB_IR_TRBS) {
-            u64 r = USB_RBUF + (u64)i*64;
-            int tip = xrb(r+1) & 1;
-            int x = (int)(xrb(r+4) | (xrb(r+5) << 8)), y = (int)(xrb(r+6) | (xrb(r+7) << 8));
-            usb_touch_reports++;
-            if (tip) {
-                touch_sx = clampi(x, 0, (int)fb_w - 1); touch_sy = clampi(y, 0, (int)fb_h - 1);
-                if (!touch_down_f) { touch_down_f = 1; touch_new = 1;
-                    uprint("[TOUCH] down "); udec(touch_sx); uputc(','); udec(touch_sy); uputc('\n'); }
-            } else if (touch_down_f) { touch_down_f = 0; uprint("[TOUCH] up\n"); }
-            usb_ir_enqueue(); dsb(); xwr(xhci_db + usb_touch_slot*4, (u32)usb_touch_dci);
-        } else {
-            /* endpoint halted (stall / split error): reset it and re-arm the ring */
-            usb_touch_errs++;
-            usb_cmd(0, (usb_touch_slot<<24)|(usb_touch_dci<<16)|(14<<10), 0);                       /* Reset Endpoint */
-            usb_cmd((USB_EPIR + usb_ir_pi*16) | (u32)usb_ir_pc, (usb_touch_slot<<24)|(usb_touch_dci<<16)|(16<<10), 0); /* Set TR Dequeue */
-            usb_ir_enqueue(); dsb(); xwr(xhci_db + usb_touch_slot*4, (u32)usb_touch_dci);
-        }
-    }
 }
 
 void kernel_main(void) {
@@ -1860,10 +1455,6 @@ void kernel_main(void) {
     /* SoC temperature */
     u32 t = get_soc_temp();
     uprint("[TEMP] SoC: "); udec(t / 1000); uputc('.'); udec((t % 1000) / 100); uprint("C\n");
-
-    /* Touch controller */
-    touch_init();
-    uprint("[TOUCH] XPT2046 on SPI0, irq=GPIO25\n");
 
 #ifndef NO_ETH
     /* GENET + PHY */
@@ -1887,9 +1478,6 @@ void kernel_main(void) {
 #endif
 
 #ifndef NO_ETH
-    /* Bare-metal USB: PCIe root complex + VL805 xHCI */
-    usb_init();
-    usb_enumerate();    /* hub → HID touch; bounded, boot continues without touch on failure */
 #endif
 
     uprint("poke-pi4> ");
@@ -1968,16 +1556,14 @@ void kernel_main(void) {
             }
         }
 
-        /* Touch poll (every 20ms) */
-        static u64 last_touch = 0;
-        if (usb_touch_ok) {
-            usb_touch_poll();               /* USB HID touch: cheap event-ring drain */
-        } else if (TOUCH_ENABLED && now_ms() - last_touch >= 20) {
-            last_touch = now_ms();
-            touch_poll();                   /* legacy XPT2046 over SPI */
+        /* Resident driver tick (event-ring drains, sensor polls, ...) */
+        if (res_active && res_fn) res_fn(&persona_api, RES_TICK, 0);
+
+        /* Touch feedback when no persona owns the screen */
+        if (svc.touch && !persona_active && fb_ok) {
+            int tx, ty;
+            if (svc.touch(&tx, &ty)) fb_rect(tx - 3, ty - 3, 6, 6, 0x0000FF66);
         }
-        if (touch_down_f && !persona_active && fb_ok)
-            fb_rect(touch_sx - 3, touch_sy - 3, 6, 6, 0x0000FF66);
 
         /* Resident persona tick */
         persona_run();
