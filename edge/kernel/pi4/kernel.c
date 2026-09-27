@@ -47,6 +47,7 @@ static void uart_init(void) {
 
 static int fb_ok = 0;
 static int persona_active = 0;
+static int mmu_on;
 static void fb_putc(char c);
 static void uputc(char c) {
     int t = 100000;
@@ -466,7 +467,11 @@ static u64 persona_last_ms = 0;
 typedef u64 (*persona_fn_t)(const api_t *api, u64 tick);
 static persona_fn_t persona_fn = 0;
 
+static int unit_persona_start(const u8 *code, int clen);   /* EL0 path (defined with the unit code) */
+static void unit_persona_stop(void);
+static void unit_persona_run(void);
 static void persona_stop(void) {
+    unit_persona_stop();
     persona_active = 0;
     persona_fn = 0;
     mset(persona_buf, 0, PERSONA_SZ);  /* volatile: discard on stop */
@@ -474,6 +479,7 @@ static void persona_stop(void) {
 
 static int persona_load(const u8 *code, int clen) {
     if (clen <= 0 || clen > PERSONA_SZ) return -1;
+    if (mmu_on) return unit_persona_start(code, clen);      /* personas are EL0 processes now */
 
     int has_ret = 0;
     for (int i = 0; i <= clen - 4; i += 4) {
@@ -498,6 +504,7 @@ static int persona_load(const u8 *code, int clen) {
 }
 
 static void persona_run(void) {
+    if (persona_active && !persona_fn) { unit_persona_run(); return; }   /* EL0 persona */
     if (!persona_active || !persona_fn) return;
     u64 t = now_ms();
     if (t - persona_last_ms < PERSONA_TICK_MS) return;
@@ -1168,8 +1175,7 @@ static void handle_draw(const u8 *p, int rem) {
     poke_resp((const u8 *)r, n);
 }
 
-static int mmu_on;   /* set by mmu_init (defined near kernel_main) */
-static u64 mmu_ram_total, pool_pages;
+static u64 mmu_ram_total, pool_pages, unit_resumes;
 static u64 pages_used(void);
 static void handle_urun(const u8 *p, int len);
 /* resident slot state (defined with the resident mechanism below; INFO reports it) */
@@ -1196,6 +1202,7 @@ static void handle_poke(const u8 *payload, int len) {
         n += scpy(r+n, ",\"ram_mb\":"); n += idec((u32)(mmu_ram_total >> 20), r+n);
         n += scpy(r+n, ",\"pool_pages\":"); n += idec((u32)pool_pages, r+n);
         n += scpy(r+n, ",\"pool_used\":"); n += idec((u32)pages_used(), r+n);
+        n += scpy(r+n, ",\"unit_resumes\":"); n += idec((u32)unit_resumes, r+n);
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
         n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"KRLD\",\"URUN\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         if (fb_ok) {
@@ -1611,6 +1618,11 @@ static void mmu_init(void) {
 #define SYS_LOG   0
 #define SYS_EXIT  1
 #define SYS_YIELD 2
+#define SYS_SLEEP 3
+#define SYS_API   10          /* 10..23 = api_t function slots in order (svc slot skipped) */
+#define UNIT_SLEEPING 0x51ee
+#define UNIT_DEAD     0xdead
+#define FRAME_WORDS   36      /* 288-byte EL0 exception frame */
 
 /* ── physical page allocator ── */
 static u64 pool_base = 0, pool_pages = 0;
@@ -1647,8 +1659,12 @@ typedef struct {
     u64 pages[UNIT_MAX_PAGES]; int npages;
     u64 entry, sp;
     int active; u64 exit_code;
+    int sleeping; u64 wake_at; u64 ctx[FRAME_WORDS];   /* parked in a sleep syscall */
+    int is_persona;
     char log[512]; int loglen;
 } unit_t;
+extern u64 proc_resume(u64 *ctx, u64 ttbr0);
+extern char ucrt_start[], ucrt_stubs[], ucrt_end[];
 static unit_t unit;                      /* phase 2: a single unit */
 extern u64 proc_enter(u64 entry, u64 sp_el0, u64 ttbr0);
 extern void proc_exit(u64 code) __attribute__((noreturn));
@@ -1665,32 +1681,58 @@ static void unit_destroy(void) {
 }
 
 /* Build the address space and load the image. 0 ok, <0 error. */
-static int unit_create(const u8 *img, u32 len) {
+static int unit_create(const u8 *img, u32 len, int persona) {
     mset(&unit, 0, sizeof unit);
     u32 npg = (len + PAGE - 1) / PAGE;
-    if (npg + 1 > UNIT_MAX_PAGES) return -1;
+    u32 first = persona ? 1 : 0;                              /* persona: page 0 = crt, image from page 1 */
+    if (first + npg + 4 > UNIT_MAX_PAGES) return -1;
     unit.l0 = page_alloc(); unit.l1 = page_alloc(); unit.l2 = page_alloc(); unit.l3 = page_alloc();
     if (!unit.l0 || !unit.l1 || !unit.l2 || !unit.l3) { unit_destroy(); return -2; }
     volatile u64 *l0 = (volatile u64 *)unit.l0, *l1 = (volatile u64 *)unit.l1, *l2 = (volatile u64 *)unit.l2, *l3 = (volatile u64 *)unit.l3;
     l0[0] = ((volatile u64 *)MMU_L0)[0];                    /* kernel identity, EL1-only */
     l0[(UNIT_BASE >> 39) & 0x1ff] = PT_TABLE(unit.l1);
     l1[(UNIT_BASE >> 30) & 0x1ff] = PT_TABLE(unit.l2);
-    l2[(UNIT_BASE >> 21) & 0x1ff] = PT_TABLE(unit.l3);       /* image pages: l3[0..] */
+    l2[(UNIT_BASE >> 21) & 0x1ff] = PT_TABLE(unit.l3);       /* image pages: l3[first..] */
+    if (persona) {                                            /* crt page: loop + api stubs + table */
+        u64 pa = page_alloc(); if (!pa) { unit_destroy(); return -3; }
+        unit.pages[unit.npages++] = pa;
+        mcpy((void *)pa, ucrt_start, (u32)(ucrt_end - ucrt_start));
+        volatile u64 *d = (volatile u64 *)(pa + 0x800);
+        d[0] = UNIT_BASE + PAGE;                              /* persona_main */
+        d[1] = UNIT_BASE + 0x820;                             /* api table VA */
+        d[2] = PERSONA_TICK_MS;
+        u64 stub0 = UNIT_BASE + (u64)(ucrt_stubs - ucrt_start);
+        volatile u64 *api = (volatile u64 *)(pa + 0x820);
+        int k = 0;
+        for (int i = 0; i < 15; i++) api[i] = (i == 11) ? 0 : stub0 + (u64)(k++) * 16;   /* slot 11 = svc (data), personas never use it */
+        for (u64 a = pa; a < pa + PAGE; a += 64) { __asm__ volatile("dc cvau, %0" :: "r"(a)); }
+        l3[0] = PT_PAGE_USER(pa);
+    }
     for (u32 i = 0; i < npg; i++) {
         u64 pa = page_alloc(); if (!pa) { unit_destroy(); return -3; }
         unit.pages[unit.npages++] = pa;
         u32 n = len - i * PAGE; if (n > PAGE) n = PAGE;
         mcpy((void *)pa, img + i * PAGE, n);
         for (u64 a = pa; a < pa + PAGE; a += 64) { __asm__ volatile("dc cvau, %0" :: "r"(a)); }
-        l3[i] = PT_PAGE_USER(pa);
+        l3[first + i] = PT_PAGE_USER(pa);
     }
-    u64 sp = page_alloc(); if (!sp) { unit_destroy(); return -3; }
-    unit.pages[unit.npages++] = sp;
-    l3[(UNIT_STACK >> 12) & 0x1ff] = PT_PAGE_USER(sp);        /* one stack page at +1MB */
+    for (int i = 0; i < 4; i++) {                             /* 16KB stack ending at UNIT_STACK+PAGE */
+        u64 sp = page_alloc(); if (!sp) { unit_destroy(); return -3; }
+        unit.pages[unit.npages++] = sp;
+        l3[((UNIT_STACK >> 12) & 0x1ff) - 3 + i] = PT_PAGE_USER(sp);
+    }
     __asm__ volatile("dsb ish; ic iallu; dsb ish; isb");
     unit.entry = UNIT_BASE; unit.sp = UNIT_STACK + PAGE;
-    unit.active = 1;
+    unit.active = 1; unit.is_persona = persona;
     return 0;
+}
+
+/* Continue a sleeping unit. Returns its exit/sleep code. */
+static u64 unit_resume(void) {
+    unit.sleeping = 0; unit_resumes++;
+    u64 code = proc_resume(unit.ctx, unit.l0);
+    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    return code;
 }
 
 /* Run the unit to completion (phase 2: synchronous). Returns exit code. */
@@ -1708,40 +1750,68 @@ static int copy_user_str(char *dst, u64 uva, int max) {
     dst[n] = 0; return n;
 }
 
-static u64 do_syscall(u64 nr, u64 a0, u64 a1, u64 a2) {
-    (void)a2;
+static int user_ok(u64 uva, u64 len) { return uva >= UNIT_BASE && uva + len <= UNIT_BASE + 0x200000ULL; }
+
+static u64 do_syscall(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 *regs) {
     switch (nr) {
     case SYS_LOG: { char b[128]; if (copy_user_str(b, a0, sizeof b) < 0) return (u64)-1; unit_log(b); return 0; }
     case SYS_EXIT: unit.exit_code = a0; unit.active = 0;
         __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
         proc_exit(a0);
     case SYS_YIELD: return 0;
+    case SYS_SLEEP:                                           /* park: save the frame, hand the CPU back */
+        for (int i = 0; i < FRAME_WORDS; i++) unit.ctx[i] = regs[i];
+        unit.ctx[0] = 0;                                      /* syscall result seen on resume */
+        unit.sleeping = 1; unit.wake_at = now_ms() + (a0 ? a0 : 1);
+        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+        proc_exit(UNIT_SLEEPING);
+    /* api_t slots (same contracts as the in-kernel table) */
+    case SYS_API + 0: fb_clear((u32)a0); return 0;
+    case SYS_API + 1: fb_rect((int)a0, (int)a1, (int)a2, (int)a3, (u32)a4); return 0;
+    case SYS_API + 2: { char b[160]; if (copy_user_str(b, a4, sizeof b) < 0) return (u64)-1; fb_text((int)a0, (int)a1, (int)a2, (u32)a3, b); return 0; }
+    case SYS_API + 3: return now_ms();
+    case SYS_API + 4: return wall_sec();
+    case SYS_API + 5: api_gpio_out((u8)a0, (u8)a1); return 0;
+    case SYS_API + 6: return gpio_read((u8)a0);
+    case SYS_API + 7: return get_soc_temp();
+    case SYS_API + 8: return api_param((int)a0);
+    case SYS_API + 9: { int x = 0, y = 0; int r = api_touch(&x, &y);
+        if (a0 && user_ok(a0, 4)) *(volatile int *)a0 = x;
+        if (a1 && user_ok(a1, 4)) *(volatile int *)a1 = y;
+        return (u64)r; }
+    case SYS_API + 10: api_emit((u32)a0, a1); return 0;
+    case SYS_API + 11: { char b[128]; if (copy_user_str(b, a0, sizeof b) < 0) return (u64)-1; api_log(b); return 0; }
+    case SYS_API + 12: return api_screen();
+    case SYS_API + 13: { int max = (int)a1; if (max < 0 || max > 512 || !user_ok(a0, (u64)max * 4)) return 0; return (u64)api_touch_trace((unsigned int *)a0, max); }
     default: return (u64)-38;   /* ENOSYS */
     }
-    (void)a1; return 0;
+    (void)regs; return 0;
 }
 
 /* EL0 sync exception: SVC → syscall; anything else → the unit dies, the kernel lives. */
 void el0_sync(u64 esr, u64 far, u64 *regs) {
     u32 ec = (esr >> 26) & 0x3f;
-    if (ec == 0x15) { regs[0] = do_syscall(regs[8], regs[0], regs[1], regs[2]); return; }
+    if (ec == 0x15) { regs[0] = do_syscall(regs[8], regs[0], regs[1], regs[2], regs[3], regs[4], regs); return; }
     char b[96]; int n = scpy(b, "unit fault ec=0x"); const char h[] = "0123456789abcdef";
     b[n++] = h[(ec >> 4) & 0xf]; b[n++] = h[ec & 0xf]; n += scpy(b+n, " far=0x");
     for (int i = 44; i >= 0; i -= 4) b[n++] = h[(far >> i) & 0xf];
-    n += scpy(b+n, " elr=0x"); for (int i = 44; i >= 0; i -= 4) b[n++] = h[(regs[22] >> i) & 0xf];
+    n += scpy(b+n, " elr=0x"); for (int i = 44; i >= 0; i -= 4) b[n++] = h[(regs[31] >> i) & 0xf];
     b[n] = 0; unit_log(b);
-    unit.exit_code = 0xdead; unit.active = 0;
+    unit.exit_code = UNIT_DEAD; unit.active = 0;
+    if (unit.is_persona) api_emit(0xDEAD, regs[31]);
     __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
-    proc_exit(0xdead);
+    proc_exit(UNIT_DEAD);
 }
 
 /* URUN: run the staged binary as an EL0 unit, reply with exit code + log. */
 static void handle_urun(const u8 *p, int len) {
     u32 clen = stage_check(p, len, "URUN"); if (!clen) return;
-    int rc = unit_create(stage_buf, clen);
+    if (unit.active) { poke_resp_str("{\"error\":\"busy\"}"); return; }
+    int rc = unit_create(stage_buf, clen, 0);
     if (rc) { poke_resp_str(rc == -1 ? "{\"error\":\"too big\"}" : "{\"error\":\"no pages\"}"); return; }
     u64 t0 = now_ms();
     u64 code = unit_run();
+    while (code == UNIT_SLEEPING && now_ms() - t0 < 5000) { while (now_ms() < unit.wake_at) {} code = unit_resume(); }
     u64 dt = now_ms() - t0;
     char r[720]; int n = scpy(r, "{\"unit\":\"exited\",\"code\":"); n += idec((u32)code, r+n);
     n += scpy(r+n, ",\"ms\":"); n += idec((u32)dt, r+n);
@@ -1750,6 +1820,36 @@ static void handle_urun(const u8 *p, int len) {
     r[n++] = '"'; r[n++] = '}';
     poke_resp((const u8 *)r, n);
     unit_destroy();
+}
+
+/* ── personas as EL0 units ── */
+static int unit_persona_start(const u8 *code, int clen) {
+    int has_ret = 0;
+    for (int i = 0; i <= clen - 4; i += 4) {
+        u32 insn = code[i] | (code[i+1]<<8) | (code[i+2]<<16) | ((u32)code[i+3]<<24);
+        if (insn == 0xD65F03C0) { has_ret = 1; break; }
+    }
+    if (!has_ret) return -2;
+    if (unit.active) unit_destroy();
+    persona_active = 0;
+    int rc = unit_create(code, (u32)clen, 1);
+    if (rc) { uprint("[UNIT] persona create failed\n"); return -1; }
+    persona_fn = 0; persona_tick = 0; persona_last_ms = now_ms();
+    persona_active = 1;                                      /* console yields the screen before tick 0 */
+    u64 c = unit_run();                                       /* runs tick 0, parks in sleep() */
+    if (c != UNIT_SLEEPING) { uprint("[UNIT] persona ended at tick 0\n"); unit_destroy(); persona_active = 0; return -1; }
+    return 0;
+}
+static void unit_persona_stop(void) { if (unit.active && unit.is_persona) unit_destroy(); }
+static void unit_persona_run(void) {
+    if (!unit.active || !unit.is_persona || !unit.sleeping) return;
+    if (now_ms() < unit.wake_at) return;
+    u64 c = unit_resume();
+    if (c != UNIT_SLEEPING) {                                 /* exited or died: reclaim, back to the console */
+        uprint("[UNIT] persona ended code="); udec((u32)c); uputc('\n');
+        if (fb_ok) { fb_text(40, 560, 2, 0x00FF4040, c == UNIT_DEAD ? "persona crashed — isolated, device alive" : "persona exited"); }
+        unit_destroy(); persona_active = 0;
+    }
 }
 
 void kernel_main(void) {

@@ -173,7 +173,7 @@ reload_tramp_end:
  * land here on SP_EL1, which is the kernel stack as proc_enter left it.
  * Saved frame (256 bytes): x0-x18 pairs, x29,x30, elr, spsr. */
 el0_sync_entry:
-    sub     sp, sp, #256
+    sub     sp, sp, #288
     stp     x0, x1, [sp, #0]
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
@@ -183,16 +183,23 @@ el0_sync_entry:
     stp     x12, x13, [sp, #96]
     stp     x14, x15, [sp, #112]
     stp     x16, x17, [sp, #128]
-    stp     x18, x29, [sp, #144]
-    str     x30, [sp, #160]
+    stp     x18, x19, [sp, #144]
+    stp     x20, x21, [sp, #160]
+    stp     x22, x23, [sp, #176]
+    stp     x24, x25, [sp, #192]
+    stp     x26, x27, [sp, #208]
+    stp     x28, x29, [sp, #224]
+    str     x30, [sp, #240]
     mrs     x9, elr_el1
     mrs     x10, spsr_el1
-    stp     x9, x10, [sp, #176]
+    stp     x9, x10, [sp, #248]
+    mrs     x9, sp_el0
+    str     x9, [sp, #264]
     mrs     x0, esr_el1
     mrs     x1, far_el1
     mov     x2, sp
-    bl      el0_sync                    /* C: syscall (returns) or unit kill (never returns) */
-    ldp     x9, x10, [sp, #176]
+    bl      el0_sync                    /* C: syscall (returns) or leaves via proc_exit */
+    ldp     x9, x10, [sp, #248]
     msr     elr_el1, x9
     msr     spsr_el1, x10
     ldp     x0, x1, [sp, #0]
@@ -204,9 +211,56 @@ el0_sync_entry:
     ldp     x12, x13, [sp, #96]
     ldp     x14, x15, [sp, #112]
     ldp     x16, x17, [sp, #128]
-    ldp     x18, x29, [sp, #144]
-    ldr     x30, [sp, #160]
-    add     sp, sp, #256
+    ldp     x18, x19, [sp, #144]
+    ldp     x20, x21, [sp, #160]
+    ldp     x22, x23, [sp, #176]
+    ldp     x24, x25, [sp, #192]
+    ldp     x26, x27, [sp, #208]
+    ldp     x28, x29, [sp, #224]
+    ldr     x30, [sp, #240]
+    add     sp, sp, #288
+    eret
+
+/* u64 proc_resume(ctx, ttbr0): continue a unit that slept in a syscall.
+ * ctx = saved 288-byte frame (x0 already holds the syscall's return value). */
+.global proc_resume
+proc_resume:
+    adr     x9, kctx
+    stp     x19, x20, [x9, #0]
+    stp     x21, x22, [x9, #16]
+    stp     x23, x24, [x9, #32]
+    stp     x25, x26, [x9, #48]
+    stp     x27, x28, [x9, #64]
+    stp     x29, x30, [x9, #80]
+    mov     x10, sp
+    str     x10, [x9, #96]
+    msr     ttbr0_el1, x1
+    tlbi    vmalle1
+    dsb     ish
+    isb
+    mov     x9, x0
+    ldr     x10, [x9, #264]
+    msr     sp_el0, x10
+    ldp     x10, x11, [x9, #248]
+    msr     elr_el1, x10
+    msr     spsr_el1, x11
+    ldp     x2, x3, [x9, #16]
+    ldp     x4, x5, [x9, #32]
+    ldp     x6, x7, [x9, #48]
+    ldp     x10, x11, [x9, #80]
+    ldp     x12, x13, [x9, #96]
+    ldp     x14, x15, [x9, #112]
+    ldp     x16, x17, [x9, #128]
+    ldp     x18, x19, [x9, #144]
+    ldp     x20, x21, [x9, #160]
+    ldp     x22, x23, [x9, #176]
+    ldp     x24, x25, [x9, #192]
+    ldp     x26, x27, [x9, #208]
+    ldp     x28, x29, [x9, #224]
+    ldr     x30, [x9, #240]
+    ldp     x0, x1, [x9, #0]
+    ldr     x8, [x9, #64]
+    ldr     x9, [x9, #72]
     eret
 
 /* u64 proc_enter(entry, sp_el0, ttbr0): switch to the unit's tables and
@@ -250,3 +304,49 @@ proc_exit:
 .align 4
 kctx:   .skip 128
 .section .text
+
+/* ── Persona crt (runs at EL0, copied to the unit's page 0) ──
+ * Page layout: code here; the kernel fills a data block at +0x800:
+ *   +0x800 persona_main VA   +0x808 api table VA   +0x810 tick ms
+ *   +0x820 api_t table (pointers to the stubs below, svc slot = 0)
+ * Loop: persona_main(api, tick++); sleep(tick_ms) — the sleep syscall hands
+ * the CPU back to the kernel, which resumes the unit when the tick is due. */
+.global ucrt_start
+.global ucrt_stubs
+.global ucrt_end
+ucrt_start:
+    adr     x19, ucrt_start
+    ldr     x20, [x19, #0x800]
+    ldr     x21, [x19, #0x808]
+    mov     x22, #0
+1:  mov     x0, x21
+    mov     x1, x22
+    blr     x20
+    add     x22, x22, #1
+    ldr     x0, [x19, #0x810]
+    mov     x8, #3                      /* SYS_SLEEP */
+    svc     #0
+    b       1b
+    .align 4
+ucrt_stubs:                             /* 16 bytes each, api_t order: 10 clear .. 23 touch_trace */
+.macro STUB n
+    mov     x8, #\n
+    svc     #0
+    ret
+    nop
+.endm
+    STUB 10
+    STUB 11
+    STUB 12
+    STUB 13
+    STUB 14
+    STUB 15
+    STUB 16
+    STUB 17
+    STUB 18
+    STUB 19
+    STUB 20
+    STUB 21
+    STUB 22
+    STUB 23
+ucrt_end:
