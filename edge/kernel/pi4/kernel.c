@@ -449,7 +449,14 @@ static void api_emit(unsigned int code, unsigned long value) {
     uprint("[EVNT] code="); udec(code); uprint(" val="); udec((u32)value); uputc('\n');
 }
 
-static void api_log(const char *m) { uprint(m); }
+/* last few api->log lines (residents/units), for remote diagnosis via INFO */
+static char last_logs[4][96]; static int last_log_i = 0;
+static void api_log(const char *m) {
+    uprint(m);
+    int n = 0; char *d = last_logs[last_log_i % 4];
+    while (m[n] && m[n] != '\n' && n < 95) { d[n] = m[n]; n++; }
+    if (n) { d[n] = 0; last_log_i++; }
+}
 static unsigned int api_screen(void) { return fb_ok ? ((fb_w << 16) | fb_h) : 0; }
 
 static const api_t persona_api = {
@@ -1175,7 +1182,7 @@ static void handle_draw(const u8 *p, int rem) {
     poke_resp((const u8 *)r, n);
 }
 
-static u64 mmu_ram_total, pool_pages, unit_resumes;
+static u64 mmu_ram_total, pool_pages, unit_resumes, unit_preempts;
 static u64 pages_used(void);
 static void handle_urun(const u8 *p, int len);
 /* resident slot state (defined with the resident mechanism below; INFO reports it) */
@@ -1194,7 +1201,7 @@ static void handle_poke(const u8 *payload, int len) {
     }
     else if (mcmp(payload, "INFO", 4) == 0) {
         u32 temp = get_soc_temp();
-        char r[384]; int n = 0;
+        char r[1400]; int n = 0;
         n += scpy(r+n, "{\"status\":\"alive\",\"arch\":\"aarch64\",\"chip\":\"bcm2711\"");
         n += scpy(r+n, ",\"kernel\":\"poke-os\",\"build\":\"" BUILD_ID "\",\"transport\":\"udp\"");
         { u64 el; __asm__ volatile("mrs %0, CurrentEL" : "=r"(el)); n += scpy(r+n, ",\"el\":"); n += idec((u32)((el >> 2) & 3), r+n); }
@@ -1203,6 +1210,11 @@ static void handle_poke(const u8 *payload, int len) {
         n += scpy(r+n, ",\"pool_pages\":"); n += idec((u32)pool_pages, r+n);
         n += scpy(r+n, ",\"pool_used\":"); n += idec((u32)pages_used(), r+n);
         n += scpy(r+n, ",\"unit_resumes\":"); n += idec((u32)unit_resumes, r+n);
+        n += scpy(r+n, ",\"unit_preempts\":"); n += idec((u32)unit_preempts, r+n);
+        n += scpy(r+n, ",\"last_log\":[");
+        for (int k = 0; k < 4; k++) { const char *l = last_logs[(last_log_i + k) % 4]; if (!l[0]) continue;
+            r[n++] = '"'; for (int i = 0; l[i] && n < 1300; i++) { if (l[i] == '"' || l[i] == '\\') r[n++] = '\\'; r[n++] = l[i]; } r[n++] = '"'; r[n++] = ','; }
+        if (r[n-1] == ',') n--; r[n++] = ']';
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
         n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"KRLD\",\"URUN\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         if (fb_ok) {
@@ -1310,7 +1322,8 @@ static void handle_poke(const u8 *payload, int len) {
                 poke_resp((const u8 *)r, n);
                 uprint("[POKE] RSLD "); uprint(res_name); uputc('\n');
             } else {
-                poke_resp_str(rc == -3 ? "{\"error\":\"init failed\"}" : rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
+                if (rc == -3) { char r[160]; int n = scpy(r, "{\"error\":\"init failed\",\"last_log\":\""); const char *l = last_logs[(last_log_i + 3) % 4]; for (int i = 0; l[i] && n < 150; i++) if (l[i] != '"') r[n++] = l[i]; r[n++] = '"'; r[n++] = '}'; poke_resp((const u8 *)r, n); }
+                else poke_resp_str(rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
             }
         }
     }
@@ -1621,6 +1634,9 @@ static void mmu_init(void) {
 #define SYS_SLEEP 3
 #define SYS_API   10          /* 10..23 = api_t function slots in order (svc slot skipped) */
 #define UNIT_SLEEPING 0x51ee
+#define SLICE_MS 4
+static void timer_arm(u32 ms);
+static void timer_off(void);
 #define UNIT_DEAD     0xdead
 #define FRAME_WORDS   36      /* 288-byte EL0 exception frame */
 
@@ -1659,7 +1675,8 @@ typedef struct {
     u64 pages[UNIT_MAX_PAGES]; int npages;
     u64 entry, sp;
     int active; u64 exit_code;
-    int sleeping; u64 wake_at; u64 ctx[FRAME_WORDS];   /* parked in a sleep syscall */
+    int sleeping; u64 wake_at; u64 ctx[FRAME_WORDS];   /* parked in a sleep syscall (or preempted) */
+    u64 cpu_ms;                                        /* CPU used since the last voluntary sleep */
     int is_persona;
     char log[512]; int loglen;
 } unit_t;
@@ -1730,14 +1747,63 @@ static int unit_create(const u8 *img, u32 len, int persona) {
 /* Continue a sleeping unit. Returns its exit/sleep code. */
 static u64 unit_resume(void) {
     unit.sleeping = 0; unit_resumes++;
+    timer_arm(SLICE_MS);
     u64 code = proc_resume(unit.ctx, unit.l0);
+    timer_off();
     __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
     return code;
 }
 
+/* ── Preemption: GIC-400 + EL1 physical timer (PPI 30). IRQs are unmasked only
+ * while a unit runs at EL0; the kernel itself is never interrupted. A slice
+ * expiring lands in el0_irq_entry → el0_irq(): the unit is parked exactly
+ * like a sleep(0) and the main loop gets a turn. A unit that never sleeps
+ * voluntarily for UNIT_BUDGET_MS of CPU is killed as hung. ── */
+#define GICD 0xFF841000ULL
+#define GICC 0xFF842000ULL
+#define TIMER_IRQ 30
+#define UNIT_BUDGET_MS 3000
+static void gic_init(void) {
+    wr32(GICD + 0x000, 0);
+    wr32(GICD + 0x100, 1u << TIMER_IRQ);                                   /* ISENABLER0: PPI 30 */
+    u32 pr = rd32(GICD + 0x400 + 28); pr = (pr & ~(0xffu << 16)) | (0xa0u << 16); wr32(GICD + 0x400 + 28, pr);
+    wr32(GICD + 0x000, 1);
+    wr32(GICC + 0x004, 0xf0);                                              /* PMR */
+    wr32(GICC + 0x008, 0);                                                 /* BPR */
+    wr32(GICC + 0x000, 1);                                                 /* CPU interface on */
+}
+static void timer_arm(u32 ms) {
+    u64 t = timer_frq() * ms / 1000;
+    __asm__ volatile("msr cntp_tval_el0, %0" :: "r"(t));
+    __asm__ volatile("msr cntp_ctl_el0, %0" :: "r"(1ULL)); __asm__ volatile("isb");
+}
+static void timer_off(void) { __asm__ volatile("msr cntp_ctl_el0, %0" :: "r"(0ULL)); __asm__ volatile("isb"); }
+
+void el0_irq(u64 *regs) {
+    u32 iar = rd32(GICC + 0x00c); u32 id = iar & 0x3ff;
+    if (id >= 1020) return;                                                /* spurious */
+    wr32(GICC + 0x010, iar);                                               /* EOI */
+    if (id != TIMER_IRQ) return;
+    timer_off();
+    unit_preempts++; unit.cpu_ms += SLICE_MS;
+    if (unit.cpu_ms > UNIT_BUDGET_MS) {
+        unit_log("hung: no sleep for 3s of CPU — killed");
+        unit.exit_code = UNIT_DEAD; unit.active = 0;
+        if (unit.is_persona) api_emit(0xDEAD, regs[31]);
+        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+        proc_exit(UNIT_DEAD);
+    }
+    for (int i = 0; i < FRAME_WORDS; i++) unit.ctx[i] = regs[i];         /* park as-is (x0 kept) */
+    unit.sleeping = 1; unit.wake_at = now_ms();
+    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    proc_exit(UNIT_SLEEPING);
+}
+
 /* Run the unit to completion (phase 2: synchronous). Returns exit code. */
 static u64 unit_run(void) {
+    timer_arm(SLICE_MS);
     u64 code = proc_enter(unit.entry, unit.sp, unit.l0);
+    timer_off();
     __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
     return code;
 }
@@ -1762,7 +1828,7 @@ static u64 do_syscall(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 *regs)
     case SYS_SLEEP:                                           /* park: save the frame, hand the CPU back */
         for (int i = 0; i < FRAME_WORDS; i++) unit.ctx[i] = regs[i];
         unit.ctx[0] = 0;                                      /* syscall result seen on resume */
-        unit.sleeping = 1; unit.wake_at = now_ms() + (a0 ? a0 : 1);
+        unit.sleeping = 1; unit.wake_at = now_ms() + (a0 ? a0 : 1); unit.cpu_ms = 0;
         __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
         proc_exit(UNIT_SLEEPING);
     /* api_t slots (same contracts as the in-kernel table) */
@@ -1776,8 +1842,8 @@ static u64 do_syscall(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 *regs)
     case SYS_API + 7: return get_soc_temp();
     case SYS_API + 8: return api_param((int)a0);
     case SYS_API + 9: { int x = 0, y = 0; int r = api_touch(&x, &y);
-        if (a0 && user_ok(a0, 4)) *(volatile int *)a0 = x;
-        if (a1 && user_ok(a1, 4)) *(volatile int *)a1 = y;
+        if (a0 && user_ok(a0, 4)) { *(volatile int *)a0 = x; }
+        if (a1 && user_ok(a1, 4)) { *(volatile int *)a1 = y; }
         return (u64)r; }
     case SYS_API + 10: api_emit((u32)a0, a1); return 0;
     case SYS_API + 11: { char b[128]; if (copy_user_str(b, a0, sizeof b) < 0) return (u64)-1; api_log(b); return 0; }
@@ -1862,6 +1928,7 @@ void kernel_main(void) {
     print_banner();
     mmu_init();         /* identity map, caches on (screen shows each step) */
     pool_init();        /* page pool for EL0 units */
+    gic_init();         /* timer slices for EL0 units */
 
     /* Stage 2: 2 slow blinks = UART done */
     act_blink(2, 300);

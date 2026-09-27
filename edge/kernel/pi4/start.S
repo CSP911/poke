@@ -118,7 +118,8 @@ vectors:
     VEC 7   /* curr EL, SPx: serror */
     .align 7                /* 8: lower EL, a64: sync — SVC from a unit at EL0 */
     b       el0_sync_entry
-    VEC 9   /* lower EL, a64: irq */
+    .align 7                /* 9: lower EL, a64: irq — timer slice expired while a unit ran */
+    b       el0_irq_entry
     VEC 10  /* lower EL, a64: fiq */
     VEC 11  /* lower EL, a64: serror */
     VEC 12  /* lower EL, a32: sync */
@@ -263,6 +264,53 @@ proc_resume:
     ldr     x9, [x9, #72]
     eret
 
+el0_irq_entry:
+    sub     sp, sp, #288
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x10, x11, [sp, #80]
+    stp     x12, x13, [sp, #96]
+    stp     x14, x15, [sp, #112]
+    stp     x16, x17, [sp, #128]
+    stp     x18, x19, [sp, #144]
+    stp     x20, x21, [sp, #160]
+    stp     x22, x23, [sp, #176]
+    stp     x24, x25, [sp, #192]
+    stp     x26, x27, [sp, #208]
+    stp     x28, x29, [sp, #224]
+    str     x30, [sp, #240]
+    mrs     x9, elr_el1
+    mrs     x10, spsr_el1
+    stp     x9, x10, [sp, #248]
+    mrs     x9, sp_el0
+    str     x9, [sp, #264]
+    mov     x0, sp
+    bl      el0_irq                     /* C: ack, re-arm, preempt (proc_exit) — or return to continue */
+    ldp     x9, x10, [sp, #248]
+    msr     elr_el1, x9
+    msr     spsr_el1, x10
+    ldp     x0, x1, [sp, #0]
+    ldp     x2, x3, [sp, #16]
+    ldp     x4, x5, [sp, #32]
+    ldp     x6, x7, [sp, #48]
+    ldp     x8, x9, [sp, #64]
+    ldp     x10, x11, [sp, #80]
+    ldp     x12, x13, [sp, #96]
+    ldp     x14, x15, [sp, #112]
+    ldp     x16, x17, [sp, #128]
+    ldp     x18, x19, [sp, #144]
+    ldp     x20, x21, [sp, #160]
+    ldp     x22, x23, [sp, #176]
+    ldp     x24, x25, [sp, #192]
+    ldp     x26, x27, [sp, #208]
+    ldp     x28, x29, [sp, #224]
+    ldr     x30, [sp, #240]
+    add     sp, sp, #288
+    eret
+
 /* u64 proc_enter(entry, sp_el0, ttbr0): switch to the unit's tables and
  * drop to EL0. Returns (via proc_exit) with the unit's exit code. */
 .global proc_enter
@@ -282,7 +330,7 @@ proc_enter:
     isb
     msr     sp_el0, x1
     msr     elr_el1, x0
-    mov     x9, #0x3c0                  /* SPSR: EL0t, D A I F masked (no IRQs yet) */
+    mov     x9, #0x340                  /* SPSR: EL0t, IRQ unmasked (timer slices), D A F masked */
     msr     spsr_el1, x9
     eret
 
