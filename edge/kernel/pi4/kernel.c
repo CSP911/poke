@@ -785,6 +785,12 @@ static void genet_init(void) {
     tx_pi = 0;
 }
 
+static void genet_stop(void) {                     /* halt RX/TX DMA: no more writes into RAM */
+    gwr(DMA_G(G_TDMA, D_CTRL), grd(DMA_G(G_TDMA, D_CTRL)) & ~((1 << 17) | 1));
+    gwr(DMA_G(G_RDMA, D_CTRL), grd(DMA_G(G_RDMA, D_CTRL)) & ~((1 << 17) | 1));
+    delay_ms(5);
+}
+
 static void genet_enable(int speed) {
     /* mii_setup: RGMII link + clock select */
     u32 oob = grd(G_EXT + 0x0C);
@@ -1034,7 +1040,7 @@ static void handle_exec(const u8 *code, int clen) {
  * not do. The run/load commands carry the total length and a Fletcher-32
  * checksum so a lost chunk is refused instead of executed. Single-frame
  * EXEC / PRUN stay as they are for small binaries. */
-#define STAGE_SZ 32768
+#define STAGE_SZ 262144   /* kernels reload through here too */
 static u8  stage_buf[STAGE_SZ] __attribute__((aligned(64)));
 static u32 stage_hi = 0;            /* highest staged end offset */
 
@@ -1068,6 +1074,28 @@ static u32 stage_check(const u8 *p, int len, const char *who) {
         poke_resp_str("{\"error\":\"checksum\"}"); return 0;
     }
     return clen;
+}
+
+/* KRLD: replace the running kernel with the staged image — no SD card swap.
+ * Reply first (the frame must leave through TX DMA), quiesce DMA masters so
+ * nothing writes into the new image's memory while it boots, then let a
+ * trampoline outside the image copy it to 0x80000 and restart at _start. */
+static void genet_stop(void);
+static void resident_stop(void);
+extern char reload_tramp[], reload_tramp_end[];
+static void handle_krld(const u8 *p, int len) {
+    u32 clen = stage_check(p, len, "KRLD"); if (!clen) return;
+    if (clen < 1024 || (stage_buf[0] | stage_buf[1] | stage_buf[2] | stage_buf[3]) == 0) { poke_resp_str("{\"error\":\"not a kernel\"}"); return; }
+    char r[64]; int n = scpy(r, "{\"kernel\":\"reloading\",\"size\":"); n += idec(clen, r+n); r[n++] = '}';
+    poke_resp((const u8 *)r, n);
+    uprint("[POKE] KRLD "); udec(clen); uprint(" bytes — restarting\n");
+    delay_ms(30);
+    resident_stop();
+    genet_stop();
+    u64 tramp = 0x00700000ULL; u32 tl = (u32)(reload_tramp_end - reload_tramp);
+    mcpy((void *)tramp, reload_tramp, tl);
+    __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
+    ((void (*)(u64, u64))tramp)((u64)stage_buf, clen);
 }
 
 static void handle_exrn(const u8 *p, int len) {
@@ -1158,9 +1186,9 @@ static void handle_poke(const u8 *payload, int len) {
         u32 temp = get_soc_temp();
         char r[384]; int n = 0;
         n += scpy(r+n, "{\"status\":\"alive\",\"arch\":\"aarch64\",\"chip\":\"bcm2711\"");
-        n += scpy(r+n, ",\"kernel\":\"poke-os\",\"transport\":\"udp\"");
+        n += scpy(r+n, ",\"kernel\":\"poke-os\",\"build\":\"" BUILD_ID "\",\"transport\":\"udp\"");
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
-        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
+        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"KRLD\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         if (fb_ok) {
             n += scpy(r+n, ",\"display\":\""); n += idec(fb_w, r+n); r[n++] = 'x'; n += idec(fb_h, r+n); r[n++] = '"';
             n += scpy(r+n, ",\"fb_base\":"); n += idec((u32)(u64)fb_base, r+n);
@@ -1269,6 +1297,9 @@ static void handle_poke(const u8 *payload, int len) {
                 poke_resp_str(rc == -3 ? "{\"error\":\"init failed\"}" : rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
             }
         }
+    }
+    else if (mcmp(payload, "KRLD", 4) == 0) {
+        handle_krld(payload + 4, len - 4);
     }
     else if (mcmp(payload, "RSTP", 4) == 0) {
         resident_stop();

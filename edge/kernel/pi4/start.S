@@ -93,3 +93,26 @@ fault_entry:
 6:  bl      fault_handler
 7:  wfe
     b       7b
+
+/* ── Kernel reload trampoline ──
+ * Copied out of the image (to 0x00700000) before use, because it overwrites
+ * the image it came from. x0 = staged kernel, x1 = length. Copies to 0x80000
+ * and restarts at _start, as if the GPU had just loaded a new kernel8.img. */
+.global reload_tramp
+.global reload_tramp_end
+reload_tramp:
+    mov     x2, #0x80000
+    mov     x3, x2
+    add     x1, x1, #8
+1:  cmp     x1, #0
+    b.le    2f
+    ldr     x4, [x0], #8
+    str     x4, [x2], #8
+    sub     x1, x1, #8
+    b       1b
+2:  dsb     sy
+    ic      iallu
+    dsb     sy
+    isb
+    br      x3
+reload_tramp_end:
