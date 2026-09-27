@@ -51,5 +51,26 @@
     "event ring is 16 entries: wrap the dequeue index, toggle the cycle state, and keep ERDP advancing",
     "EXEC probes over ~1460 bytes must use chunked upload (EXLD) — the sender's IP fragments are not reassembled",
     "hot-plug without the hub's interrupt endpoint: GET_STATUS on each hub port every 500 ms over the hub's EP0 (Link-TRB-wrapped ring); Disable Slot on unplug, full child enumeration on replug; endpoint errors only set a flag so an unplug never floods Reset Endpoint commands"
-  ]
+  ],
+  "mappings": [
+    {
+      "pa": "0xFD500000",
+      "len": "0x10000",
+      "attr": "device",
+      "what": "PCIe root complex (BCM2711 host bridge registers)"
+    },
+    {
+      "pa": "0x600000000",
+      "len": "0x200000",
+      "attr": "device",
+      "what": "PCIe outbound window → VL805 BAR0 (xHCI MMIO)"
+    },
+    {
+      "pa": "0x02200000",
+      "len": "0x30000",
+      "attr": "nc",
+      "what": "xHCI DMA region: DCBAA, rings, contexts, scratchpad"
+    }
+  ],
+  "process": "EL0 unit in SLOT_RESIDENT; MMIO/DMA windows above are its only capabilities. Mailbox via SYS_MBOX, touch samples via SYS_TOUCH (kernel input service keeps state/trace)."
 }

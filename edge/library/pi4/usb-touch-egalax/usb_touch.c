@@ -4,7 +4,7 @@
  * Injected over the network (RSLD), never part of kernel8.img. Owns the
  * whole USB path: PCIe root complex bring-up, VL805 xHCI, the VL805 internal
  * hub, the downstream full-speed HID device, and the interrupt-IN polling
- * that turns reports into api->svc->touch. Every step was first proven with
+ * that publishes reports to the kernel input service. Every step was first proven with
  * EXEC probes (incubation) — see device.json for the register-level facts.
  *
  * Kernel contract: u64 resident_main(const api_t*, op, arg); see poke_api.h.
@@ -13,6 +13,18 @@ typedef unsigned char u8; typedef unsigned short u16; typedef unsigned int u32; 
 #include "../../../kernel/pi4/poke_api.h"
 
 static const api_t *A;                          /* kernel API, set on every call */
+
+/* This driver is an EL0 process: MMIO/DMA windows are mapped in by the
+ * kernel (device.json "mappings"), everything else goes through syscalls. */
+static long sys3(long n, long a, long b, long c) {
+    register long x8 __asm__("x8") = n; register long x0 __asm__("x0") = a;
+    register long x1 __asm__("x1") = b;  register long x2 __asm__("x2") = c;
+    __asm__ volatile("svc #0" : "+r"(x0) : "r"(x8), "r"(x1), "r"(x2) : "memory");
+    return x0;
+}
+#define SYS_MBOX  4
+#define SYS_TOUCH 5
+static void sys_touch(int x, int y, int tip) { sys3(SYS_TOUCH, x, y, tip); }
 
 /* ── platform shims (mirror the kernel's helpers; residents bring their own) ── */
 static inline void dsb(void) { __asm__ volatile("dsb sy" ::: "memory"); }
@@ -40,48 +52,10 @@ static void fb_text(int x, int y, int scale, u32 color, const char *s) { if (fb_
 #define PERI 0xFE000000ULL
 #define MBOX (PERI + 0x00B880)
 static u32 __attribute__((aligned(16))) mbox_buf[64];
-static int mbox_call(void) {
-    u32 bus = (u32)(u64)mbox_buf + 0xC0000000U;
-    dsb();
-    while (rd32(MBOX + 0x18) & 0x80000000);
-    wr32(MBOX + 0x20, (bus & ~0xF) | 8);
-    while (1) {
-        while (rd32(MBOX + 0x18) & 0x40000000);
-        u32 r = rd32(MBOX + 0x00);
-        if ((r & 0xF) == 8) return (mbox_buf[1] & 0x80000000) != 0;
-    }
-}
+static int mbox_call(void) { return sys3(SYS_MBOX, (long)mbox_buf, 8*4, 0) == 0; }   /* kernel runs the mailbox */
 
-/* touch state served to personas through api->svc->touch */
-static int touch_down_f = 0, touch_new = 0, touch_sx = 0, touch_sy = 0;
-/* every sample (~130/s) since the persona last asked — lets a 20 Hz tick draw
- * a 130 Hz drag as connected segments */
-#define TRACE_N 128
-static u32 trace_buf[TRACE_N]; static int trace_w = 0, trace_r = 0;
-static void trace_push(int x, int y, int tip) {
-    trace_buf[trace_w] = (u32)(x & 0xffff) | ((u32)(y & 0x7fff) << 16) | (tip ? 0x80000000u : 0);
-    trace_w = (trace_w + 1) % TRACE_N;
-    if (trace_w == trace_r) trace_r = (trace_r + 1) % TRACE_N;   /* overflow: drop oldest */
-}
-/* The last sample handed out is repeated as the first element of the next
- * call while the finger stays down, so a persona (which has no memory across
- * ticks) can join segments across tick boundaries without gaps. */
-static u32 trace_last = 0; static int trace_have = 0;
-static int res_touch_trace(unsigned int *out, int max) {
-    int n = 0;
-    if (trace_r == trace_w) return 0;
-    if (trace_have && (trace_last >> 31) && n < max) out[n++] = trace_last;
-    while (trace_r != trace_w && n < max) { out[n++] = trace_buf[trace_r]; trace_r = (trace_r + 1) % TRACE_N; }
-    trace_last = out[n-1]; trace_have = 1;
-    return n;
-}
-static int res_touch(int *x, int *y) {
-    if (x) *x = touch_sx;
-    if (y) *y = touch_sy;
-    if (!touch_down_f) return 0;
-    if (touch_new) { touch_new = 0; return 2; }
-    return 1;
-}
+/* touch samples go to the kernel's input service (SYS_TOUCH) */
+static int touch_down_f = 0, touch_sx = 0, touch_sy = 0;
 
 /* ═══════════════════════════════════════════
  * Bare-metal USB: PCIe root complex + VL805 xHCI
@@ -291,9 +265,8 @@ static void touch_event(u32 t0, u32 t2) {
         usb_touch_reports++;
         if (tip) {
             touch_sx = clampi(x, 0, (int)fb_w - 1); touch_sy = clampi(y, 0, (int)fb_h - 1);
-            if (!touch_down_f) { touch_down_f = 1; touch_new = 1; }
-            trace_push(touch_sx, touch_sy, 1);
-        } else if (touch_down_f) { touch_down_f = 0; trace_push(touch_sx, touch_sy, 0); }
+            touch_down_f = 1; sys_touch(touch_sx, touch_sy, 1);
+        } else if (touch_down_f) { touch_down_f = 0; sys_touch(touch_sx, touch_sy, 0); }
         usb_ir_enqueue(); dsb(); xwr(xhci_db + dev_slot*4, (u32)dci);
     } else { usb_touch_errs++; ep_err = 1; }
 }
@@ -469,9 +442,8 @@ static int attach_child(int p) {
     usb_ir_pi = 0; usb_ir_pc = 1;
     for (int i = 0; i < 8; i++) usb_ir_enqueue();
     dsb(); xwr(xhci_db + dev_slot*4, (u32)dci);
-    touch_ok = 1; ep_err = 0; touch_down_f = 0; trace_w = trace_r = 0; trace_have = 0;
-    A->svc->touch = res_touch;
-    A->svc->touch_trace = res_touch_trace;
+    touch_ok = 1; ep_err = 0; touch_down_f = 0;
+    sys_touch(0, 0, 2);                                       /* service available */
     char b[96]; int n = scpy(b, "USB touch: "); n += scpy(b+n, dspd==3?"HS":dspd==2?"LS":"FS");
     n += scpy(b+n, " HID "); n += uhex16s(usb_touch_vid, b+n); b[n++] = ':'; n += uhex16s(usb_touch_pid, b+n);
     n += scpy(b+n, " via hub port "); n += idec(p, b+n); b[n] = 0;
@@ -483,7 +455,7 @@ fail:
 }
 
 static void detach_child(const char *why) {
-    if (A->svc) { A->svc->touch = 0; A->svc->touch_trace = 0; }
+    sys_touch(0, 0, 3);                                       /* service gone */
     touch_ok = 0; touch_down_f = 0; ep_err = 0;
     if (dev_slot) { usb_disable_slot(dev_slot); dev_slot = 0; }
     char b[64]; int n = scpy(b, "USB touch: "); n += scpy(b+n, why); b[n] = 0;

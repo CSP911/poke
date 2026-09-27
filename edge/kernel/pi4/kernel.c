@@ -384,17 +384,41 @@ static u8 gpio_read(u8 pin) {
  * svc.touch to serve it.
  * ═══════════════════════════════════════════ */
 #include "poke_api.h"
-static poke_svc_t svc;                 /* zero = service not provided */
+static poke_svc_t svc;                 /* legacy kernel-mode residents (unused now) */
 
+/* Touch service — the generic "input" side of the platform. A resident
+ * process publishes raw samples (SYS_TOUCH); the kernel keeps the
+ * press/hold/tap state and the sample trace that personas read. */
+#define TRACE_N 128
+static int tp_avail = 0, tp_down = 0, tp_new = 0, tp_x = 0, tp_y = 0;
+static u32 tp_trace[TRACE_N]; static int tp_w = 0, tp_r = 0, tp_have = 0; static u32 tp_last = 0;
+static void touch_publish(int x, int y, int tip) {
+    if (tip == 2) { tp_avail = 1; tp_down = tp_new = 0; tp_w = tp_r = tp_have = 0; return; }
+    if (tip == 3) { tp_avail = 0; tp_down = 0; return; }
+    if (tip) {
+        tp_x = x; tp_y = y;
+        if (!tp_down) { tp_down = 1; tp_new = 1; }
+    } else if (!tp_down) return;
+    else tp_down = 0;
+    tp_trace[tp_w] = (u32)(tp_x & 0xffff) | ((u32)(tp_y & 0x7fff) << 16) | (tip ? 0x80000000u : 0);
+    tp_w = (tp_w + 1) % TRACE_N; if (tp_w == tp_r) tp_r = (tp_r + 1) % TRACE_N;
+}
 static int api_touch(int *x, int *y) {
     if (svc.touch) return svc.touch(x, y);
-    if (x) *x = 0;
-    if (y) *y = 0;
-    return 0;
+    if (x) *x = tp_x;
+    if (y) *y = tp_y;
+    if (!tp_avail || !tp_down) return 0;
+    if (tp_new) { tp_new = 0; return 2; }
+    return 1;
 }
 static int api_touch_trace(unsigned int *out, int max) {
     if (svc.touch_trace) return svc.touch_trace(out, max);
-    return 0;
+    int n = 0;
+    if (tp_r == tp_w) return 0;
+    if (tp_have && (tp_last >> 31) && n < max) out[n++] = tp_last;
+    while (tp_r != tp_w && n < max) { out[n++] = tp_trace[tp_r]; tp_r = (tp_r + 1) % TRACE_N; }
+    tp_last = out[n-1]; tp_have = 1;
+    return n;
 }
 
 /* ── Wall Clock (set by hub via TIME command) ── */
@@ -1185,11 +1209,11 @@ static void handle_draw(const u8 *p, int rem) {
 static u64 mmu_ram_total, pool_pages, unit_resumes, unit_preempts;
 static u64 pages_used(void);
 static void handle_urun(const u8 *p, int len);
+static void handle_rsld(const u8 *p, int len);
+static int apply_mappings(const u8 *p, int len);
+static const char *resident_name(void);   /* NULL when no resident process is running */
 /* resident slot state (defined with the resident mechanism below; INFO reports it) */
-static int res_active;
-static char res_name[32];
 static void resident_stop(void);
-static int resident_load(u32 clen);
 
 /* ── POKE Command Router ── */
 static void handle_poke(const u8 *payload, int len) {
@@ -1224,8 +1248,8 @@ static void handle_poke(const u8 *payload, int len) {
         } else {
             n += scpy(r+n, ",\"display\":null");
         }
-        n += scpy(r+n, ",\"touch\":"); n += scpy(r+n, svc.touch ? "true" : "false");
-        n += scpy(r+n, ",\"resident\":"); if (res_active) { r[n++]='"'; n += scpy(r+n, res_name); r[n++]='"'; } else n += scpy(r+n, "null");
+        n += scpy(r+n, ",\"touch\":"); n += scpy(r+n, (svc.touch || tp_avail) ? "true" : "false");
+        n += scpy(r+n, ",\"resident\":"); if (resident_name()) { r[n++]='"'; n += scpy(r+n, resident_name()); r[n++]='"'; } else n += scpy(r+n, "null");
         n += scpy(r+n, ",\"persona\":"); n += scpy(r+n, persona_active ? "true" : "false");
         n += scpy(r+n, ",\"bare_metal\":true");
         n += scpy(r+n, ",\"temp_mc\":"); n += idec(temp, r+n);
@@ -1312,20 +1336,8 @@ static void handle_poke(const u8 *payload, int len) {
             }
         }
     }
-    else if (mcmp(payload, "RSLD", 4) == 0) {      /* resident driver from staged chunks */
-        u32 clen = stage_check(payload + 4, len - 4, "RSLD");
-        if (clen) {
-            int rc = resident_load(clen);
-            if (rc == 0) {
-                char r[80]; int n = scpy(r, "{\"resident\":\""); n += scpy(r+n, res_name); n += scpy(r+n, "\",\"size\":");
-                n += idec(clen, r+n); r[n++] = '}';
-                poke_resp((const u8 *)r, n);
-                uprint("[POKE] RSLD "); uprint(res_name); uputc('\n');
-            } else {
-                if (rc == -3) { char r[160]; int n = scpy(r, "{\"error\":\"init failed\",\"last_log\":\""); const char *l = last_logs[(last_log_i + 3) % 4]; for (int i = 0; l[i] && n < 150; i++) if (l[i] != '"') r[n++] = l[i]; r[n++] = '"'; r[n++] = '}'; poke_resp((const u8 *)r, n); }
-                else poke_resp_str(rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
-            }
-        }
+    else if (mcmp(payload, "RSLD", 4) == 0) {      /* resident driver → EL0 process with capabilities */
+        handle_rsld(payload + 4, len - 4);
     }
     else if (mcmp(payload, "URUN", 4) == 0) {
         handle_urun(payload + 4, len - 4);
@@ -1465,47 +1477,9 @@ static u64 demo_persona(const api_t *api, u64 tick) {
 }
 #endif
 
-/* ═══════════════════════════════════════════
- * Resident slot — an injected driver that keeps state and gets a tick.
- * Loaded from the chunk stage (RSLD), stopped with RSTP. Device knowledge
- * lives in edge/library/<arch>/<device>/, never here.
- *   u64 resident_main(const api_t *api, u64 op, u64 arg)
- * ═══════════════════════════════════════════ */
-#define RES_SZ 32768
-typedef u64 (*res_fn_t)(const api_t *, u64, u64);
-static u8 rsd_buf[RES_SZ] __attribute__((aligned(4096)));
-static res_fn_t res_fn = 0;
-static int res_active = 0;
-static char res_name[32] = "";
-
-static void resident_stop(void) {
-    if (res_active && res_fn) res_fn(&persona_api, RES_STOP, 0);
-    res_active = 0; res_fn = 0; res_name[0] = 0;
-    mset(&svc, 0, sizeof svc);          /* whatever it registered is gone with it */
-}
-
-/* Load resident from stage_buf[0..clen). Returns 0 ok, -1 size, -2 no RET, -3 init failed. */
-static int resident_load(u32 clen) {
-    if (clen == 0 || clen > RES_SZ) return -1;
-    resident_stop();
-    mset(rsd_buf, 0, RES_SZ);
-    mcpy(rsd_buf, stage_buf, clen);
-    int has_ret = 0;
-    for (u32 i = 0; i + 4 <= clen; i += 4)
-        if ((rsd_buf[i] | (rsd_buf[i+1]<<8) | (rsd_buf[i+2]<<16) | ((u32)rsd_buf[i+3]<<24)) == 0xD65F03C0) { has_ret = 1; break; }
-    if (!has_ret) return -2;
-    for (u64 a = (u64)rsd_buf; a < (u64)rsd_buf + RES_SZ; a += 64) {
-        __asm__ volatile("dc civac, %0" :: "r"(a));
-        __asm__ volatile("ic ivau, %0" :: "r"(a));
-    }
-    __asm__ volatile("dsb sy"); __asm__ volatile("isb");
-    res_fn = (res_fn_t)rsd_buf;
-    const char *nm = (const char *)res_fn(&persona_api, RES_NAME, 0);
-    int n = 0; if (nm) while (nm[n] && n < 31) { res_name[n] = nm[n]; n++; } res_name[n] = 0;
-    if (res_fn(&persona_api, RES_INIT, 0) != 0) { mset(&svc, 0, sizeof svc); res_fn = 0; res_name[0] = 0; return -3; }
-    res_active = 1;
-    return 0;
-}
+/* Resident drivers are EL0 processes now (SLOT_RESIDENT, see units below).
+ * resident_stop() asks the driver to run RES_STOP and exit, then reclaims it. */
+static void resident_stop(void);
 
 /* ═══════════════════════════════════════════
  * MMU: identity map (VA == PA) with memory attributes — the kernel keeps
@@ -1604,12 +1578,13 @@ static void mmu_init(void) {
         __asm__ volatile("msr mair_el1, %0" :: "r"(mair));
         __asm__ volatile("msr tcr_el1, %0" :: "r"(tcr));
         __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0));
-        __asm__ volatile("tlbi vmalle1; dsb sy; isb");
+        __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
         if (fb_ok) fb_text(40, 530, 2, 0x00AAAAAA, "mmu: regs set (EL1), enabling...");
         u64 sc; __asm__ volatile("mrs %0, sctlr_el1" : "=r"(sc)); sc |= (1ULL << 0) | (1ULL << 2) | (1ULL << 12);
         __asm__ volatile("msr sctlr_el1, %0" :: "r"(sc)); __asm__ volatile("isb");
     }
     mmu_on = 1;
+    if (el == 1) { __asm__ volatile("msr cntkctl_el1, %0" :: "r"(3ULL)); }   /* EL0PCTEN|EL0VCTEN: units may read the timer */
     if (fb_ok) fb_text(40, 550, 2, 0x0000FF66, el == 2 ? "mmu: ON (EL2)" : "mmu: ON (EL1)");
 }
 
@@ -1627,14 +1602,17 @@ static void mmu_init(void) {
 #define UNIT_STACK  (UNIT_BASE + 0x100000ULL)
 #define PAGE        4096ULL
 #define PT_PAGE_USER(pa) ((pa) | 0x3ULL | (1ULL << 6) | (3ULL << 8) | (1ULL << 10) | (1ULL << 53))  /* AttrIdx0 WB, AP=EL0 RW, SH inner, AF, PXN */
-#define UNIT_MAX_PAGES 64
+#define UNIT_MAX_PAGES 96
 #define SYS_LOG   0
 #define SYS_EXIT  1
 #define SYS_YIELD 2
 #define SYS_SLEEP 3
+#define SYS_MBOX  4
+#define SYS_TOUCH 5
 #define SYS_API   10          /* 10..23 = api_t function slots in order (svc slot skipped) */
 #define UNIT_SLEEPING 0x51ee
 #define SLICE_MS 4
+#define UNIT_BUDGET_MS 3000
 static void timer_arm(u32 ms);
 static void timer_off(void);
 #define UNIT_DEAD     0xdead
@@ -1670,54 +1648,67 @@ static void page_free(u64 pa) {
 static u64 pages_used(void) { u64 c = 0; for (u64 i = 0; i < pool_pages; i++) if (pool_map[i / 32] & (1u << (i % 32))) c++; return c; }
 
 /* ── unit (process) ── */
-typedef struct {
+struct unit_s {
     u64 l0, l1, l2, l3;                  /* table pages */
     u64 pages[UNIT_MAX_PAGES]; int npages;
     u64 entry, sp;
     int active; u64 exit_code;
     int sleeping; u64 wake_at; u64 ctx[FRAME_WORDS];   /* parked in a sleep syscall (or preempted) */
-    u64 cpu_ms;                                        /* CPU used since the last voluntary sleep */
+    u64 cpu_ms, budget_ms;                             /* CPU used since the last voluntary sleep / limit */
+    int preempted;                                     /* parked by the timer, not by sleep() */
+    int stop_req;                                      /* next sleep() returns 1: run STOP and exit */
+    char name[32];
     int is_persona;
     char log[512]; int loglen;
-} unit_t;
+};
 extern u64 proc_resume(u64 *ctx, u64 ttbr0);
 extern char ucrt_start[], ucrt_stubs[], ucrt_end[];
-static unit_t unit;                      /* phase 2: a single unit */
+#define UNIT_SLOTS 4
+#define SLOT_URUN 0                      /* transient `poke unit` jobs */
+#define SLOT_PERSONA 1
+#define SLOT_RESIDENT 2
+typedef struct unit_s unit_t;
+static unit_t units[UNIT_SLOTS];
+static unit_t *cur = &units[0];          /* the unit the EL0 paths operate on */
+static const char *resident_name(void) { return units[SLOT_RESIDENT].active ? units[SLOT_RESIDENT].name : (const char *)0; }
 extern u64 proc_enter(u64 entry, u64 sp_el0, u64 ttbr0);
 extern void proc_exit(u64 code) __attribute__((noreturn));
 
-static void unit_log(const char *m) { uprint("[UNIT] "); uprint(m); uputc('\n'); int n = 0; while (m[n] && unit.loglen < (int)sizeof(unit.log) - 2) unit.log[unit.loglen++] = m[n++]; unit.log[unit.loglen++] = '\n'; }
+static void unit_log(const char *m) { uprint("[UNIT] "); uprint(m); uputc('\n'); api_log(m); int n = 0; while (m[n] && cur->loglen < (int)sizeof(cur->log) - 2) cur->log[cur->loglen++] = m[n++]; cur->log[cur->loglen++] = '\n'; }
 
 static void unit_destroy(void) {
-    for (int i = 0; i < unit.npages; i++) page_free(unit.pages[i]);
-    if (unit.l3) page_free(unit.l3);
-    if (unit.l2) page_free(unit.l2);
-    if (unit.l1) page_free(unit.l1);
-    if (unit.l0) page_free(unit.l0);
-    mset(&unit, 0, sizeof unit);
+    for (int i = 0; i < cur->npages; i++) page_free(cur->pages[i]);
+    if (cur->l3) page_free(cur->l3);
+    if (cur->l2) page_free(cur->l2);
+    if (cur->l1) page_free(cur->l1);
+    if (cur->l0) page_free(cur->l0);
+    mset(cur, 0, sizeof *cur);
 }
 
 /* Build the address space and load the image. 0 ok, <0 error. */
-static int unit_create(const u8 *img, u32 len, int persona) {
-    mset(&unit, 0, sizeof unit);
+extern char rcrt_start[];
+static void unit_tables_clean(void);
+static int unit_create(const u8 *img, u32 len, int persona) {   /* persona: 0 plain, 1 persona crt, 2 resident crt */
+    mset(cur, 0, sizeof *cur);
+    cur->budget_ms = (persona == 2) ? 60000 : UNIT_BUDGET_MS;   /* a driver's init busy-waits on hardware */
     u32 npg = (len + PAGE - 1) / PAGE;
-    u32 first = persona ? 1 : 0;                              /* persona: page 0 = crt, image from page 1 */
+    u32 first = persona ? 1 : 0;                              /* crt page 0, image from page 1 */
     if (first + npg + 4 > UNIT_MAX_PAGES) return -1;
-    unit.l0 = page_alloc(); unit.l1 = page_alloc(); unit.l2 = page_alloc(); unit.l3 = page_alloc();
-    if (!unit.l0 || !unit.l1 || !unit.l2 || !unit.l3) { unit_destroy(); return -2; }
-    volatile u64 *l0 = (volatile u64 *)unit.l0, *l1 = (volatile u64 *)unit.l1, *l2 = (volatile u64 *)unit.l2, *l3 = (volatile u64 *)unit.l3;
+    cur->l0 = page_alloc(); cur->l1 = page_alloc(); cur->l2 = page_alloc(); cur->l3 = page_alloc();
+    if (!cur->l0 || !cur->l1 || !cur->l2 || !cur->l3) { unit_destroy(); return -2; }
+    volatile u64 *l0 = (volatile u64 *)cur->l0, *l1 = (volatile u64 *)cur->l1, *l2 = (volatile u64 *)cur->l2, *l3 = (volatile u64 *)cur->l3;
     l0[0] = ((volatile u64 *)MMU_L0)[0];                    /* kernel identity, EL1-only */
-    l0[(UNIT_BASE >> 39) & 0x1ff] = PT_TABLE(unit.l1);
-    l1[(UNIT_BASE >> 30) & 0x1ff] = PT_TABLE(unit.l2);
-    l2[(UNIT_BASE >> 21) & 0x1ff] = PT_TABLE(unit.l3);       /* image pages: l3[first..] */
+    l0[(UNIT_BASE >> 39) & 0x1ff] = PT_TABLE(cur->l1);
+    l1[(UNIT_BASE >> 30) & 0x1ff] = PT_TABLE(cur->l2);
+    l2[(UNIT_BASE >> 21) & 0x1ff] = PT_TABLE(cur->l3);       /* image pages: l3[first..] */
     if (persona) {                                            /* crt page: loop + api stubs + table */
         u64 pa = page_alloc(); if (!pa) { unit_destroy(); return -3; }
-        unit.pages[unit.npages++] = pa;
-        mcpy((void *)pa, ucrt_start, (u32)(ucrt_end - ucrt_start));
+        cur->pages[cur->npages++] = pa;
+        mcpy((void *)pa, ucrt_start, (u32)(ucrt_end - ucrt_start));   /* both crts + stubs live in one blob */
         volatile u64 *d = (volatile u64 *)(pa + 0x800);
-        d[0] = UNIT_BASE + PAGE;                              /* persona_main */
+        d[0] = UNIT_BASE + PAGE;                              /* persona_main / resident_main */
         d[1] = UNIT_BASE + 0x820;                             /* api table VA */
-        d[2] = PERSONA_TICK_MS;
+        d[2] = (persona == 2) ? 2 : PERSONA_TICK_MS;          /* residents tick every 2 ms */
         u64 stub0 = UNIT_BASE + (u64)(ucrt_stubs - ucrt_start);
         volatile u64 *api = (volatile u64 *)(pa + 0x820);
         int k = 0;
@@ -1727,7 +1718,7 @@ static int unit_create(const u8 *img, u32 len, int persona) {
     }
     for (u32 i = 0; i < npg; i++) {
         u64 pa = page_alloc(); if (!pa) { unit_destroy(); return -3; }
-        unit.pages[unit.npages++] = pa;
+        cur->pages[cur->npages++] = pa;
         u32 n = len - i * PAGE; if (n > PAGE) n = PAGE;
         mcpy((void *)pa, img + i * PAGE, n);
         for (u64 a = pa; a < pa + PAGE; a += 64) { __asm__ volatile("dc cvau, %0" :: "r"(a)); }
@@ -1735,22 +1726,73 @@ static int unit_create(const u8 *img, u32 len, int persona) {
     }
     for (int i = 0; i < 4; i++) {                             /* 16KB stack ending at UNIT_STACK+PAGE */
         u64 sp = page_alloc(); if (!sp) { unit_destroy(); return -3; }
-        unit.pages[unit.npages++] = sp;
+        cur->pages[cur->npages++] = sp;
         l3[((UNIT_STACK >> 12) & 0x1ff) - 3 + i] = PT_PAGE_USER(sp);
     }
     __asm__ volatile("dsb ish; ic iallu; dsb ish; isb");
-    unit.entry = UNIT_BASE; unit.sp = UNIT_STACK + PAGE;
-    unit.active = 1; unit.is_persona = persona;
+    unit_tables_clean();
+    cur->entry = UNIT_BASE + ((persona == 2) ? (u64)(rcrt_start - ucrt_start) : 0); cur->sp = UNIT_STACK + PAGE;
+    cur->active = 1; cur->is_persona = persona;
     return 0;
 }
 
-/* Continue a sleeping unit. Returns its exit/sleep code. */
+/* ── capability mapping: give the unit EL0 access to a physical range
+ * (VA == PA), 4KB-granular. The kernel's identity tables are shared into
+ * every unit; the branches that need EL0 entries are cloned on demand
+ * (L1 for the low 512GB, the L2 for that GB, an L3 for that 2MB). ── */
+#define PT_PAGE_K(pa, attr)   ((pa) | 0x3ULL | ((u64)(attr) << 2) | (3ULL << 8) | (1ULL << 10) | (1ULL << 53))
+#define PT_PAGE_U(pa, attr)   ((pa) | 0x3ULL | ((u64)(attr) << 2) | (1ULL << 6) | (3ULL << 8) | (1ULL << 10) | (1ULL << 53) | (1ULL << 54))
+/* The table walker does not see the data cache the way the CPU does: push
+ * every table page the unit owns to DRAM before the tables go live. */
+static void unit_tables_clean(void) {
+    u64 pg[4] = { cur->l0, cur->l1, cur->l2, cur->l3 };
+    for (int i = 0; i < 4; i++) if (pg[i]) for (u64 a = pg[i]; a < pg[i] + PAGE; a += 64) __asm__ volatile("dc civac, %0" :: "r"(a));
+    for (int i = 0; i < cur->npages; i++) for (u64 a = cur->pages[i]; a < cur->pages[i] + PAGE; a += 64) __asm__ volatile("dc civac, %0" :: "r"(a));
+    __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
+}
+static u64 unit_table_page(void) { u64 pa = page_alloc(); if (pa && cur->npages < UNIT_MAX_PAGES) cur->pages[cur->npages++] = pa; return pa; }
+static int unit_map(u64 pa, u64 len, int attr) {
+    if (pa >= (1ULL << 39) || cur->npages + 3 > UNIT_MAX_PAGES) return -1;
+    volatile u64 *l0 = (volatile u64 *)cur->l0;
+    if ((l0[0] & ~0xfffULL) == MMU_L1) {                          /* clone the kernel L1 */
+        u64 n = unit_table_page(); if (!n) return -2;
+        mcpy((void *)n, (void *)MMU_L1, PAGE); l0[0] = PT_TABLE(n);
+    }
+    volatile u64 *l1 = (volatile u64 *)(l0[0] & ~0xfffULL);
+    for (u64 a = pa & ~0xfffULL; a < pa + len; a += PAGE) {
+        int i1 = (a >> 30) & 0x1ff, i2 = (a >> 21) & 0x1ff, i3 = (a >> 12) & 0x1ff;
+        u64 e1 = l1[i1];
+        if ((e1 & 3) == 1) {                                       /* 1GB block → private L2 of 2MB blocks */
+            u64 n = unit_table_page(); if (!n) return -2;
+            volatile u64 *t = (volatile u64 *)n; u64 base = e1 & ~0x3fffffffULL; u64 flags = e1 & 0xfffULL;
+            for (int k = 0; k < 512; k++) t[k] = (base + ((u64)k << 21)) | flags;
+            l1[i1] = PT_TABLE(n); e1 = l1[i1];
+        } else if ((e1 & ~0xfffULL) == MMU_GB0 || (e1 & ~0xfffULL) == MMU_GB3) {   /* shared kernel L2 → clone */
+            u64 n = unit_table_page(); if (!n) return -2;
+            mcpy((void *)n, (void *)(e1 & ~0xfffULL), PAGE); l1[i1] = PT_TABLE(n); e1 = l1[i1];
+        }
+        volatile u64 *l2 = (volatile u64 *)(e1 & ~0xfffULL);
+        u64 e2 = l2[i2];
+        if ((e2 & 3) == 1) {                                       /* 2MB block → L3 of 4KB pages, same attrs */
+            u64 n = unit_table_page(); if (!n) return -2;
+            volatile u64 *t = (volatile u64 *)n; u64 base = e2 & ~0x1fffffULL; int battr = (e2 >> 2) & 7;
+            for (int k = 0; k < 512; k++) t[k] = PT_PAGE_K(base + ((u64)k << 12), battr);
+            l2[i2] = PT_TABLE(n); e2 = l2[i2];
+        } else if (!(e2 & 1)) return -3;                           /* unmapped in the kernel: refuse */
+        volatile u64 *l3 = (volatile u64 *)(e2 & ~0xfffULL);
+        l3[i3] = PT_PAGE_U(a, attr);
+    }
+    unit_tables_clean();
+    return 0;
+}
+
+/* Continue a sleeping cur-> Returns its exit/sleep code. */
 static u64 unit_resume(void) {
-    unit.sleeping = 0; unit_resumes++;
+    cur->sleeping = 0; unit_resumes++;
     timer_arm(SLICE_MS);
-    u64 code = proc_resume(unit.ctx, unit.l0);
+    u64 code = proc_resume(cur->ctx, cur->l0);
     timer_off();
-    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    __asm__ volatile("msr ttbr0_el1, %0; isb" :: "r"((u64)MMU_L0)); __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
     return code;
 }
 
@@ -1762,7 +1804,6 @@ static u64 unit_resume(void) {
 #define GICD 0xFF841000ULL
 #define GICC 0xFF842000ULL
 #define TIMER_IRQ 30
-#define UNIT_BUDGET_MS 3000
 static void gic_init(void) {
     wr32(GICD + 0x000, 0);
     wr32(GICD + 0x100, 1u << TIMER_IRQ);                                   /* ISENABLER0: PPI 30 */
@@ -1785,26 +1826,26 @@ void el0_irq(u64 *regs) {
     wr32(GICC + 0x010, iar);                                               /* EOI */
     if (id != TIMER_IRQ) return;
     timer_off();
-    unit_preempts++; unit.cpu_ms += SLICE_MS;
-    if (unit.cpu_ms > UNIT_BUDGET_MS) {
+    unit_preempts++; cur->cpu_ms += SLICE_MS;
+    if (cur->cpu_ms > cur->budget_ms) {
         unit_log("hung: no sleep for 3s of CPU — killed");
-        unit.exit_code = UNIT_DEAD; unit.active = 0;
-        if (unit.is_persona) api_emit(0xDEAD, regs[31]);
-        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+        cur->exit_code = UNIT_DEAD; cur->active = 0;
+        if (cur->is_persona) api_emit(0xDEAD, regs[31]);
+        __asm__ volatile("msr ttbr0_el1, %0; isb" :: "r"((u64)MMU_L0)); __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
         proc_exit(UNIT_DEAD);
     }
-    for (int i = 0; i < FRAME_WORDS; i++) unit.ctx[i] = regs[i];         /* park as-is (x0 kept) */
-    unit.sleeping = 1; unit.wake_at = now_ms();
-    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    for (int i = 0; i < FRAME_WORDS; i++) cur->ctx[i] = regs[i];         /* park as-is (x0 kept) */
+    cur->preempted = 1; cur->sleeping = 1; cur->wake_at = now_ms();
+    __asm__ volatile("msr ttbr0_el1, %0; isb" :: "r"((u64)MMU_L0)); __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
     proc_exit(UNIT_SLEEPING);
 }
 
 /* Run the unit to completion (phase 2: synchronous). Returns exit code. */
 static u64 unit_run(void) {
     timer_arm(SLICE_MS);
-    u64 code = proc_enter(unit.entry, unit.sp, unit.l0);
+    u64 code = proc_enter(cur->entry, cur->sp, cur->l0);
     timer_off();
-    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    __asm__ volatile("msr ttbr0_el1, %0; isb" :: "r"((u64)MMU_L0)); __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
     return code;
 }
 
@@ -1821,15 +1862,23 @@ static int user_ok(u64 uva, u64 len) { return uva >= UNIT_BASE && uva + len <= U
 static u64 do_syscall(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 *regs) {
     switch (nr) {
     case SYS_LOG: { char b[128]; if (copy_user_str(b, a0, sizeof b) < 0) return (u64)-1; unit_log(b); return 0; }
-    case SYS_EXIT: unit.exit_code = a0; unit.active = 0;
-        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    case SYS_EXIT: cur->exit_code = a0; cur->active = 0;
+        __asm__ volatile("msr ttbr0_el1, %0; isb" :: "r"((u64)MMU_L0)); __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
         proc_exit(a0);
     case SYS_YIELD: return 0;
+    case SYS_MBOX: {                                          /* platform mailbox on behalf of a driver process */
+        if (a1 < 8 || a1 > 128 || !user_ok(a0, a1)) return (u64)-1;
+        mcpy(mbox_buf, (void *)a0, (int)a1); dsb();
+        int ok = mbox_call();
+        mcpy((void *)a0, mbox_buf, (int)a1);
+        return ok ? 0 : (u64)-2; }
+    case SYS_TOUCH: touch_publish((int)a0, (int)a1, (int)a2); return 0;
     case SYS_SLEEP:                                           /* park: save the frame, hand the CPU back */
-        for (int i = 0; i < FRAME_WORDS; i++) unit.ctx[i] = regs[i];
-        unit.ctx[0] = 0;                                      /* syscall result seen on resume */
-        unit.sleeping = 1; unit.wake_at = now_ms() + (a0 ? a0 : 1); unit.cpu_ms = 0;
-        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+        for (int i = 0; i < FRAME_WORDS; i++) cur->ctx[i] = regs[i];
+        cur->ctx[0] = cur->stop_req ? 1 : 0;                  /* syscall result seen on resume */
+        cur->preempted = 0;
+        cur->sleeping = 1; cur->wake_at = now_ms() + (a0 ? a0 : 1); cur->cpu_ms = 0;
+        __asm__ volatile("msr ttbr0_el1, %0; isb" :: "r"((u64)MMU_L0)); __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
         proc_exit(UNIT_SLEEPING);
     /* api_t slots (same contracts as the in-kernel table) */
     case SYS_API + 0: fb_clear((u32)a0); return 0;
@@ -1858,31 +1907,35 @@ static u64 do_syscall(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 *regs)
 void el0_sync(u64 esr, u64 far, u64 *regs) {
     u32 ec = (esr >> 26) & 0x3f;
     if (ec == 0x15) { regs[0] = do_syscall(regs[8], regs[0], regs[1], regs[2], regs[3], regs[4], regs); return; }
-    char b[96]; int n = scpy(b, "unit fault ec=0x"); const char h[] = "0123456789abcdef";
-    b[n++] = h[(ec >> 4) & 0xf]; b[n++] = h[ec & 0xf]; n += scpy(b+n, " far=0x");
+    char b[112]; int n = scpy(b, "unit fault ec=0x"); const char h[] = "0123456789abcdef";
+    b[n++] = h[(ec >> 4) & 0xf]; b[n++] = h[ec & 0xf];
+    n += scpy(b+n, " iss=0x"); for (int i = 20; i >= 0; i -= 4) b[n++] = h[(esr >> i) & 0xf];
+    n += scpy(b+n, " far=0x");
     for (int i = 44; i >= 0; i -= 4) b[n++] = h[(far >> i) & 0xf];
     n += scpy(b+n, " elr=0x"); for (int i = 44; i >= 0; i -= 4) b[n++] = h[(regs[31] >> i) & 0xf];
     b[n] = 0; unit_log(b);
-    unit.exit_code = UNIT_DEAD; unit.active = 0;
-    if (unit.is_persona) api_emit(0xDEAD, regs[31]);
-    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    cur->exit_code = UNIT_DEAD; cur->active = 0;
+    if (cur->is_persona) api_emit(0xDEAD, regs[31]);
+    __asm__ volatile("msr ttbr0_el1, %0; isb" :: "r"((u64)MMU_L0)); __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
     proc_exit(UNIT_DEAD);
 }
 
 /* URUN: run the staged binary as an EL0 unit, reply with exit code + log. */
 static void handle_urun(const u8 *p, int len) {
     u32 clen = stage_check(p, len, "URUN"); if (!clen) return;
-    if (unit.active) { poke_resp_str("{\"error\":\"busy\"}"); return; }
+    cur = &units[SLOT_URUN];
+    if (cur->active) { poke_resp_str("{\"error\":\"busy\"}"); return; }
     int rc = unit_create(stage_buf, clen, 0);
     if (rc) { poke_resp_str(rc == -1 ? "{\"error\":\"too big\"}" : "{\"error\":\"no pages\"}"); return; }
+    if (len > 8 && apply_mappings(p, len) < 0) { unit_destroy(); poke_resp_str("{\"error\":\"map failed\"}"); return; }
     u64 t0 = now_ms();
     u64 code = unit_run();
-    while (code == UNIT_SLEEPING && now_ms() - t0 < 5000) { while (now_ms() < unit.wake_at) {} code = unit_resume(); }
+    while (code == UNIT_SLEEPING && now_ms() - t0 < 5000) { while (now_ms() < cur->wake_at) {} code = unit_resume(); }
     u64 dt = now_ms() - t0;
     char r[720]; int n = scpy(r, "{\"unit\":\"exited\",\"code\":"); n += idec((u32)code, r+n);
     n += scpy(r+n, ",\"ms\":"); n += idec((u32)dt, r+n);
-    n += scpy(r+n, ",\"pages\":"); n += idec(unit.npages + 4, r+n);
-    n += scpy(r+n, ",\"log\":\""); for (int i = 0; i < unit.loglen && n < 700; i++) { char c = unit.log[i]; if (c == '\n') { r[n++] = '\\'; r[n++] = 'n'; } else if (c == '"' || c == '\\') { r[n++] = '\\'; r[n++] = c; } else r[n++] = c; }
+    n += scpy(r+n, ",\"pages\":"); n += idec(cur->npages + 4, r+n);
+    n += scpy(r+n, ",\"log\":\""); for (int i = 0; i < cur->loglen && n < 700; i++) { char c = cur->log[i]; if (c == '\n') { r[n++] = '\\'; r[n++] = 'n'; } else if (c == '"' || c == '\\') { r[n++] = '\\'; r[n++] = c; } else r[n++] = c; }
     r[n++] = '"'; r[n++] = '}';
     poke_resp((const u8 *)r, n);
     unit_destroy();
@@ -1896,7 +1949,8 @@ static int unit_persona_start(const u8 *code, int clen) {
         if (insn == 0xD65F03C0) { has_ret = 1; break; }
     }
     if (!has_ret) return -2;
-    if (unit.active) unit_destroy();
+    cur = &units[SLOT_PERSONA];
+    if (cur->active) unit_destroy();
     persona_active = 0;
     int rc = unit_create(code, (u32)clen, 1);
     if (rc) { uprint("[UNIT] persona create failed\n"); return -1; }
@@ -1906,16 +1960,82 @@ static int unit_persona_start(const u8 *code, int clen) {
     if (c != UNIT_SLEEPING) { uprint("[UNIT] persona ended at tick 0\n"); unit_destroy(); persona_active = 0; return -1; }
     return 0;
 }
-static void unit_persona_stop(void) { if (unit.active && unit.is_persona) unit_destroy(); }
-static void unit_persona_run(void) {
-    if (!unit.active || !unit.is_persona || !unit.sleeping) return;
-    if (now_ms() < unit.wake_at) return;
-    u64 c = unit_resume();
-    if (c != UNIT_SLEEPING) {                                 /* exited or died: reclaim, back to the console */
-        uprint("[UNIT] persona ended code="); udec((u32)c); uputc('\n');
-        if (fb_ok) { fb_text(40, 560, 2, 0x00FF4040, c == UNIT_DEAD ? "persona crashed — isolated, device alive" : "persona exited"); }
-        unit_destroy(); persona_active = 0;
+static void unit_persona_stop(void) { cur = &units[SLOT_PERSONA]; if (cur->active && cur->is_persona) unit_destroy(); }
+
+/* Scheduler: resume every parked unit whose wake time has come; one pass per
+ * main-loop iteration, so the network and the console always get a turn. */
+static void unit_sched(void) {
+    for (int i = 0; i < UNIT_SLOTS; i++) {
+        unit_t *u = &units[i];
+        if (!u->active || !u->sleeping || now_ms() < u->wake_at) continue;
+        cur = u;
+        u64 c = unit_resume();
+        if (c == UNIT_SLEEPING) continue;
+        uprint("[UNIT] slot "); udec(i); uprint(" ended code="); udec((u32)c); uputc('\n');
+        if (i == SLOT_PERSONA) {
+            if (fb_ok) fb_text(40, 560, 2, 0x00FF4040, c == UNIT_DEAD ? "persona crashed — isolated, device alive" : "persona exited");
+            persona_active = 0;
+        }
+        if (i == SLOT_RESIDENT) { tp_avail = 0; tp_down = 0; if (fb_ok) fb_text(40, 576, 2, 0x00FF4040, c == UNIT_DEAD ? "resident crashed — isolated, device alive" : "resident exited"); }
+        unit_destroy();
     }
+}
+static void unit_persona_run(void) { unit_sched(); }
+
+/* ── resident driver process ── */
+static void resident_stop(void) {
+    unit_t *u = &units[SLOT_RESIDENT];
+    if (!u->active) return;
+    cur = u; u->stop_req = 1;
+    u64 t0 = now_ms(), c = UNIT_SLEEPING;                    /* wake it: its sleep() returns 1 → RES_STOP → exit */
+    while (u->active && now_ms() - t0 < 3000) {
+        if (!u->sleeping) break;
+        c = unit_resume();
+        if (c != UNIT_SLEEPING) break;
+    }
+    tp_avail = 0; tp_down = 0;
+    unit_destroy();
+    uprint("[UNIT] resident stopped\n");
+}
+
+
+/* apply a mapping list "count32 {pa64 len64 attr32}*" from a command payload; returns the name offset or -1 */
+static int apply_mappings(const u8 *p, int len) {
+    int o = 8; u32 nmap = 0;
+    if (len >= 12) { nmap = ld32(p + 8); o = 12; }
+    if (nmap > 16 || len < o + (int)nmap * 20) return -1;
+    for (u32 i = 0; i < nmap; i++) {
+        const u8 *m = p + o + i * 20;
+        u64 pa = ld32(m) | ((u64)ld32(m + 4) << 32), ln = ld32(m + 8) | ((u64)ld32(m + 12) << 32); u32 attr = ld32(m + 16);
+        if (unit_map(pa, ln, attr == 1 ? ATTR_NC : ATTR_DEV)) return -1;
+    }
+    return o + (int)nmap * 20;
+}
+
+static void handle_rsld(const u8 *p, int len) {
+    u32 clen = stage_check(p, len, "RSLD"); if (!clen) return;
+    resident_stop();
+    cur = &units[SLOT_RESIDENT];
+    int rc = unit_create(stage_buf, clen, 2);
+    if (rc) { poke_resp_str(rc == -1 ? "{\"error\":\"too big\"}" : "{\"error\":\"no pages\"}"); return; }
+    int o = apply_mappings(p, len);
+    if (o < 0) { unit_destroy(); poke_resp_str("{\"error\":\"map failed\"}"); return; }
+    u32 nmap = 0; (void)nmap;
+    { int k = 0; const u8 *nm = p + o; while (nm < (const u8 *)p + len && nm[k] && k < 31) { cur->name[k] = nm[k]; k++; } cur->name[k] = 0; }
+    /* run INIT to completion: keep resuming while it is merely preempted */
+    u64 t0 = now_ms(); u64 c = unit_run();
+    while (c == UNIT_SLEEPING && cur->preempted && now_ms() - t0 < 15000) c = unit_resume();
+    if (c == UNIT_SLEEPING && !cur->preempted) {              /* parked in its first voluntary sleep: INIT done */
+        char r[96]; int n = scpy(r, "{\"resident\":\""); n += scpy(r+n, cur->name); n += scpy(r+n, "\",\"size\":"); n += idec(clen, r+n);
+        n += scpy(r+n, ",\"pages\":"); n += idec(cur->npages + 4, r+n); r[n++] = '}';
+        poke_resp((const u8 *)r, n);
+        uprint("[POKE] RSLD "); uprint(cur->name); uprint(" (EL0)\n");
+        return;
+    }
+    char r[200]; int n = scpy(r, "{\"error\":\"init failed\",\"code\":"); n += idec((u32)c, r+n); n += scpy(r+n, ",\"last_log\":\"");
+    const char *l = last_logs[(last_log_i + 3) % 4]; for (int i = 0; l[i] && n < 190; i++) if (l[i] != '"') r[n++] = l[i];
+    r[n++] = '"'; r[n++] = '}'; poke_resp((const u8 *)r, n);
+    tp_avail = 0; unit_destroy();
 }
 
 void kernel_main(void) {
@@ -2038,12 +2158,11 @@ void kernel_main(void) {
         }
 
         /* Resident driver tick (event-ring drains, sensor polls, ...) */
-        if (res_active && res_fn) res_fn(&persona_api, RES_TICK, 0);
 
         /* Touch feedback when no persona owns the screen */
-        if (svc.touch && !persona_active && fb_ok) {
+        if ((svc.touch || tp_avail) && !persona_active && fb_ok) {
             int tx, ty;
-            if (svc.touch(&tx, &ty)) fb_rect(tx - 3, ty - 3, 6, 6, 0x0000FF66);
+            if (api_touch(&tx, &ty)) fb_rect(tx - 3, ty - 3, 6, 6, 0x0000FF66);
         }
 
         /* Resident persona tick */

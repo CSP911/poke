@@ -236,8 +236,10 @@ proc_resume:
     mov     x10, sp
     str     x10, [x9, #96]
     msr     ttbr0_el1, x1
-    tlbi    vmalle1
-    dsb     ish
+    isb
+    dsb     sy
+    tlbi    vmalle1is
+    dsb     sy
     isb
     mov     x9, x0
     ldr     x10, [x9, #264]
@@ -325,8 +327,10 @@ proc_enter:
     mov     x10, sp
     str     x10, [x9, #96]
     msr     ttbr0_el1, x2
-    tlbi    vmalle1
-    dsb     ish
+    isb
+    dsb     sy
+    tlbi    vmalle1is
+    dsb     sy
     isb
     msr     sp_el0, x1
     msr     elr_el1, x0
@@ -375,6 +379,36 @@ ucrt_start:
     mov     x8, #3                      /* SYS_SLEEP */
     svc     #0
     b       1b
+    .align 4
+.global rcrt_start
+rcrt_start:                             /* resident variant: same page layout, ops instead of ticks */
+    adr     x19, ucrt_start             /* data block is relative to the PAGE (blob start), not to us */
+    ldr     x20, [x19, #0x800]          /* resident_main */
+    ldr     x21, [x19, #0x808]          /* api */
+    mov     x0, x21
+    mov     x1, #1                      /* RES_INIT */
+    mov     x2, #0
+    blr     x20
+    cbz     x0, 2f
+    mov     x8, #1                      /* SYS_EXIT(1): init failed */
+    mov     x0, #1
+    svc     #0
+2:  mov     x0, x21
+    mov     x1, #2                      /* RES_TICK */
+    mov     x2, #0
+    blr     x20
+    ldr     x0, [x19, #0x810]           /* tick ms */
+    mov     x8, #3                      /* SYS_SLEEP → returns 1 when the kernel wants us gone */
+    svc     #0
+    cbz     x0, 2b
+    mov     x0, x21
+    mov     x1, #3                      /* RES_STOP */
+    mov     x2, #0
+    blr     x20
+    mov     x8, #1
+    mov     x0, #0
+    svc     #0
+    b       2b
     .align 4
 ucrt_stubs:                             /* 16 bytes each, api_t order: 10 clear .. 23 touch_trace */
 .macro STUB n
