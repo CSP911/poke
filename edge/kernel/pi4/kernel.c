@@ -1168,6 +1168,7 @@ static void handle_draw(const u8 *p, int rem) {
     poke_resp((const u8 *)r, n);
 }
 
+static int mmu_on;   /* set by mmu_init (defined near kernel_main) */
 /* resident slot state (defined with the resident mechanism below; INFO reports it) */
 static int res_active;
 static char res_name[32];
@@ -1187,6 +1188,8 @@ static void handle_poke(const u8 *payload, int len) {
         char r[384]; int n = 0;
         n += scpy(r+n, "{\"status\":\"alive\",\"arch\":\"aarch64\",\"chip\":\"bcm2711\"");
         n += scpy(r+n, ",\"kernel\":\"poke-os\",\"build\":\"" BUILD_ID "\",\"transport\":\"udp\"");
+        { u64 el; __asm__ volatile("mrs %0, CurrentEL" : "=r"(el)); n += scpy(r+n, ",\"el\":"); n += idec((u32)((el >> 2) & 3), r+n); }
+        n += scpy(r+n, ",\"mmu\":"); n += scpy(r+n, mmu_on ? "true" : "false");
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
         n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"KRLD\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         if (fb_ok) {
@@ -1475,6 +1478,101 @@ static int resident_load(u32 clen) {
     return 0;
 }
 
+/* ═══════════════════════════════════════════
+ * MMU: identity map (VA == PA) with memory attributes — the kernel keeps
+ * physical addresses; the point is caching and Device typing. Everything a
+ * DMA engine or the GPU touches stays non-cacheable, so no cache maintenance
+ * is needed anywhere in the kernel:
+ *   [0,16MB)          kernel image/.bss (GENET rings, code/persona/stage/
+ *                     resident buffers), stack, page tables → NC
+ *   [0x02000000,+4MB) GENET RX/TX packet buffers, xHCI DMA region → NC
+ *   [ARM end, 1GB)    GPU / framebuffer → NC
+ *   [0xFC000000,4GB)  peripherals → Device
+ *   0x600000000 (1GB) PCIe outbound window (VL805 MMIO) → Device
+ *   everything else   RAM → write-back cacheable (process pages come from here)
+ * Tables at 0x00800000: L1 (64 × 1GB, T0SZ=28) + 2MB tables for GB0/GB3.
+ * ═══════════════════════════════════════════ */
+#define MMU_L1   0x00800000ULL
+#define MMU_GB0  0x00801000ULL
+#define MMU_GB3  0x00802000ULL
+#define ATTR_WB  0
+#define ATTR_NC  1
+#define ATTR_DEV 2
+#define PT_BLOCK(pa, attr) ((pa) | 0x1ULL | ((u64)(attr) << 2) | (3ULL << 8) | (1ULL << 10))
+#define PT_TABLE(pa)       ((pa) | 0x3ULL)
+static u64 mmu_arm_end = 0x3E600000ULL;
+static int mmu_on = 0;
+
+static void mmu_cache_invalidate_all(void) {          /* dc isw over every data/unified level */
+    u64 clidr; __asm__ volatile("mrs %0, clidr_el1" : "=r"(clidr));
+    int loc = (clidr >> 24) & 7;
+    for (int lvl = 0; lvl < loc; lvl++) {
+        if (((clidr >> (lvl*3)) & 7) < 2) continue;
+        __asm__ volatile("msr csselr_el1, %0" :: "r"((u64)lvl << 1)); __asm__ volatile("isb");
+        u64 cc; __asm__ volatile("mrs %0, ccsidr_el1" : "=r"(cc));
+        int line = (cc & 7) + 4, ways = ((cc >> 3) & 0x3ff) + 1, sets = ((cc >> 13) & 0x7fff) + 1;
+        int wshift = ways > 1 ? __builtin_clz((u32)ways - 1) : 32;
+        for (int w = 0; w < ways; w++) for (int st = 0; st < sets; st++) {
+            u64 v = ((u64)lvl << 1) | ((u64)st << line) | (ways > 1 ? ((u64)w << wshift) : 0);
+            __asm__ volatile("dc isw, %0" :: "r"(v));
+        }
+    }
+    __asm__ volatile("dsb sy");
+}
+
+static void mmu_init(void) {
+    /* GPU boundary from the mailbox (ARM memory tag) */
+    mbox_buf[0] = 8*4; mbox_buf[1] = 0; mbox_buf[2] = 0x00010005; mbox_buf[3] = 8; mbox_buf[4] = 0; mbox_buf[5] = 0; mbox_buf[6] = 0; mbox_buf[7] = 0;
+    dsb();
+    if (mbox_call() && mbox_buf[6]) mmu_arm_end = (u64)mbox_buf[5] + mbox_buf[6];
+
+    volatile u64 *l1 = (volatile u64 *)MMU_L1, *gb0 = (volatile u64 *)MMU_GB0, *gb3 = (volatile u64 *)MMU_GB3;
+    for (int i = 0; i < 512; i++) { l1[i] = 0; gb0[i] = 0; gb3[i] = 0; }
+    for (int i = 0; i < 16; i++) l1[i] = PT_BLOCK((u64)i << 30, ATTR_WB);
+    l1[0] = PT_TABLE(MMU_GB0);
+    l1[3] = PT_TABLE(MMU_GB3);
+    l1[24] = PT_BLOCK(0x600000000ULL, ATTR_DEV);                /* PCIe outbound window */
+    for (int i = 0; i < 512; i++) {
+        u64 pa = (u64)i << 21; int a = ATTR_WB;
+        if (pa < 0x01000000ULL) a = ATTR_NC;
+        else if (pa >= 0x02000000ULL && pa < 0x02400000ULL) a = ATTR_NC;   /* GENET RX/TX buffers + xHCI DMA */
+        else if (pa >= mmu_arm_end) a = ATTR_NC;
+        gb0[i] = PT_BLOCK(pa, a);
+        u64 pa3 = 0xC0000000ULL + ((u64)i << 21);
+        gb3[i] = PT_BLOCK(pa3, pa3 >= 0xFC000000ULL ? ATTR_DEV : ATTR_WB);
+    }
+    dsb();
+    if (fb_ok) fb_text(40, 470, 2, 0x00AAAAAA, "mmu: tables");
+    mmu_cache_invalidate_all(); __asm__ volatile("ic iallu; dsb sy; isb");
+    if (fb_ok) fb_text(40, 490, 2, 0x00AAAAAA, "mmu: caches invalidated");
+    /* Cortex-A72: no data caching without CPUECTLR_EL1.SMPEN */
+    { u64 e; __asm__ volatile("mrs %0, s3_1_c15_c2_1" : "=r"(e)); e |= (1ULL << 6); __asm__ volatile("msr s3_1_c15_c2_1, %0" :: "r"(e)); __asm__ volatile("isb"); }
+    if (fb_ok) fb_text(40, 510, 2, 0x00AAAAAA, "mmu: smpen");
+    u64 mair = 0xFFULL | (0x44ULL << 8) | (0x04ULL << 16);
+    u64 el; __asm__ volatile("mrs %0, CurrentEL" : "=r"(el)); el = (el >> 2) & 3;
+    if (el == 2) {
+        u64 tcr = (1ULL << 31) | (1ULL << 23) | (2ULL << 16) | (3ULL << 12) | 28;    /* EL2: RES1, PS 40-bit, SH0 inner, 4KB, T0SZ=28 */
+        __asm__ volatile("msr mair_el2, %0" :: "r"(mair));
+        __asm__ volatile("msr tcr_el2, %0" :: "r"(tcr));
+        __asm__ volatile("msr ttbr0_el2, %0" :: "r"((u64)MMU_L1));
+        __asm__ volatile("tlbi alle2; dsb sy; isb");
+        if (fb_ok) fb_text(40, 530, 2, 0x00AAAAAA, "mmu: regs set (EL2), enabling...");
+        u64 sc; __asm__ volatile("mrs %0, sctlr_el2" : "=r"(sc)); sc |= (1ULL << 0) | (1ULL << 2) | (1ULL << 12);
+        __asm__ volatile("msr sctlr_el2, %0" :: "r"(sc)); __asm__ volatile("isb");
+    } else {
+        u64 tcr = (2ULL << 32) | (1ULL << 23) | (28ULL << 16) | (3ULL << 12) | 28;   /* EL1: IPS 40-bit, EPD1, T1SZ=28, SH0 inner, 4KB, T0SZ=28 */
+        __asm__ volatile("msr mair_el1, %0" :: "r"(mair));
+        __asm__ volatile("msr tcr_el1, %0" :: "r"(tcr));
+        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L1));
+        __asm__ volatile("tlbi vmalle1; dsb sy; isb");
+        if (fb_ok) fb_text(40, 530, 2, 0x00AAAAAA, "mmu: regs set (EL1), enabling...");
+        u64 sc; __asm__ volatile("mrs %0, sctlr_el1" : "=r"(sc)); sc |= (1ULL << 0) | (1ULL << 2) | (1ULL << 12);
+        __asm__ volatile("msr sctlr_el1, %0" :: "r"(sc)); __asm__ volatile("isb");
+    }
+    mmu_on = 1;
+    if (fb_ok) fb_text(40, 550, 2, 0x0000FF66, el == 2 ? "mmu: ON (EL2)" : "mmu: ON (EL1)");
+}
+
 void kernel_main(void) {
     /* Stage 1: ACT LED — fast blink = kernel alive */
     act_init();
@@ -1483,6 +1581,7 @@ void kernel_main(void) {
     uart_init();
     fb_init();
     print_banner();
+    mmu_init();         /* identity map, caches on (screen shows each step) */
 
     /* Stage 2: 2 slow blinks = UART done */
     act_blink(2, 300);

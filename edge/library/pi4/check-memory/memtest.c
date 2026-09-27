@@ -91,7 +91,14 @@ static void cache_all(int clean) {
     DSB();
 }
 
+static int mmu_was_ours = 0;
+static int kernel_mmu(void) {                 /* kernel already translating (identity, RAM cacheable)? */
+    u64 sc; if (current_el() == 2) __asm__ volatile("mrs %0, sctlr_el2" : "=r"(sc)); else __asm__ volatile("mrs %0, sctlr_el1" : "=r"(sc));
+    return sc & 1;
+}
 static void mmu_on(u64 arm_end) {
+    if (kernel_mmu()) return;                 /* the kernel's map already gives us cacheable RAM */
+    mmu_was_ours = 1;
     /* L1: 16 × 1GB (T0SZ=30 → 16GB VA). GB0 and GB3 go through 2MB tables. */
     for (int i = 0; i < 512; i++) wr64(TBL_L1 + i*8, 0);
     for (int i = 0; i < 16; i++) wr64(TBL_L1 + i*8, BLOCK((u64)i << 30, ATTR_WB));
@@ -100,7 +107,7 @@ static void mmu_on(u64 arm_end) {
     for (int i = 0; i < 512; i++) {
         u64 pa = (u64)i << 21; int attr = ATTR_WB;
         if (pa < 0x01000000UL) attr = ATTR_NC;                                  /* kernel, GENET DMA, our tables */
-        else if (pa >= 0x02200000UL && pa < 0x02400000UL) attr = ATTR_NC;        /* xHCI DMA */
+        else if (pa >= 0x02000000UL && pa < 0x02400000UL) attr = ATTR_NC;        /* GENET buffers + xHCI DMA */
         else if (pa >= arm_end) attr = ATTR_NC;                                  /* GPU / framebuffer */
         wr64(TBL_GB0 + i*8, BLOCK(pa, attr));
         u64 pa3 = 0xC0000000UL + ((u64)i << 21);
@@ -132,6 +139,7 @@ static void mmu_on(u64 arm_end) {
 }
 
 static void mmu_off(void) {
+    if (!mmu_was_ours) { DSB(); return; }     /* kernel owns the MMU: leave it alone */
     DSB(); cache_all(1);                                   /* test data is garbage, but leave nothing dirty */
     if (current_el() == 2) { u64 s; __asm__ volatile("mrs %0, sctlr_el2" : "=r"(s)); s &= ~((1UL << 0) | (1UL << 2) | (1UL << 12)); __asm__ volatile("msr sctlr_el2, %0" :: "r"(s)); ISB(); __asm__ volatile("tlbi alle2"); }
     else                   { u64 s; __asm__ volatile("mrs %0, sctlr_el1" : "=r"(s)); s &= ~((1UL << 0) | (1UL << 2) | (1UL << 12)); __asm__ volatile("msr sctlr_el1, %0" :: "r"(s)); ISB(); __asm__ volatile("tlbi vmalle1"); }
@@ -155,6 +163,7 @@ u64 probe(char *out, int *outlen) {
         relocated = 1;                                       /* the copy inherits this */
         volatile u64 *src = (volatile u64 *)(u64)probe, *dst = (volatile u64 *)SCRATCH;
         for (u64 i = 0; i < IMAGE_SZ/8; i++) dst[i] = src[i];
+        for (u64 a = SCRATCH; a < SCRATCH + IMAGE_SZ; a += 64) __asm__ volatile("dc cvau, %0" :: "r"(a));
         __asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
         u64 (*copy)(char *, int *) = (u64 (*)(char *, int *))SCRATCH;
         relocated = 0;

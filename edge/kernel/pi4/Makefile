@@ -5,7 +5,7 @@ OBJCOPY = aarch64-elf-objcopy
 # -mstrict-align is REQUIRED: MMU is off, so all RAM is Device memory
 # and any unaligned load/store raises an alignment fault (DFSC 0x21)
 BUILD_ID := $(shell date +%m%d-%H%M%S)
-CFLAGS = -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -O1 -Wall -mcpu=cortex-a72 -mstrict-align -DBUILD_ID='"$(BUILD_ID)"'
+CFLAGS = -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -O1 -Wall -mcpu=cortex-a72 -mstrict-align -DBUILD_ID='"$(BUILD_ID)"' -DPOKE_EL1
 LDFLAGS = -T linker.ld -nostdlib
 
 # Pi 4 GPU firmware (downloaded once)

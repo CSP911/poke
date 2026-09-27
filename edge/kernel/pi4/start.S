@@ -39,6 +39,56 @@ _start:
     b       1b
 2:
 
+    /* ── Privilege: the kernel runs at EL1 (units will run at EL0). The GPU
+     * hands us EL2; configure EL2 so EL1 owns the timer, FP/SIMD and the
+     * implementation-defined registers, then eret down. A kernel reload
+     * arrives here already at EL1 with the MMU possibly on — start clean. */
+#ifdef POKE_EL1
+    mrs     x1, CurrentEL
+    lsr     x1, x1, #2
+    cmp     x1, #2
+    b.ne    el1_entry_check
+    mov     x0, #(1 << 31)              /* HCR_EL2.RW: EL1 is AArch64 */
+    msr     hcr_el2, x0
+    mov     x0, #3                      /* CNTHCTL_EL2: EL1PCTEN|EL1PCEN — EL1 sees the physical timer */
+    msr     cnthctl_el2, x0
+    msr     cntvoff_el2, xzr
+    mov     x0, #0x73                   /* ACTLR_EL2: EL1 may write CPUACTLR/CPUECTLR/L2CTLR/L2ECTLR */
+    msr     actlr_el2, x0
+    mov     x0, #0x33ff                 /* CPTR_EL2: no FP/SIMD traps to EL2 */
+    msr     cptr_el2, x0
+    msr     hstr_el2, xzr
+    mov     x0, #(3 << 20)              /* CPACR_EL1: FP/SIMD enabled at EL1/EL0 */
+    msr     cpacr_el1, x0
+    ldr     x0, =0x30d00800             /* SCTLR_EL1: RES1 only — MMU/caches off until mmu_init */
+    msr     sctlr_el1, x0
+    ldr     x0, =vectors
+    msr     vbar_el1, x0
+    mov     x0, #0x3c5                  /* SPSR_EL2: D A I F masked, EL1h */
+    msr     spsr_el2, x0
+    adr     x0, el1_entry
+    msr     elr_el2, x0
+    eret
+
+el1_entry_check:
+    /* already EL1 (kernel reload): make sure MMU/caches are off */
+    mrs     x0, sctlr_el1
+    bic     x0, x0, #(1 << 0)
+    bic     x0, x0, #(1 << 2)
+    bic     x0, x0, #(1 << 12)
+    msr     sctlr_el1, x0
+    isb
+    tlbi    vmalle1
+    ic      iallu
+    dsb     sy
+    isb
+el1_entry:
+    ldr     x0, =0x01000000             /* SP_EL1 */
+    mov     sp, x0
+    ldr     x0, =vectors
+    msr     vbar_el1, x0
+
+#endif
     /* Jump to C */
     bl      kernel_main
 
