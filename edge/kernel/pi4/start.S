@@ -116,7 +116,8 @@ vectors:
     VEC 5   /* curr EL, SPx: irq */
     VEC 6   /* curr EL, SPx: fiq */
     VEC 7   /* curr EL, SPx: serror */
-    VEC 8   /* lower EL, a64: sync */
+    .align 7                /* 8: lower EL, a64: sync — SVC from a unit at EL0 */
+    b       el0_sync_entry
     VEC 9   /* lower EL, a64: irq */
     VEC 10  /* lower EL, a64: fiq */
     VEC 11  /* lower EL, a64: serror */
@@ -166,3 +167,86 @@ reload_tramp:
     isb
     br      x3
 reload_tramp_end:
+
+/* ── EL0 units: exception entry, enter, exit ──
+ * A unit runs at EL0 in its own address space. SVC (and faults) from EL0
+ * land here on SP_EL1, which is the kernel stack as proc_enter left it.
+ * Saved frame (256 bytes): x0-x18 pairs, x29,x30, elr, spsr. */
+el0_sync_entry:
+    sub     sp, sp, #256
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x10, x11, [sp, #80]
+    stp     x12, x13, [sp, #96]
+    stp     x14, x15, [sp, #112]
+    stp     x16, x17, [sp, #128]
+    stp     x18, x29, [sp, #144]
+    str     x30, [sp, #160]
+    mrs     x9, elr_el1
+    mrs     x10, spsr_el1
+    stp     x9, x10, [sp, #176]
+    mrs     x0, esr_el1
+    mrs     x1, far_el1
+    mov     x2, sp
+    bl      el0_sync                    /* C: syscall (returns) or unit kill (never returns) */
+    ldp     x9, x10, [sp, #176]
+    msr     elr_el1, x9
+    msr     spsr_el1, x10
+    ldp     x0, x1, [sp, #0]
+    ldp     x2, x3, [sp, #16]
+    ldp     x4, x5, [sp, #32]
+    ldp     x6, x7, [sp, #48]
+    ldp     x8, x9, [sp, #64]
+    ldp     x10, x11, [sp, #80]
+    ldp     x12, x13, [sp, #96]
+    ldp     x14, x15, [sp, #112]
+    ldp     x16, x17, [sp, #128]
+    ldp     x18, x29, [sp, #144]
+    ldr     x30, [sp, #160]
+    add     sp, sp, #256
+    eret
+
+/* u64 proc_enter(entry, sp_el0, ttbr0): switch to the unit's tables and
+ * drop to EL0. Returns (via proc_exit) with the unit's exit code. */
+.global proc_enter
+proc_enter:
+    adr     x9, kctx
+    stp     x19, x20, [x9, #0]
+    stp     x21, x22, [x9, #16]
+    stp     x23, x24, [x9, #32]
+    stp     x25, x26, [x9, #48]
+    stp     x27, x28, [x9, #64]
+    stp     x29, x30, [x9, #80]
+    mov     x10, sp
+    str     x10, [x9, #96]
+    msr     ttbr0_el1, x2
+    tlbi    vmalle1
+    dsb     ish
+    isb
+    msr     sp_el0, x1
+    msr     elr_el1, x0
+    mov     x9, #0x3c0                  /* SPSR: EL0t, D A I F masked (no IRQs yet) */
+    msr     spsr_el1, x9
+    eret
+
+/* void proc_exit(u64 code): abandon the unit, resume after proc_enter. */
+.global proc_exit
+proc_exit:
+    adr     x9, kctx
+    ldp     x19, x20, [x9, #0]
+    ldp     x21, x22, [x9, #16]
+    ldp     x23, x24, [x9, #32]
+    ldp     x25, x26, [x9, #48]
+    ldp     x27, x28, [x9, #64]
+    ldp     x29, x30, [x9, #80]
+    ldr     x10, [x9, #96]
+    mov     sp, x10
+    ret
+
+.section .bss
+.align 4
+kctx:   .skip 128
+.section .text

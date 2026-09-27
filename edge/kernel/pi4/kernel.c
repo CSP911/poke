@@ -1169,6 +1169,9 @@ static void handle_draw(const u8 *p, int rem) {
 }
 
 static int mmu_on;   /* set by mmu_init (defined near kernel_main) */
+static u64 mmu_ram_total, pool_pages;
+static u64 pages_used(void);
+static void handle_urun(const u8 *p, int len);
 /* resident slot state (defined with the resident mechanism below; INFO reports it) */
 static int res_active;
 static char res_name[32];
@@ -1190,8 +1193,11 @@ static void handle_poke(const u8 *payload, int len) {
         n += scpy(r+n, ",\"kernel\":\"poke-os\",\"build\":\"" BUILD_ID "\",\"transport\":\"udp\"");
         { u64 el; __asm__ volatile("mrs %0, CurrentEL" : "=r"(el)); n += scpy(r+n, ",\"el\":"); n += idec((u32)((el >> 2) & 3), r+n); }
         n += scpy(r+n, ",\"mmu\":"); n += scpy(r+n, mmu_on ? "true" : "false");
+        n += scpy(r+n, ",\"ram_mb\":"); n += idec((u32)(mmu_ram_total >> 20), r+n);
+        n += scpy(r+n, ",\"pool_pages\":"); n += idec((u32)pool_pages, r+n);
+        n += scpy(r+n, ",\"pool_used\":"); n += idec((u32)pages_used(), r+n);
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
-        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"KRLD\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
+        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"KRLD\",\"URUN\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         if (fb_ok) {
             n += scpy(r+n, ",\"display\":\""); n += idec(fb_w, r+n); r[n++] = 'x'; n += idec(fb_h, r+n); r[n++] = '"';
             n += scpy(r+n, ",\"fb_base\":"); n += idec((u32)(u64)fb_base, r+n);
@@ -1300,6 +1306,9 @@ static void handle_poke(const u8 *payload, int len) {
                 poke_resp_str(rc == -3 ? "{\"error\":\"init failed\"}" : rc == -2 ? "{\"error\":\"no RET\"}" : "{\"error\":\"size\"}");
             }
         }
+    }
+    else if (mcmp(payload, "URUN", 4) == 0) {
+        handle_urun(payload + 4, len - 4);
     }
     else if (mcmp(payload, "KRLD", 4) == 0) {
         handle_krld(payload + 4, len - 4);
@@ -1495,6 +1504,8 @@ static int resident_load(u32 clen) {
 #define MMU_L1   0x00800000ULL
 #define MMU_GB0  0x00801000ULL
 #define MMU_GB3  0x00802000ULL
+#define MMU_L0   0x00803000ULL   /* level 0: 512 × 512GB — [0] = kernel identity (MMU_L1), [32] = a unit's VA */
+
 #define ATTR_WB  0
 #define ATTR_NC  1
 #define ATTR_DEV 2
@@ -1521,10 +1532,17 @@ static void mmu_cache_invalidate_all(void) {          /* dc isw over every data/
 }
 
 static void mmu_init(void) {
-    /* GPU boundary from the mailbox (ARM memory tag) */
+    /* GPU boundary (ARM memory tag) and total RAM (board revision) from the mailbox */
     mbox_buf[0] = 8*4; mbox_buf[1] = 0; mbox_buf[2] = 0x00010005; mbox_buf[3] = 8; mbox_buf[4] = 0; mbox_buf[5] = 0; mbox_buf[6] = 0; mbox_buf[7] = 0;
     dsb();
     if (mbox_call() && mbox_buf[6]) mmu_arm_end = (u64)mbox_buf[5] + mbox_buf[6];
+    mbox_buf[0] = 8*4; mbox_buf[1] = 0; mbox_buf[2] = 0x00010002; mbox_buf[3] = 4; mbox_buf[4] = 0; mbox_buf[5] = 0; mbox_buf[6] = 0; mbox_buf[7] = 0;
+    dsb();
+    if (mbox_call() && (mbox_buf[5] & (1u << 23))) { static const u32 mb[] = {256, 512, 1024, 2048, 4096, 8192, 0, 0}; mmu_ram_total = (u64)mb[(mbox_buf[5] >> 20) & 7] << 20; }
+    if (!mmu_ram_total) mmu_ram_total = mmu_arm_end;
+    volatile u64 *l0 = (volatile u64 *)MMU_L0;
+    for (int i = 0; i < 512; i++) l0[i] = 0;
+    l0[0] = PT_TABLE(MMU_L1);
 
     volatile u64 *l1 = (volatile u64 *)MMU_L1, *gb0 = (volatile u64 *)MMU_GB0, *gb3 = (volatile u64 *)MMU_GB3;
     for (int i = 0; i < 512; i++) { l1[i] = 0; gb0[i] = 0; gb3[i] = 0; }
@@ -1560,10 +1578,12 @@ static void mmu_init(void) {
         u64 sc; __asm__ volatile("mrs %0, sctlr_el2" : "=r"(sc)); sc |= (1ULL << 0) | (1ULL << 2) | (1ULL << 12);
         __asm__ volatile("msr sctlr_el2, %0" :: "r"(sc)); __asm__ volatile("isb");
     } else {
-        u64 tcr = (2ULL << 32) | (1ULL << 23) | (28ULL << 16) | (3ULL << 12) | 28;   /* EL1: IPS 40-bit, EPD1, T1SZ=28, SH0 inner, 4KB, T0SZ=28 */
+        /* EL1: IPS 40-bit, EPD1, T1SZ=16, SH0 inner, walks WB-cacheable (unit tables live in
+         * cacheable RAM), 4KB, T0SZ=16 → 48-bit VA from a level-0 table */
+        u64 tcr = (2ULL << 32) | (1ULL << 23) | (16ULL << 16) | (3ULL << 12) | (1ULL << 10) | (1ULL << 8) | 16;
         __asm__ volatile("msr mair_el1, %0" :: "r"(mair));
         __asm__ volatile("msr tcr_el1, %0" :: "r"(tcr));
-        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L1));
+        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0));
         __asm__ volatile("tlbi vmalle1; dsb sy; isb");
         if (fb_ok) fb_text(40, 530, 2, 0x00AAAAAA, "mmu: regs set (EL1), enabling...");
         u64 sc; __asm__ volatile("mrs %0, sctlr_el1" : "=r"(sc)); sc |= (1ULL << 0) | (1ULL << 2) | (1ULL << 12);
@@ -1571,6 +1591,165 @@ static void mmu_init(void) {
     }
     mmu_on = 1;
     if (fb_ok) fb_text(40, 550, 2, 0x0000FF66, el == 2 ? "mmu: ON (EL2)" : "mmu: ON (EL1)");
+}
+
+/* ═══════════════════════════════════════════
+ * Units: injected binaries running at EL0 in their own address space.
+ *   VA layout (per unit, level-0 slot 32 = 0x1000_0000_0000):
+ *     UNIT_BASE           image (text/rodata/data/bss), page-granular
+ *     UNIT_BASE+0x100000  stack (one page, grows down from +0x101000)
+ *   The kernel's identity map (L0[0]) is shared into every unit table with
+ *   EL1-only permissions, so the kernel keeps working with any TTBR0.
+ * Pages come from a bitmap allocator over RAM the kernel never touches.
+ * Phase 2: one unit at a time, run synchronously (proc_enter → SVC exit).
+ * ═══════════════════════════════════════════ */
+#define UNIT_BASE   0x100000000000ULL
+#define UNIT_STACK  (UNIT_BASE + 0x100000ULL)
+#define PAGE        4096ULL
+#define PT_PAGE_USER(pa) ((pa) | 0x3ULL | (1ULL << 6) | (3ULL << 8) | (1ULL << 10) | (1ULL << 53))  /* AttrIdx0 WB, AP=EL0 RW, SH inner, AF, PXN */
+#define UNIT_MAX_PAGES 64
+#define SYS_LOG   0
+#define SYS_EXIT  1
+#define SYS_YIELD 2
+
+/* ── physical page allocator ── */
+static u64 pool_base = 0, pool_pages = 0;
+static u32 pool_map[(3ULL << 30) / PAGE / 32];      /* enough for 3GB of pool */
+static u64 pool_next = 0;
+static void pool_init(void) {
+    if (mmu_ram_total > 0x40000000ULL) { pool_base = 0x40000000ULL; u64 end = mmu_ram_total < 0xFC000000ULL ? mmu_ram_total : 0xFC000000ULL; pool_pages = (end - pool_base) / PAGE; }
+    else { pool_base = 0x03000000ULL; pool_pages = (mmu_arm_end - pool_base) / PAGE; }
+    if (pool_pages > sizeof(pool_map) * 8) pool_pages = sizeof(pool_map) * 8;
+    mset(pool_map, 0, sizeof pool_map);
+}
+static u64 page_alloc(void) {
+    for (u64 n = 0; n < pool_pages; n++) {
+        u64 i = (pool_next + n) % pool_pages;
+        if (!(pool_map[i / 32] & (1u << (i % 32)))) {
+            pool_map[i / 32] |= 1u << (i % 32); pool_next = i + 1;
+            u64 pa = pool_base + i * PAGE;
+            mset((void *)pa, 0, PAGE);
+            return pa;
+        }
+    }
+    return 0;
+}
+static void page_free(u64 pa) {
+    if (pa < pool_base) return;
+    u64 i = (pa - pool_base) / PAGE; if (i >= pool_pages) return;
+    pool_map[i / 32] &= ~(1u << (i % 32));
+}
+static u64 pages_used(void) { u64 c = 0; for (u64 i = 0; i < pool_pages; i++) if (pool_map[i / 32] & (1u << (i % 32))) c++; return c; }
+
+/* ── unit (process) ── */
+typedef struct {
+    u64 l0, l1, l2, l3;                  /* table pages */
+    u64 pages[UNIT_MAX_PAGES]; int npages;
+    u64 entry, sp;
+    int active; u64 exit_code;
+    char log[512]; int loglen;
+} unit_t;
+static unit_t unit;                      /* phase 2: a single unit */
+extern u64 proc_enter(u64 entry, u64 sp_el0, u64 ttbr0);
+extern void proc_exit(u64 code) __attribute__((noreturn));
+
+static void unit_log(const char *m) { uprint("[UNIT] "); uprint(m); uputc('\n'); int n = 0; while (m[n] && unit.loglen < (int)sizeof(unit.log) - 2) unit.log[unit.loglen++] = m[n++]; unit.log[unit.loglen++] = '\n'; }
+
+static void unit_destroy(void) {
+    for (int i = 0; i < unit.npages; i++) page_free(unit.pages[i]);
+    if (unit.l3) page_free(unit.l3);
+    if (unit.l2) page_free(unit.l2);
+    if (unit.l1) page_free(unit.l1);
+    if (unit.l0) page_free(unit.l0);
+    mset(&unit, 0, sizeof unit);
+}
+
+/* Build the address space and load the image. 0 ok, <0 error. */
+static int unit_create(const u8 *img, u32 len) {
+    mset(&unit, 0, sizeof unit);
+    u32 npg = (len + PAGE - 1) / PAGE;
+    if (npg + 1 > UNIT_MAX_PAGES) return -1;
+    unit.l0 = page_alloc(); unit.l1 = page_alloc(); unit.l2 = page_alloc(); unit.l3 = page_alloc();
+    if (!unit.l0 || !unit.l1 || !unit.l2 || !unit.l3) { unit_destroy(); return -2; }
+    volatile u64 *l0 = (volatile u64 *)unit.l0, *l1 = (volatile u64 *)unit.l1, *l2 = (volatile u64 *)unit.l2, *l3 = (volatile u64 *)unit.l3;
+    l0[0] = ((volatile u64 *)MMU_L0)[0];                    /* kernel identity, EL1-only */
+    l0[(UNIT_BASE >> 39) & 0x1ff] = PT_TABLE(unit.l1);
+    l1[(UNIT_BASE >> 30) & 0x1ff] = PT_TABLE(unit.l2);
+    l2[(UNIT_BASE >> 21) & 0x1ff] = PT_TABLE(unit.l3);       /* image pages: l3[0..] */
+    for (u32 i = 0; i < npg; i++) {
+        u64 pa = page_alloc(); if (!pa) { unit_destroy(); return -3; }
+        unit.pages[unit.npages++] = pa;
+        u32 n = len - i * PAGE; if (n > PAGE) n = PAGE;
+        mcpy((void *)pa, img + i * PAGE, n);
+        for (u64 a = pa; a < pa + PAGE; a += 64) { __asm__ volatile("dc cvau, %0" :: "r"(a)); }
+        l3[i] = PT_PAGE_USER(pa);
+    }
+    u64 sp = page_alloc(); if (!sp) { unit_destroy(); return -3; }
+    unit.pages[unit.npages++] = sp;
+    l3[(UNIT_STACK >> 12) & 0x1ff] = PT_PAGE_USER(sp);        /* one stack page at +1MB */
+    __asm__ volatile("dsb ish; ic iallu; dsb ish; isb");
+    unit.entry = UNIT_BASE; unit.sp = UNIT_STACK + PAGE;
+    unit.active = 1;
+    return 0;
+}
+
+/* Run the unit to completion (phase 2: synchronous). Returns exit code. */
+static u64 unit_run(void) {
+    u64 code = proc_enter(unit.entry, unit.sp, unit.l0);
+    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    return code;
+}
+
+/* copy a NUL-terminated string from unit VA (already mapped in the current TTBR0) */
+static int copy_user_str(char *dst, u64 uva, int max) {
+    if (uva < UNIT_BASE || uva >= UNIT_BASE + 0x200000ULL) return -1;
+    int n = 0; const char *p = (const char *)uva;
+    while (n < max - 1 && p[n]) { dst[n] = p[n]; n++; }
+    dst[n] = 0; return n;
+}
+
+static u64 do_syscall(u64 nr, u64 a0, u64 a1, u64 a2) {
+    (void)a2;
+    switch (nr) {
+    case SYS_LOG: { char b[128]; if (copy_user_str(b, a0, sizeof b) < 0) return (u64)-1; unit_log(b); return 0; }
+    case SYS_EXIT: unit.exit_code = a0; unit.active = 0;
+        __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+        proc_exit(a0);
+    case SYS_YIELD: return 0;
+    default: return (u64)-38;   /* ENOSYS */
+    }
+    (void)a1; return 0;
+}
+
+/* EL0 sync exception: SVC → syscall; anything else → the unit dies, the kernel lives. */
+void el0_sync(u64 esr, u64 far, u64 *regs) {
+    u32 ec = (esr >> 26) & 0x3f;
+    if (ec == 0x15) { regs[0] = do_syscall(regs[8], regs[0], regs[1], regs[2]); return; }
+    char b[96]; int n = scpy(b, "unit fault ec=0x"); const char h[] = "0123456789abcdef";
+    b[n++] = h[(ec >> 4) & 0xf]; b[n++] = h[ec & 0xf]; n += scpy(b+n, " far=0x");
+    for (int i = 44; i >= 0; i -= 4) b[n++] = h[(far >> i) & 0xf];
+    n += scpy(b+n, " elr=0x"); for (int i = 44; i >= 0; i -= 4) b[n++] = h[(regs[22] >> i) & 0xf];
+    b[n] = 0; unit_log(b);
+    unit.exit_code = 0xdead; unit.active = 0;
+    __asm__ volatile("msr ttbr0_el1, %0" :: "r"((u64)MMU_L0)); __asm__ volatile("tlbi vmalle1; dsb ish; isb");
+    proc_exit(0xdead);
+}
+
+/* URUN: run the staged binary as an EL0 unit, reply with exit code + log. */
+static void handle_urun(const u8 *p, int len) {
+    u32 clen = stage_check(p, len, "URUN"); if (!clen) return;
+    int rc = unit_create(stage_buf, clen);
+    if (rc) { poke_resp_str(rc == -1 ? "{\"error\":\"too big\"}" : "{\"error\":\"no pages\"}"); return; }
+    u64 t0 = now_ms();
+    u64 code = unit_run();
+    u64 dt = now_ms() - t0;
+    char r[720]; int n = scpy(r, "{\"unit\":\"exited\",\"code\":"); n += idec((u32)code, r+n);
+    n += scpy(r+n, ",\"ms\":"); n += idec((u32)dt, r+n);
+    n += scpy(r+n, ",\"pages\":"); n += idec(unit.npages + 4, r+n);
+    n += scpy(r+n, ",\"log\":\""); for (int i = 0; i < unit.loglen && n < 700; i++) { char c = unit.log[i]; if (c == '\n') { r[n++] = '\\'; r[n++] = 'n'; } else if (c == '"' || c == '\\') { r[n++] = '\\'; r[n++] = c; } else r[n++] = c; }
+    r[n++] = '"'; r[n++] = '}';
+    poke_resp((const u8 *)r, n);
+    unit_destroy();
 }
 
 void kernel_main(void) {
@@ -1582,6 +1761,7 @@ void kernel_main(void) {
     fb_init();
     print_banner();
     mmu_init();         /* identity map, caches on (screen shows each step) */
+    pool_init();        /* page pool for EL0 units */
 
     /* Stage 2: 2 slow blinks = UART done */
     act_blink(2, 300);
