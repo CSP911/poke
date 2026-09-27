@@ -1,0 +1,16 @@
+{
+  "name": "check-memory",
+  "arch": "pi4",
+  "kind": "check",
+  "binary": "check.bin",
+  "source": "memtest.c",
+  "description": "Destructive RAM test of all memory the kernel is not using, run by the hub chunk by chunk with parameter-patched EXEC probes (fixed patterns + inverse pass, address pattern). MMU is off, so every access hits DRAM uncached.",
+  "params": ["start", "length", "pattern", "mode"],
+  "magic": "0x7a57a00N7a57a00N (64-bit, N=1..4) in the binary's data",
+  "excluded": [
+    "[0, 16 MB): kernel image, EXEC/persona/stage/resident buffers, stack (SP starts at 16 MB)",
+    "[0x02200000, 0x02230000): xHCI DMA region used by the usb-touch resident",
+    "above the mailbox 'ARM memory' end: GPU memory and the framebuffer",
+    "[0xFC000000, 0x100000000): BCM2711 peripheral window (low-peripheral mode)"
+  ]
+}
