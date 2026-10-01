@@ -1,0 +1,262 @@
+<title>생성되는 몸</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#ECEDE8; --surface:#F7F7F3; --ink:#141713; --muted:#5C6259; --line:#D3D6CE;
+  --accent:#3A57E8; --accent-soft:#DFE4FB; --amber:#B7861A; --amber-soft:#F3E8CC;
+  --ok:#2F7D4F; --bad:#B42318;
+  --display:"Do Hyeon","Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#111410; --surface:#181C17; --ink:#E7EAE3; --muted:#9AA197; --line:#2B3029;
+    --accent:#8EA2FF; --accent-soft:#1E2550; --amber:#E2B54C; --amber-soft:#3A2F12;
+    --ok:#6CC08C; --bad:#F08A7E;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#111410; --surface:#181C17; --ink:#E7EAE3; --muted:#9AA197; --line:#2B3029;
+  --accent:#8EA2FF; --accent-soft:#1E2550; --amber:#E2B54C; --amber-soft:#3A2F12;
+  --ok:#6CC08C; --bad:#F08A7E;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16.5px;line-height:1.8;padding-inline:20px;padding-block:0}
+.page{max-width:980px;margin:0 auto;padding-block:48px 96px}
+.mono{font-family:var(--mono)}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+/* hero */
+.hero{display:grid;gap:20px}
+.hero h1{font-family:var(--display);font-weight:400;font-size:clamp(52px,9vw,104px);line-height:1;margin:6px 0 0;letter-spacing:-.01em}
+.hero .thesis{font-size:clamp(19px,2.4vw,23px);line-height:1.6;max-width:30em;margin:0}
+.stage{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.stage canvas{display:block;width:100%;height:280px}
+.stage .log{position:absolute;left:16px;bottom:12px;font-family:var(--mono);font-size:12.5px;color:var(--muted);display:grid;gap:2px}
+.stage .log b{color:var(--accent);font-weight:500}
+.stage .caption{position:absolute;right:16px;top:12px;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+section{padding-top:64px}
+h2{font-family:var(--display);font-weight:400;font-size:clamp(30px,4vw,40px);line-height:1.2;margin:0 0 18px;text-wrap:balance}
+h3{font-family:var(--body);font-weight:700;font-size:18px;margin:28px 0 8px;text-wrap:balance}
+p,li{max-width:66ch}
+.quote{font-family:var(--display);font-size:clamp(26px,3.6vw,36px);line-height:1.35;border-left:4px solid var(--accent);padding:4px 0 4px 20px;margin:28px 0;max-width:24em}
+
+.versus{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:8px}
+.versus > div{padding:18px 20px;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+.versus .now{opacity:.85}
+.versus .next{border-color:var(--accent);background:var(--accent-soft)}
+.versus h3{margin-top:0}
+
+.scenes{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:8px}
+.scene{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.scene .where{font-family:var(--mono);font-size:12px;color:var(--amber);letter-spacing:.06em}
+.scene p{margin:6px 0 0;font-size:15.5px}
+
+.loop{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;counter-reset:step;margin-top:12px}
+.loop > div{position:relative;padding:16px 18px 18px;border-top:3px solid var(--accent);background:var(--surface);border-radius:0 0 12px 12px}
+.loop .n{font-family:var(--mono);font-size:12px;color:var(--accent)}
+.loop b{display:block;font-family:var(--display);font-weight:400;font-size:24px;margin:2px 0 4px}
+.loop p{margin:0;font-size:15px;color:var(--muted)}
+.back{font-family:var(--mono);font-size:13px;color:var(--muted);margin-top:10px}
+
+.tbl{overflow-x:auto;margin:16px 0}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:15px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+.have{color:var(--ok);font-weight:500}
+.pill{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 8px;border-radius:999px;background:var(--amber-soft);color:var(--amber)}
+
+.hard{display:grid;gap:12px;margin-top:8px}
+.hard > div{padding:14px 18px;border-left:3px solid var(--amber);background:var(--surface);border-radius:0 10px 10px 0}
+.hard b{display:block;margin-bottom:2px}
+
+.script{counter-reset:s;list-style:none;padding:0;margin:16px 0;display:grid;gap:10px}
+.script li{display:grid;grid-template-columns:56px 1fr;gap:12px;align-items:baseline;max-width:none}
+.script .t{font-family:var(--mono);font-size:13px;color:var(--accent)}
+.script .key{background:var(--accent-soft);border-radius:10px;padding:10px 14px}
+
+.parts{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.parts span{font-family:var(--mono);font-size:13px;border:1px solid var(--line);border-radius:8px;padding:4px 10px;background:var(--surface)}
+
+code{font-family:var(--mono);font-size:.9em;background:var(--accent-soft);padding:1px 6px;border-radius:4px}
+footer{margin-top:72px;padding-top:20px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="page">
+
+<header class="hero">
+  <div class="eyebrow">POKE · Vision Ⅳ · 2026-10</div>
+  <h1>생성되는 몸</h1>
+  <p class="thesis">로봇의 기술은 미리 만들어 두지 않는다. 부품이 붙는 순간 그 몸을 알아내고, 사람의 의도를 듣는 순간 그 몸에 맞는 움직임이 태어난다. 몸이 바뀌면 기술은 다시 생겨난다.</p>
+  <div class="stage" aria-label="모듈 네 개로 된 몸이 기어가다가 모듈 하나가 떨어져 나가고, 남은 세 모듈이 몸을 다시 파악해 다른 걸음으로 기어가는 애니메이션">
+    <canvas id="body"></canvas>
+    <div class="caption">시뮬레이션 개념도</div>
+    <div class="log" id="log" aria-live="polite"></div>
+  </div>
+</header>
+
+<section>
+  <div class="quote">몸은 알파벳이고,<br>움직임은 그 순간 쓰이는 문장이다.</div>
+  <div class="versus">
+    <div class="now">
+      <h3>지금의 로봇</h3>
+      <p>몸을 먼저 설계하고, 그 몸에 맞는 기술을 몇 년에 걸쳐 만든다. 몸이 바뀌면 기술을 처음부터 다시 만든다. 그래서 비싸고, 한 가지 일만 하고, 부품 하나가 고장 나면 멈춘다.</p>
+    </div>
+    <div class="next">
+      <h3>생성되는 몸</h3>
+      <p>몸은 부품의 조합일 뿐이다. 기술은 그 순간 그 몸을 위해 생성되고, 쓰임이 끝나면 사라진다. 부품을 바꾸거나 잃어도 남은 몸으로 움직이는 법이 몇 초 만에 다시 생긴다.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>그 미래의 장면들</h2>
+  <div class="scenes">
+    <div class="scene"><div class="where">재난 현장</div><p>무너진 건물 앞에 모듈 상자가 떨어진다. 틈새로 들어갈 땐 뱀이 되고, 계단을 오를 땐 다리 여섯 개로 다시 조립된다. 조립이 바뀔 때마다 움직임도 새로 생긴다.</p></div>
+    <div class="scene"><div class="where">우주</div><p>한 번 보낸 모듈이 수십 년 동안 그날의 임무에 따라 다른 기계가 된다. 부품이 고장 나면 남은 부품으로 몸을 다시 짠다.</p></div>
+    <div class="scene"><div class="where">사람의 몸</div><p>의수와 의족이 그 사람에게 맞는 움직임을 스스로 만든다. 근육 신호가 사람마다 달라도, 몸이 자라도, 기술이 사람을 따라 다시 생긴다.</p></div>
+    <div class="scene"><div class="where">집</div><p>아이가 블록처럼 모듈을 끼워 맞추고 "강아지처럼 나를 따라와"라고 말한다. 방금 만든 이상한 모양의 몸이 그 말대로 움직이기 시작한다.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>몸이 기술을 얻는 순환</h2>
+  <div class="loop">
+    <div><span class="n">01</span><b>인식</b><p>무엇이 붙었나. 모듈을 감지하고, 처음 보는 부품이면 레지스터를 탐색해 드라이버를 스스로 만든다.</p></div>
+    <div><span class="n">02</span><b>자기 발견</b><p>내 몸은 어떻게 생겼나. 관절을 하나씩 움직여 보고 센서 반응으로 몸의 모양을 알아낸다. 아기가 팔다리를 버둥거리며 자기 몸을 배우는 방식이다.</p></div>
+    <div><span class="n">03</span><b>기술 생성</b><p>이 의도를 이 몸으로 어떻게. "앞으로 가"를 이 몸에 맞는 제어 코드로 생성한다.</p></div>
+    <div><span class="n">04</span><b>실행과 관찰</b><p>실제로 움직여 보고, 결과를 보며 고친다.</p></div>
+  </div>
+  <p class="back">부품이 바뀌거나 다치면 01로 돌아간다.</p>
+</section>
+
+<section>
+  <h2>POKE가 가진 것, 더 가져야 할 것</h2>
+  <p>이 비전의 부품 절반은 이미 POKE 안에 있다.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>필요한 능력</th><th>지금 POKE</th><th>더 필요한 것</th></tr></thead>
+    <tbody>
+      <tr><td>부품이 붙고 떨어지는 걸 앎</td><td class="have">핫플러그 (USB 터치에서 검증)</td><td>모터·센서 모듈 단위로 확장</td></tr>
+      <tr><td>부품마다 드라이버</td><td class="have">레지던트 드라이버 + 라이브러리</td><td>처음 보는 부품을 AI가 혼자 인큐베이팅</td></tr>
+      <tr><td>기술을 그 순간 생성</td><td class="have">페르소나 생성과 주입</td><td>움직임 제어 전용 생성 (리듬 생성기, 관절 각도)</td></tr>
+      <tr><td>잘못된 코드가 몸을 망치지 않음</td><td class="have">EL0 격리, 폭주 회수</td><td>커널의 불변 안전 규칙 (각도·속도·토크 한계, 비상 정지)</td></tr>
+      <tr><td>빠른 제어</td><td>페르소나 50 ms 주기</td><td>관절 제어 1 kHz, 4코어 활용</td></tr>
+      <tr><td>몸을 느끼는 감각</td><td>GPIO, 터치</td><td>관절 각도, 기울기 센서(IMU), 전류</td></tr>
+      <tr><td>시행착오를 빨리</td><td class="have">분산 계산 <code>poke burst</code></td><td>시뮬레이션 수천 개를 동시에 돌려 움직임 다듬기</td></tr>
+      <tr><td>몸 전체를 하나로</td><td>허브 + 엣지 구조</td><td>모듈마다 작은 칩 = 신경세포, 허브 = 뇌</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>가장 어려운 문제</h2>
+  <div class="hard">
+    <div><b>언어 모델이 쓴 코드만으로는 잘 걷지 못한다</b>역할을 나눈다. 언어 모델은 움직임의 구조를 쓴다(예: 다리 넷을 대각선으로 번갈아 움직이는 리듬 생성기). 진폭, 주기, 위상 같은 숫자는 몸으로 시험하며 다듬는다. 시뮬레이션 수천 개를 함대에서 동시에 돌리면 이 과정이 빨라진다.</div>
+    <div><b>허브까지 갔다 오면 늦다</b>넘어지기 직전 균형을 잡는 반사는 몸 안의 칩에서 돈다. 허브는 무엇을 할지만 정한다.</div>
+    <div><b>안전</b>생성된 코드가 무엇을 하든 넘을 수 없는 선이 필요하다. 이 선은 페르소나가 아니라 커널의 불변 규칙이어야 한다. 이미 만든 격리 구조 위에 얹는다.</div>
+  </div>
+</section>
+
+<section>
+  <h2>첫 장면: 처음 만난 몸</h2>
+  <p>작은 모듈 로봇 하나로 이 비전의 핵심을 1분 영상에 담는다.</p>
+  <ol class="script">
+    <li><span class="t">0:00</span><div>서보 모듈 셋과 Pi가 테이블에 놓여 있다. 모듈을 꽂을 때마다 화면에 "관절 1 인식", "관절 2 인식"이 뜬다. <span class="pill">인식</span></div></li>
+    <li><span class="t">0:15</span><div>로봇이 혼자 꿈틀거린다. 관절을 하나씩 움직이고 기울기 센서를 보며, 자기 몸 모양을 화면에 그려 나간다. <span class="pill">자기 발견</span></div></li>
+    <li><span class="t">0:30</span><div>사람이 말한다. "저 불빛 쪽으로 가." 몇 초 뒤 로봇이 애벌레처럼 기어가기 시작한다. <span class="pill">기술 생성</span></div></li>
+    <li><span class="t">0:45</span><div class="key">사람이 모듈 하나를 뽑는다. 로봇이 멈추고, 다시 꿈틀거려 바뀐 몸을 배우고, 다른 방식으로 다시 기어간다. 몸이 바뀌어도 기술이 다시 생겨나는 것을 눈으로 보여 주는 순간이다. <span class="pill">다시 생성</span></div></li>
+  </ol>
+  <h3>필요한 부품</h3>
+  <div class="parts"><span>서보모터 ×3~4</span><span>서보 드라이버 PCA9685 (I2C)</span><span>IMU MPU6050 (I2C)</span><span>Raspberry Pi 4 + 7" 화면 + 마이크</span></div>
+  <h3>만드는 순서</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>단계</th><th>내용</th><th>POKE에 생기는 능력</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">1</td><td>I2C 레지던트 둘 (서보 보드, IMU)</td><td>두 번째 버스. "장치 추가 = 라이브러리 항목"을 다시 증명</td></tr>
+      <tr><td class="mono">2</td><td>커널 안전 규칙 (각도·속도 한계, 비상 정지)</td><td>생성된 움직임이 몸을 다치게 할 수 없음</td></tr>
+      <tr><td class="mono">3</td><td>자기 발견 페르소나 (관절을 흔들고 IMU 반응 기록)</td><td>몸 모델</td></tr>
+      <tr><td class="mono">4</td><td>움직임 생성 (구조는 언어 모델, 숫자는 몸에서 다듬기)</td><td>의도에서 걸음으로</td></tr>
+      <tr><td class="mono">5</td><td>모듈 탈착, 재발견, 재생성</td><td>장면 완성</td></tr>
+    </tbody>
+  </table></div>
+  <p>하드웨어가 오기 전에는 시뮬레이터에서 "몸을 주면 걸음을 생성하는" 실험과 커널 안전 규칙 설계를 먼저 진행한다.</p>
+</section>
+
+<footer>POKE: Protocol for Open Kernel Execution · 몸과 기술을 분리하고, 기술을 필요한 순간에 생성한다.</footer>
+</div>
+
+<script>
+(function(){
+  const cv = document.getElementById('body'), ctx = cv.getContext('2d'), logEl = document.getElementById('log');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W = 0, H = 0, dpr = 1;
+  function size(){ dpr = window.devicePixelRatio || 1; W = cv.clientWidth; H = cv.clientHeight; cv.width = W*dpr; cv.height = H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); }
+  size(); window.addEventListener('resize', size);
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  // body = chain of modules; gait = travelling wave whose shape depends on module count
+  let n = 4, t = 0, x = 0.18, phase = 'walk', phaseT = 0, dropped = null, wiggleJ = 0;
+  const lines = [];
+  function log(s){ lines.push(s); while (lines.length > 3) lines.shift(); logEl.innerHTML = lines.map(l => l).join('<br>'); }
+  function gait(n){ return n >= 4 ? {amp:0.55, k:1.1, f:1.4, name:'파동 걸음 · 4관절'} : {amp:0.85, k:1.9, f:1.0, name:'자벌레 걸음 · 3관절'}; }
+  let g = gait(n);
+  log('<b>인식</b> 모듈 4개'); log('<b>생성</b> ' + g.name);
+
+  function draw(){
+    const seg = Math.min(70, W/9), y0 = H*0.62;
+    ctx.clearRect(0,0,W,H);
+    ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, y0+seg*0.32); ctx.lineTo(W, y0+seg*0.32); ctx.stroke();
+    // light target
+    const tx = W*0.9; ctx.fillStyle = css('--amber'); ctx.beginPath(); ctx.arc(tx, y0-seg*1.2, 7, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = .18; ctx.beginPath(); ctx.arc(tx, y0-seg*1.2, 20, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+    // chain
+    let px = x*W, py = y0, ang = 0;
+    const pts = [[px,py]];
+    for (let i = 0; i < n; i++){
+      let a = 0;
+      if (phase === 'walk') a = g.amp*Math.sin(2*Math.PI*g.f*t - g.k*i) * (i%2 ? 1 : -1) * 0.6;
+      if (phase === 'discover') a = (i === wiggleJ ? 0.9*Math.sin(t*9) : 0);
+      ang = a; px += seg*Math.cos(ang); py = y0 - Math.max(0, seg*0.55*Math.sin(Math.abs(ang)))*(i%2?1:0.4);
+      pts.push([px, py]);
+    }
+    for (let i = 0; i < n; i++){
+      const [ax,ay] = pts[i], [bx,by] = pts[i+1];
+      ctx.strokeStyle = css('--ink'); ctx.lineWidth = seg*0.34; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+      ctx.strokeStyle = css('--surface'); ctx.lineWidth = seg*0.34 - 5;
+      ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+      ctx.fillStyle = (phase === 'discover' && i === wiggleJ) ? css('--amber') : css('--accent');
+      ctx.beginPath(); ctx.arc(ax, ay, 6, 0, Math.PI*2); ctx.fill();
+    }
+    if (dropped){
+      dropped.vy += 0.4; dropped.y = Math.min(dropped.y + dropped.vy, y0); dropped.x += 0.6;
+      ctx.globalAlpha = Math.max(0, dropped.life--/90);
+      ctx.strokeStyle = css('--muted'); ctx.lineWidth = seg*0.34; ctx.beginPath(); ctx.moveTo(dropped.x, dropped.y); ctx.lineTo(dropped.x+seg, dropped.y); ctx.stroke();
+      ctx.globalAlpha = 1; if (dropped.life <= 0) dropped = null;
+    }
+  }
+  function step(){
+    t += 1/60; phaseT += 1/60;
+    if (phase === 'walk'){
+      x += (n >= 4 ? 0.0011 : 0.0008);
+      if (n === 4 && x > 0.42){ phase = 'drop'; phaseT = 0; dropped = {x:x*W, y:H*0.62, vy:-3, life:90}; n = 3; log('<b>감지</b> 모듈 1개 분리 · 남은 관절 3'); }
+      if (x > 0.78){ x = 0.12; n = 4; g = gait(4); lines.length = 0; log('<b>인식</b> 모듈 4개'); log('<b>생성</b> ' + g.name); }
+    } else if (phase === 'drop'){
+      if (phaseT > 0.8){ phase = 'discover'; phaseT = 0; wiggleJ = 0; log('<b>자기 발견</b> 관절을 하나씩 움직여 보는 중'); }
+    } else if (phase === 'discover'){
+      wiggleJ = Math.min(n-1, Math.floor(phaseT/0.7));
+      if (phaseT > 0.7*n + 0.2){ phase = 'walk'; phaseT = 0; g = gait(n); log('<b>재생성</b> ' + g.name); }
+    }
+    draw();
+    requestAnimationFrame(step);
+  }
+  if (reduce){ draw(); } else { requestAnimationFrame(step); }
+})();
+</script>
