@@ -118,10 +118,12 @@ class Twin:
         with pokeedge.Twin() as host:        # host = 'tcp://127.0.0.1:<port>'
             edge = pokeedge.PokeSkill(host)
     """
-    def __init__(self, port=None, console=None, sd=None):
+    def __init__(self, port=None, console=None, sd=None, extra=(), monitor=False):
         self.port = port or 18081 + int.from_bytes(os.urandom(2), "little") % 1000
         self.console = console or os.path.join(BUILD, "twin-console.log")
         self.sd = sd                                   # raw image for the emulated SD slot
+        self.extra = list(extra)                       # more QEMU args: virtual devices to plug in
+        self.mon_port = self.port + 1000 if monitor else None
         self.proc = None
     def __enter__(self):
         os.makedirs(BUILD, exist_ok=True)
@@ -132,8 +134,10 @@ class Twin:
             ["qemu-system-aarch64", "-M", "raspi4b", "-kernel", img, "-display", "none", "-monitor", "none",
              "-chardev", f"file,id=con,path={self.console}", "-serial", "chardev:con",
              "-chardev", f"socket,id=net,host=127.0.0.1,port={self.port},server=on,wait=off", "-serial", "chardev:net"]
-            + (["-drive", f"file={self.sd},if=sd,format=raw"] if self.sd else []),
-            stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            + (["-drive", f"file={self.sd},if=sd,format=raw"] if self.sd else [])
+            + (["-monitor", f"tcp:127.0.0.1:{self.mon_port},server=on,wait=off"] if self.mon_port else [])
+            + self.extra,
+            stdout=open(os.path.join(BUILD, "twin-qemu.log"), "w"), stderr=subprocess.STDOUT)
         t0 = time.time()
         while time.time() - t0 < 20:                  # wait for the prompt on the console
             try:
@@ -147,6 +151,22 @@ class Twin:
         else:
             self.__exit__(None, None, None); raise EdgeError("twin did not boot (see build/twin-console.log)")
         return f"tcp://127.0.0.1:{self.port}"
+    def monitor(self, cmd):
+        """Run a QEMU monitor command (needs monitor=True), e.g. 'qom-set t1 temperature 23500'."""
+        with socket.create_connection(("127.0.0.1", self.mon_port), timeout=5) as m:
+            m.settimeout(1.0); buf = b""
+            try:
+                while b"(qemu)" not in buf: buf += m.recv(4096)
+            except socket.timeout: pass
+            m.sendall((cmd + "\n").encode()); out = b""
+            try:
+                while True:
+                    d = m.recv(4096)
+                    if not d: break
+                    out += d
+                    if out.rstrip().endswith(b"(qemu)"): break
+            except socket.timeout: pass
+            return out.decode(errors="replace")
     def __exit__(self, *a):
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
@@ -237,7 +257,8 @@ def patch_params(image, values, magic_base=0x7a57a001):
 
 class PokeSkill:
     def __init__(self, host="10.0.0.2"):
-        self.link = connect(host)
+        """host: an address, or an existing link (the twin accepts only one connection)."""
+        self.link = host if isinstance(host, (UdpLink, TcpLink)) else connect(host)
         self.n = 0
 
     def request(self, payload, timeout=None):

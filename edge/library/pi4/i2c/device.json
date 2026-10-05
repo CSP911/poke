@@ -1,0 +1,38 @@
+{
+  "name": "i2c",
+  "arch": "pi4",
+  "kind": "resident",
+  "provides": [
+    "i2c"
+  ],
+  "binary": "resident.bin",
+  "source": "i2c.c",
+  "description": "Pi 4 bare-metal I2C bus service on BSC1 (GPIO 2 SDA / GPIO 3 SCL, 100 kHz, PIO). Not a device driver: the hub and the language model reach any device on the bus through SREQ ops 1 scan, 2 read(addr, reg, n), 3 write(addr, bytes) — the tool with which an unknown device gets incubated. Same address on the QEMU twin (i2c-bus.1), where virtual devices can be plugged in with -device.",
+  "hardware": {
+    "controller": "BCM2711 BSC1 at 0xFE804000 (BSC0 0xFE205000 and BSC2 0xFE805000 are the other two)",
+    "pins": "GPIO 2 (SDA1) / GPIO 3 (SCL1): the resident sets ALT0 + pull-up itself at INIT (GPFSEL0, GPIO_PUP_PDN_CNTRL_REG0)",
+    "clock": "DIV 1500 from the 150 MHz core clock = 100 kHz",
+    "twin": "QEMU raspi4b: i2c-bus.0/1/2 = BSC0/1/2; tmp105, lsm303dlhc_mag, ds1338, pca9552 models work; at24c-eeprom crashes QEMU when probed"
+  },
+  "lessons": [
+    "a bus scan is a 1-byte read per address (zero-length transfers never finish on QEMU's model)",
+    "QEMU's BSC model begins a transfer on ANY C write with I2CEN set, so write C exactly once per transfer, after A and DLEN",
+    "write data goes into the FIFO after the transfer is active (TA), reads drain the FIFO while RXD — this order suits the silicon too",
+    "ERR (no ACK) comes without DONE on the model; break on ERR"
+  ],
+  "mappings": [
+    {
+      "pa": "0xFE804000",
+      "len": "0x1000",
+      "attr": "device",
+      "what": "BSC1 registers"
+    },
+    {
+      "pa": "0xFE200000",
+      "len": "0x1000",
+      "attr": "device",
+      "what": "GPIO: GPFSEL0 / pull control for GPIO 2-3"
+    }
+  ],
+  "process": "EL0 unit in SLOT_RESIDENT; the BSC1 window is its only capability."
+}

@@ -36,6 +36,10 @@ Rules:
 - static variables are allowed for state. No malloc, no printf, no other libc.
 - The body's "notes" field says how the body is mounted, its frame of
   reference, and what is known about it. Trust it over your assumptions.
+- If the body has a "library": those skills already worked on this body and
+  their params were tuned by a person watching. Start from the best one —
+  keep its structure and its param names/order, make the tuned values the
+  defaults (used when a param is 0), and improve from there. Say so in "idea".
 - If a direction is unknown (for example which sign of a joint angle bends a
   finger toward the palm), expose it as a param with range -1..1 and use its
   sign, so feedback can flip it.`

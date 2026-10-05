@@ -20,7 +20,7 @@ person with a simulated watcher that sees the true fingertip position.
 import ctypes, json, math, os, queue, random, re, subprocess, sys, threading, time
 import numpy as np
 import mujoco, mujoco.viewer
-import sim, finger, pokeedge
+import sim, finger, pokeedge, edgestore
 
 HERE = sim.HERE
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -52,6 +52,14 @@ POS_STRONG = re.compile(r"쥐었|쥐어졌|주먹|닿았")
 POS = re.compile(r"좋아|그렇지|말았|말아|굽혔|접었|잘했|맞아|옳지|오오|더 ?(가|해|쥐|말|굽)|조금 더|아까보다 (더 )?(말|쥐|굽)")
 MOVED = re.compile(r"움직|돌았|까딱")
 
+PARTS = [("tip", re.compile(r"끝마디|손끝|끝 ?부분|tip")), ("mid", re.compile(r"가운데|중간|둘째|mid")),
+         ("base", re.compile(r"밑|뿌리|첫째|기저|base|knuckle"))]
+def part_of(text):
+    for name, rx in PARTS:
+        if rx.search(text):
+            return name
+    return None
+
 def rules(text):
     t = text.replace(" ", " ")
     r = {"stop": bool(STOP.search(t)), "resume": bool(RESUME.search(t)) and not STOP.search(t),
@@ -64,6 +72,9 @@ def rules(text):
         r["polarity"] = 1.0
     elif MOVED.search(t):
         r["polarity"] = 0.5
+    r["part"] = part_of(t)
+    if r["part"] and r["polarity"] == 0 and re.search(r"더|좀|조금|굽|말|쥐", t):
+        r["polarity"] = 0.5                                   # "끝마디도 굽혀": a nudge, not a verdict
     return r
 
 _haiku = None
@@ -161,7 +172,7 @@ class AutoWatcher:
             return
         gap, touch = finger.tip_palm_gap(m, d), finger.tip_touches_palm(m, d)
         q = d.qpos[:3]
-        curled = all(x < -1.2 for x in q) and -q.sum() > 3.9        # every joint past ~70°, 225° in all
+        curled = all(x < -0.9 for x in q) and -q.sum() > 3.5        # every joint past ~50°, 200° in all: a fist to a person
         if self.start_gap is None:
             self.start_gap, self.best, self.last_gap = gap, gap, gap; return
         if (touch or curled) and "fist" not in self.said:
@@ -170,6 +181,8 @@ class AutoWatcher:
             self.said.add("moved"); self.say("오 지금 손가락 움직였어")
         if gap < 0.05 and "curl" not in self.said:
             self.said.add("curl"); self.say("오 검지 말아쥐었어")
+        if "curl" in self.said and "tipnag" not in self.said and q[0] < -1.0 and q[1] < -1.0 and q[2] > -0.6:
+            self.said.add("tipnag"); self.say("끝마디도 더 굽혀")
         if gap > self.best + 0.02 and "worse" not in self.said:
             self.said.add("worse"); self.say("오히려 풀렸어")
         self.best = min(self.best, gap); self.last_gap = gap
@@ -193,7 +206,13 @@ class AutoWatcher:
 # ── skill generation (slow loop) ────────────────────────────────────────
 def generate(intent, tag, feedback=None):
     bpath = os.path.join(sim.BUILD, "finger-body.json")
-    json.dump(finger.BODY, open(bpath, "w"), ensure_ascii=False)
+    body = dict(finger.BODY)
+    if EDGE.get("skill") is not None:
+        lib = library_for(body)
+        if lib:
+            body["library"] = lib
+            print(f"   [기억] 이 몸에서 통했던 기술 {len(lib)}개를 참고로 줌: " + ", ".join(f"{l['name']} (score {l['score']})" for l in lib), flush=True)
+    json.dump(body, open(bpath, "w"), ensure_ascii=False)
     src = os.path.join(HERE, "skills", f"gen-coach-{tag}.c")
     cmd = ["node", os.path.join(HERE, "generate.js"), bpath, intent, src] + ([feedback] if feedback else [])
     t0 = time.time()
@@ -248,23 +267,79 @@ class LocalBrain:
     def close(self):
         pass
 
-EDGE = {"host": None, "twin": None}
+EDGE = {"host": None, "twin": None, "skill": None, "store": None}
 def edge_host():
-    """POKE_HOST: unset/'twin' → boot the QEMU twin once; an IP → the real Pi."""
+    """POKE_HOST: unset/'twin' → boot the QEMU twin once (with its SD image); an IP → the real Pi."""
     if EDGE["host"] is None:
         h = os.environ.get("POKE_HOST", "twin")
         if h == "twin":
-            EDGE["twin"] = pokeedge.Twin(); EDGE["host"] = EDGE["twin"].__enter__()
+            EDGE["twin"] = pokeedge.Twin(sd=os.path.join(sim.BUILD, "sd-test.img")); EDGE["host"] = EDGE["twin"].__enter__()
             print(f"[POKE] QEMU 트윈 부팅 완료: {EDGE['host']}", flush=True)
         else:
             EDGE["host"] = h
     return EDGE["host"]
 
+def edge_store():
+    """The device's own memory: the SD driver (resident slot) + the record log on its card.
+    Lives alongside the skill slot, so remembering never interrupts moving."""
+    if EDGE["store"] is None and "--local" not in sys.argv:
+        try:
+            link = EDGE["skill"].link
+            info = json.loads(link.request(b"INFO", timeout=2))
+            if info.get("resident") != "sdcard":
+                R = os.path.join(ROOT, "edge", "library", "pi4", "sdcard")
+                if EDGE["twin"]:
+                    img = pokeedge.build_resident(os.path.join(R, "sdcard.c"), "sdcard-twin", defines=["EMMC_BASE=0xFE300000UL"])
+                    maps = [(0xFE300000, 0x1000, "device")]
+                else:
+                    dj = json.load(open(os.path.join(R, "device.json"))); img = open(os.path.join(R, "resident.bin"), "rb").read()
+                    maps = [(int(m["pa"], 16), int(m["len"], 16), m["attr"]) for m in dj["mappings"]]
+                if info.get("resident"):
+                    link.request(b"RSTP", timeout=5)
+                pokeedge.run_resident(link, img, maps, "sdcard")
+            EDGE["store"] = edgestore.EdgeStore(link).open()
+            print(f"[기억] 기기의 스토어 열림: {EDGE['store'].nrec}개 기록", flush=True)
+        except Exception as e:
+            print(f"[기억] 스토어 없음 ({str(e)[:80]}) — 이번 세션은 기억 없이", flush=True)
+            EDGE["store"] = False
+    return EDGE["store"] or None
+
+def library_for(body):
+    """Skills in the store that worked on a body like this one."""
+    st = edge_store()
+    if not st:
+        return []
+    out = []
+    for r in st.list(kind="skill"):
+        try:
+            rec = json.loads(st.get(r["name"]))
+        except Exception:
+            continue
+        b = rec.get("body") or {}
+        if b.get("njoints") == body["njoints"] and rec.get("params") is not None:
+            out.append({"name": r["name"], "intent": rec.get("intent"), "score": rec.get("score"),
+                        "tuned_params": rec.get("params"), "source": rec.get("source")})
+    out.sort(key=lambda x: -(x["score"] or 0))
+    return out[:2]
+
+def remember(name, intent, meta, params, src, attempts, score):
+    """'그거야' → the skill, its tuned numbers and its POKE image go onto the device's own card."""
+    st = edge_store()
+    if not st:
+        return None
+    import base64
+    img = pokeedge.build(src, "remember")
+    rec = {"intent": intent, "body": {"njoints": 3, "axes": [0, 0, 0], "limits": [finger.LIMIT] * 3, "summary": finger.BODY["summary"]},
+           "skill": meta["name"], "idea": meta.get("idea"), "param_names": [p["name"] for p in meta["params"]],
+           "params": [float(x) for x in params], "score": score, "attempts": attempts, "source": open(src).read(),
+           "image_b64": base64.b64encode(img).decode(), "image_arch": "aarch64-el0-unit", "learned_at": time.strftime("%Y-%m-%d %H:%M")}
+    return st.put(name, json.dumps(rec, ensure_ascii=False).encode(), kind="skill")
+
 def make_brain(src, lib_path):
     if "--local" in sys.argv:
         return LocalBrain(lib_path)
     if EDGE.get("skill") is None:
-        EDGE["skill"] = pokeedge.PokeSkill(edge_host())
+        EDGE["skill"] = pokeedge.PokeSkill(pokeedge.connect(edge_host()))
     return PokeBrain(src, EDGE["skill"])
 
 # ── the session ─────────────────────────────────────────────────────────
@@ -273,6 +348,9 @@ def main():
     auto, mic = "--auto" in sys.argv, ("--no-mic" not in sys.argv and "--auto" not in sys.argv)
     intent = args[0] if args else "주먹 쥐어봐 (curl the finger into a fist, toward the palm)"
     open(LOG, "w").close()
+    if "--local" not in sys.argv and EDGE.get("skill") is None:
+        EDGE["skill"] = pokeedge.PokeSkill(pokeedge.connect(edge_host()))
+        edge_store()
     print(f"\n의도: {intent}\n[기술 생성] 언어 모델이 이 손가락을 위한 기술을 쓰는 중...", flush=True)
     lib_path, meta, src, dt = generate(intent, "1")
     print(f"   → '{meta['name']}' ({dt:.0f}s): {meta.get('idea','')}")
@@ -383,6 +461,13 @@ def main():
             sigma = np.array([(hi - lo) * (0.25 if stall < 2 else 0.12) for lo, hi in ranges])
             cand = np.clip(best + 1.0 * step + rng.normal(0, 1, len(best)) * sigma,
                            [lo for lo, _ in ranges], [hi for _, hi in ranges])
+            for u in heard:                                        # "끝마디도 더 굽혀" → push every *tip* number up
+                if u.get("part") and u["polarity"] >= 0:
+                    for i, p in enumerate(meta["params"]):
+                        if u["part"] in p["name"].lower():
+                            lo, hi = ranges[i]; cand[i] = min(hi, best[i] + 0.3 * (hi - lo))
+                            best[i] = cand[i]                      # keep the nudge even if the next attempt scores the same
+                    print(f"   ↳ '{u['part']}' 관련 숫자를 올림: " + ", ".join(f"{p['name']}={cand[i]:+.2f}" for i, p in enumerate(meta["params"]) if u["part"] in p["name"].lower()), flush=True)
             if score < 0:                               # scolded: try the other way for direction-like params
                 for i, (lo, hi) in enumerate(ranges):
                     if lo < 0 < hi and abs(lo + hi) < 1e-6 and rng.random() < 0.5:
@@ -428,6 +513,12 @@ def main():
             json.dump({"intent": intent, "params": dict(zip([p["name"] for p in meta["params"]], cand.tolist())),
                        "attempts": attempt}, open(os.path.join(libdir, f"{name}.json"), "w"), ensure_ascii=False, indent=2)
             print(f"\n✦ 완성: '{meta['name']}'를 {attempt}번 시도 만에 배웠어 → build/library/{name}.c", flush=True)
+            try:
+                seq = remember("finger/" + name, intent, meta, cand, src, attempt, best_score)
+                if seq:
+                    print(f"✦ 기억: 기기의 SD 카드에 'finger/{name}' 저장 (record {seq}) — 전원이 꺼져도 남아", flush=True)
+            except Exception as e:
+                print(f"   (기억 저장 실패: {str(e)[:100]})", flush=True)
         if success_feats:
             loads = [f[0] for f in success_feats]; touch = sum(1 for f in success_feats if f[1])
             print(f"✦ '쥐었어'라고 들었을 때 몸의 느낌: 서보 부하 평균 {np.mean(loads):.2f} N·m, "
