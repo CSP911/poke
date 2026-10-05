@@ -2,3 +2,4 @@
 build/
 skills/gen-*.c
 __pycache__/
+skills/test-*.c

@@ -1,0 +1,34 @@
+{
+  "name": "sdcard",
+  "arch": "pi4",
+  "kind": "resident",
+  "provides": [
+    "block"
+  ],
+  "binary": "resident.bin",
+  "source": "sdcard.c",
+  "description": "Pi 4 bare-metal SD card: BCM2711 EMMC2 (SDHCI v3) brought up by hand — reset, 400 kHz identification (CMD0/CMD8/ACMD41/CMD2/CMD3), CSD capacity, select, 25 MHz 4-bit transfer. PIO single-block read/write. Served to the hub through the resident service page (SREQ ops 1 info, 2 read, 3 write). Gives the device a memory that survives power-off: the skill library and the edge store live here.",
+  "hardware": {
+    "controller": "BCM2711 EMMC2 at 0xFE340000 (Arasan SDHCI v3; the slot is routed here by the firmware)",
+    "base_clock": "mailbox clock id 12 (EMMC2), 100 MHz on Pi 4",
+    "mode": "3.3 V, default speed 25 MHz, 4-bit, no UHS/1.8 V switching, PIO",
+    "twin": "QEMU raspi4b attaches the emulated card to the older EMMC at 0xFE300000 (STATUS bit16 'card inserted' is 0 on EMMC2 there) — build with -DEMMC_BASE=0xFE300000UL and map that window instead"
+  },
+  "lessons": [
+    "read STATUS bit 16 (card inserted) first: it told us the twin's card lives on the other controller",
+    "SDHCI v3 clock divider is 10 bits: low 8 in CONTROL1[15:8], high 2 in CONTROL1[7:6]",
+    "R3 (ACMD41) and R2 (CMD2/CMD9) carry no CRC/index: clear the check bits or the controller reports an error",
+    "SDHCI RESP registers drop the CRC byte, so CID/CSD fields sit 8 bits lower than the spec's bit numbers",
+    "SDSC cards take byte addresses, SDHC/SDXC block numbers (OCR bit 30 after ACMD41)",
+    "write to a block the partitions do not use (the gap below the first partition, usually blocks 1..2047)"
+  ],
+  "mappings": [
+    {
+      "pa": "0xFE340000",
+      "len": "0x1000",
+      "attr": "device",
+      "what": "EMMC2 SDHCI registers"
+    }
+  ],
+  "process": "EL0 unit in SLOT_RESIDENT; EMMC2 is its only capability. Mailbox via SYS_MBOX for the base clock."
+}

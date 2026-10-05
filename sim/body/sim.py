@@ -36,6 +36,7 @@ def body_xml(axes, limit=1.2):
     acts = "".join(f'<position joint="j{i}" kp="{SERVO_KP}" forcerange="{-SERVO_TORQUE} {SERVO_TORQUE}" ctrlrange="{-limit} {limit}"/>'
                    for i in range(len(axes)))
     return f"""<mujoco>
+  <compiler angle="radian"/>
   <option timestep="0.002" integrator="implicitfast"/>
   <worldbody>
     <light pos="0 0 3"/>

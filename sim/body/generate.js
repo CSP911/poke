@@ -11,7 +11,7 @@ const { makeClient, textOf } = require('../../lib/cli/llm')
 const [bodyPath, intent, outPath, feedback] = process.argv.slice(2)
 if (!bodyPath || !intent || !outPath) { console.error('usage: generate.js <body.json> "<intent>" <out.c> [feedback]'); process.exit(1) }
 const body = JSON.parse(fs.readFileSync(bodyPath, 'utf8'))
-const abi = fs.readFileSync(path.join(__dirname, 'motion_io.h'), 'utf8')
+const abi = fs.readFileSync(path.join(__dirname, '..', '..', 'edge', 'kernel', 'pi4', 'motion_io.h'), 'utf8')
 
 const system = `You write motion skills for a modular robot body, in C.
 
@@ -34,8 +34,11 @@ Rules:
   smooth periodic motion works better than jumps.
 - Use io->axis[j] (0 = bends up/down, 1 = bends sideways) and io->t.
 - static variables are allowed for state. No malloc, no printf, no other libc.
-- Coordinates: the head is at the front (+x). Moving "forward" means the whole
-  body travels toward +x. The ground is flat with ordinary friction.`
+- The body's "notes" field says how the body is mounted, its frame of
+  reference, and what is known about it. Trust it over your assumptions.
+- If a direction is unknown (for example which sign of a joint angle bends a
+  finger toward the palm), expose it as a param with range -1..1 and use its
+  sign, so feedback can flip it.`
 
 const user = `Body (discovered by the robot itself by wiggling each joint):
 ${JSON.stringify(body, null, 2)}

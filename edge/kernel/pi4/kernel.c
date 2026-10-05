@@ -1012,6 +1012,28 @@ static void send_udp(const u8 *dst_mac, u32 dst_ip, u16 dport, u16 sport,
  * POKE Protocol over UDP
  * ═══════════════════════════════════════════ */
 
+#ifdef NO_ETH
+/* QEMU twin: the protocol rides the mini UART (QEMU serial #1), which the
+ * launcher exposes as a TCP socket. Same frames as UDP, just a byte stream. */
+#define AUX_BASE (PERI + 0x215000)
+static void twin_uart_init(void) {
+    wr32(AUX_BASE + 0x04, rd32(AUX_BASE + 0x04) | 1);   /* AUX_ENABLES: mini UART */
+    wr32(AUX_BASE + 0x60, 0);                             /* CNTL: off while configuring */
+    wr32(AUX_BASE + 0x44, 0);                             /* IER: no interrupts */
+    wr32(AUX_BASE + 0x4C, 3);                             /* LCR: 8 bit */
+    wr32(AUX_BASE + 0x50, 0);
+    wr32(AUX_BASE + 0x48, 0xC6);                          /* IIR: clear FIFOs */
+    wr32(AUX_BASE + 0x68, 270);                           /* BAUD (ignored by QEMU) */
+    wr32(AUX_BASE + 0x60, 3);                             /* CNTL: RX + TX */
+}
+static void twin_putc(u8 c) { u32 t = 100000; while (!(rd32(AUX_BASE + 0x54) & (1 << 5)) && --t) { } wr32(AUX_BASE + 0x40, c); }
+static int twin_getc(void) { return (rd32(AUX_BASE + 0x54) & 1) ? (int)(rd32(AUX_BASE + 0x40) & 0xFF) : -1; }
+static void poke_resp(const u8 *data, int len) {
+    u8 h[8] = { 'R', 'E', 'S', 'P', (u8)len, (u8)(len >> 8), (u8)(len >> 16), (u8)(len >> 24) };
+    for (int i = 0; i < 8; i++) twin_putc(h[i]);
+    for (int i = 0; i < len; i++) twin_putc(data[i]);
+}
+#else
 static void poke_resp(const u8 *data, int len) {
     u8 rbuf[1400];
     rbuf[0]='R'; rbuf[1]='E'; rbuf[2]='S'; rbuf[3]='P';
@@ -1019,6 +1041,7 @@ static void poke_resp(const u8 *data, int len) {
     if (len > 0 && len <= 1392) mcpy(rbuf + 8, data, len);
     send_udp(peer_mac, peer_ip, peer_port, POKE_PORT, rbuf, 8 + len);
 }
+#endif
 
 static void poke_resp_str(const char *s) { poke_resp((const u8 *)s, slen(s)); }
 
@@ -1211,6 +1234,11 @@ static u64 pages_used(void);
 static void handle_urun(const u8 *p, int len);
 static void handle_rsld(const u8 *p, int len);
 static int apply_mappings(const u8 *p, int len);
+static void handle_mlod(const u8 *p, int len);
+static void handle_matt(const u8 *p, int len);
+static void handle_mstp(const u8 *p, int len);
+static void handle_msto(void);
+static void handle_sreq(const u8 *p, int len);
 static const char *resident_name(void);   /* NULL when no resident process is running */
 /* resident slot state (defined with the resident mechanism below; INFO reports it) */
 static void resident_stop(void);
@@ -1240,7 +1268,7 @@ static void handle_poke(const u8 *payload, int len) {
             r[n++] = '"'; for (int i = 0; l[i] && n < 1300; i++) { if (l[i] == '"' || l[i] == '\\') r[n++] = '\\'; r[n++] = l[i]; } r[n++] = '"'; r[n++] = ','; }
         if (r[n-1] == ',') n--; r[n++] = ']';
         n += scpy(r+n, ",\"ip\":\"10.0.0.2\",\"port\":5555");
-        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"KRLD\",\"URUN\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
+        n += scpy(r+n, ",\"commands\":[\"PING\",\"INFO\",\"EXEC\",\"EXLD\",\"EXRN\",\"PRST\",\"RSLD\",\"RSTP\",\"KRLD\",\"URUN\",\"SREQ\",\"MLOD\",\"MATT\",\"MSTP\",\"MSTO\",\"GPIO\",\"GPOS\",\"TEMP\",\"DRAW\",\"PRUN\",\"PSTP\",\"PPAR\",\"TIME\"]");
         if (fb_ok) {
             n += scpy(r+n, ",\"display\":\""); n += idec(fb_w, r+n); r[n++] = 'x'; n += idec(fb_h, r+n); r[n++] = '"';
             n += scpy(r+n, ",\"fb_base\":"); n += idec((u32)(u64)fb_base, r+n);
@@ -1338,6 +1366,21 @@ static void handle_poke(const u8 *payload, int len) {
     }
     else if (mcmp(payload, "RSLD", 4) == 0) {      /* resident driver → EL0 process with capabilities */
         handle_rsld(payload + 4, len - 4);
+    }
+    else if (mcmp(payload, "SREQ", 4) == 0) {      /* request to the resident driver */
+        handle_sreq(payload + 4, len - 4);
+    }
+    else if (mcmp(payload, "MLOD", 4) == 0) {      /* motion skill → EL0 unit */
+        handle_mlod(payload + 4, len - 4);
+    }
+    else if (mcmp(payload, "MATT", 4) == 0) {      /* start an attempt with params */
+        handle_matt(payload + 4, len - 4);
+    }
+    else if (mcmp(payload, "MSTP", 4) == 0) {      /* one control tick */
+        handle_mstp(payload + 4, len - 4);
+    }
+    else if (mcmp(payload, "MSTO", 4) == 0) {      /* stop and discard the skill */
+        handle_msto();
     }
     else if (mcmp(payload, "URUN", 4) == 0) {
         handle_urun(payload + 4, len - 4);
@@ -1457,25 +1500,6 @@ void fault_handler(u64 kind, u64 esr, u64 elr, u64 far) {
  * Kernel Main
  * ═══════════════════════════════════════════ */
 
-#ifdef NO_ETH
-/* QEMU twin build: no GENET — run a built-in demo persona
- * through the exact same api_t/tick path a hub-generated
- * binary would use. */
-static u64 demo_persona(const api_t *api, u64 tick) {
-    if (tick == 0) {
-        api->clear(0x00101828);
-        api->text(64, 40, 8, 0x0000FF66, "POKE");
-        api->text(64, 120, 2, 0x00AAAAAA, "prompt appliance demo");
-    }
-    u64 s = api->ms() / 1000;
-    char b[16]; int n = scpy(b, "T+"); n += idec((u32)s, b + n); b[n++] = 's'; b[n] = 0;
-    api->rect(64, 200, 400, 60, 0x00101828);
-    api->text(64, 200, 6, 0x00FFFFFF, b);
-    api->rect(64, 300, 672, 24, 0x00202838);
-    api->rect(64, 300, (tick % 84) * 8, 24, 0x0000FF66);
-    return 0;
-}
-#endif
 
 /* Resident drivers are EL0 processes now (SLOT_RESIDENT, see units below).
  * resident_stop() asks the driver to run RES_STOP and exit, then reclaims it. */
@@ -1609,6 +1633,7 @@ static void mmu_init(void) {
 #define SYS_SLEEP 3
 #define SYS_MBOX  4
 #define SYS_TOUCH 5
+#define SYS_WAIT  6           /* park until the kernel resumes this unit explicitly (motion step) */
 #define SYS_API   10          /* 10..23 = api_t function slots in order (svc slot skipped) */
 #define UNIT_SLEEPING 0x51ee
 #define SLICE_MS 4
@@ -1616,7 +1641,7 @@ static void mmu_init(void) {
 static void timer_arm(u32 ms);
 static void timer_off(void);
 #define UNIT_DEAD     0xdead
-#define FRAME_WORDS   36      /* 288-byte EL0 exception frame */
+#define FRAME_WORDS   102     /* 816-byte EL0 exception frame: GP + q0-q31 + fpcr/fpsr */
 
 /* ── physical page allocator ── */
 static u64 pool_base = 0, pool_pages = 0;
@@ -1655,6 +1680,7 @@ struct unit_s {
     int active; u64 exit_code;
     int sleeping; u64 wake_at; u64 ctx[FRAME_WORDS];   /* parked in a sleep syscall (or preempted) */
     u64 cpu_ms, budget_ms;                             /* CPU used since the last voluntary sleep / limit */
+    u64 svc_pa;                                        /* residents: service page (SREQ/SRSP channel) */
     int preempted;                                     /* parked by the timer, not by sleep() */
     int stop_req;                                      /* next sleep() returns 1: run STOP and exit */
     char name[32];
@@ -1667,6 +1693,7 @@ extern char ucrt_start[], ucrt_stubs[], ucrt_end[];
 #define SLOT_URUN 0                      /* transient `poke unit` jobs */
 #define SLOT_PERSONA 1
 #define SLOT_RESIDENT 2
+#define SLOT_SKILL 3                     /* generated motion skill, stepped by MSTP */
 typedef struct unit_s unit_t;
 static unit_t units[UNIT_SLOTS];
 static unit_t *cur = &units[0];          /* the unit the EL0 paths operate on */
@@ -1873,6 +1900,12 @@ static u64 do_syscall(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 *regs)
         mcpy((void *)a0, mbox_buf, (int)a1);
         return ok ? 0 : (u64)-2; }
     case SYS_TOUCH: touch_publish((int)a0, (int)a1, (int)a2); return 0;
+    case SYS_WAIT:                                            /* park until resumed on purpose */
+        for (int i = 0; i < FRAME_WORDS; i++) cur->ctx[i] = regs[i];
+        cur->ctx[0] = 0;
+        cur->preempted = 0; cur->sleeping = 1; cur->wake_at = ~0ULL; cur->cpu_ms = 0;
+        __asm__ volatile("msr ttbr0_el1, %0; isb" :: "r"((u64)MMU_L0)); __asm__ volatile("dsb sy; tlbi vmalle1is; dsb sy; isb");
+        proc_exit(UNIT_SLEEPING);
     case SYS_SLEEP:                                           /* park: save the frame, hand the CPU back */
         for (int i = 0; i < FRAME_WORDS; i++) cur->ctx[i] = regs[i];
         cur->ctx[0] = cur->stop_req ? 1 : 0;                  /* syscall result seen on resume */
@@ -2020,7 +2053,14 @@ static void handle_rsld(const u8 *p, int len) {
     if (rc) { poke_resp_str(rc == -1 ? "{\"error\":\"too big\"}" : "{\"error\":\"no pages\"}"); return; }
     int o = apply_mappings(p, len);
     if (o < 0) { unit_destroy(); poke_resp_str("{\"error\":\"map failed\"}"); return; }
-    u32 nmap = 0; (void)nmap;
+    {   /* service page: the hub's request/response channel to this driver */
+        u64 pa = page_alloc();
+        if (!pa) { unit_destroy(); poke_resp_str("{\"error\":\"no pages\"}"); return; }
+        cur->pages[cur->npages++] = pa; cur->svc_pa = pa; mset((void *)pa, 0, PAGE);
+        volatile u64 *l3 = (volatile u64 *)cur->l3;
+        l3[(UNIT_SVC_VA >> 12) & 0x1ff] = PT_PAGE_USER(pa);
+        unit_tables_clean();
+    }
     { int k = 0; const u8 *nm = p + o; while (nm < (const u8 *)p + len && nm[k] && k < 31) { cur->name[k] = nm[k]; k++; } cur->name[k] = 0; }
     /* run INIT to completion: keep resuming while it is merely preempted */
     u64 t0 = now_ms(); u64 c = unit_run();
@@ -2036,6 +2076,171 @@ static void handle_rsld(const u8 *p, int len) {
     const char *l = last_logs[(last_log_i + 3) % 4]; for (int i = 0; l[i] && n < 190; i++) if (l[i] != '"') r[n++] = l[i];
     r[n++] = '"'; r[n++] = '}'; poke_resp((const u8 *)r, n);
     tp_avail = 0; unit_destroy();
+}
+
+/* SREQ: payload = op u32 | data. Hands a request to the resident through its
+ * service page and drives the process until it answers (or dies, or stalls).
+ * Reply: "SRSP" status u32 | data — or a JSON error. */
+static void st32(u8 *p, u32 v) { p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24; }
+static void handle_sreq(const u8 *p, int len) {
+    cur = &units[SLOT_RESIDENT];
+    if (!cur->active || !cur->svc_pa) { poke_resp_str("{\"error\":\"no resident\"}"); return; }
+    if (len < 4 || len - 4 > SVC_MAX) { poke_resp_str("{\"error\":\"bad request\"}"); return; }
+    svc_page_t *sp = (svc_page_t *)cur->svc_pa;
+    sp->op = ld32(p); sp->req_len = (u32)(len - 4); mcpy(sp->req, p + 4, len - 4);
+    dsb(); sp->req_seq++; dsb();
+    u64 t0 = now_ms(); u64 c = UNIT_SLEEPING;
+    while (sp->rsp_seq != sp->req_seq && now_ms() - t0 < 5000) {
+        if (!cur->sleeping) break;
+        c = unit_resume();
+        if (c != UNIT_SLEEPING) {                                  /* the driver died on this request */
+            char r[160]; int n = scpy(r, "{\"error\":\"resident crashed\",\"code\":"); n += idec((u32)c, r + n); n += scpy(r + n, "}");
+            poke_resp((const u8 *)r, n); tp_avail = 0; unit_destroy(); return;
+        }
+    }
+    if (sp->rsp_seq != sp->req_seq) { poke_resp_str("{\"error\":\"resident did not answer\"}"); return; }
+    u32 rl = sp->rsp_len > 1380 ? 1380 : sp->rsp_len;
+    u8 r[1392]; r[0] = 'S'; r[1] = 'R'; r[2] = 'S'; r[3] = 'P'; st32(r + 4, sp->status); mcpy(r + 8, sp->rsp, rl);
+    poke_resp(r, 8 + rl);
+}
+
+/* ═══════════════════════════════════════════
+ * Motion: a generated skill runs as an EL0 unit (SLOT_SKILL) and is stepped
+ * once per control tick. The hub (or, later, a servo resident) supplies the
+ * body state; the kernel copies it into the skill's motion_io_t page, lets
+ * the skill compute, and passes the targets through the safety filter
+ * (docs/design/motion-safety.md) before they leave. The skill never sees a
+ * motor: it only ever writes numbers into its own page.
+ * ═══════════════════════════════════════════ */
+#include "motion_io.h"
+#define UNIT_IO_VA   (UNIT_BASE + 0x180000ULL)
+#ifdef NO_ETH
+#define MOTION_STEP_US 200000                 /* twin: QEMU's clock is host wall time, and the host
+                                                 (running the simulator) can stall the vCPU for tens of ms */
+#else
+#define MOTION_STEP_US 20000                  /* a step that takes longer is a hung skill */
+#endif
+static u64 motion_io_pa = 0;
+static struct {
+    float prev[MOTION_MAX_JOINTS];
+    float max_rate;                            /* rad/s */
+    float max_tilt;                            /* rad */
+    int   reset_prev, estop;
+    u32   clamped, rate_limited, nonfinite, steps;
+} msafe;
+
+static motion_io_t *mio(void) { return (motion_io_t *)motion_io_pa; }
+static float fabsk(float x) { return x < 0 ? -x : x; }
+
+static void motion_reply_err(const char *e, u32 code) {
+    char r[200]; int n = scpy(r, "{\"error\":\""); n += scpy(r + n, e); n += scpy(r + n, "\",\"code\":"); n += idec(code, r + n);
+    n += scpy(r + n, ",\"log\":\"");
+    for (int i = 0; i < cur->loglen && n < 190; i++) { char c = cur->log[i]; r[n++] = (c == '\n' || c == '"') ? ' ' : c; }
+    r[n++] = '"'; r[n++] = '}'; poke_resp((const u8 *)r, n);
+}
+
+static void handle_msto(void) {
+    cur = &units[SLOT_SKILL];
+    if (cur->active) unit_destroy();
+    motion_io_pa = 0;
+    poke_resp_str("{\"skill\":\"stopped\"}");
+}
+
+/* MLOD: payload = len32 sum32 | njoints u32 | limit f32[n] | axis u32[n]; binary already staged */
+static void handle_mlod(const u8 *p, int len) {
+    u32 clen = stage_check(p, len, "MLOD"); if (!clen) return;
+    if (len < 12) { poke_resp_str("{\"error\":\"no body\"}"); return; }
+    u32 n = ld32(p + 8);
+    if (n == 0 || n > MOTION_MAX_JOINTS || len < 12 + (int)n * 8) { poke_resp_str("{\"error\":\"bad body\"}"); return; }
+    cur = &units[SLOT_SKILL];
+    if (cur->active) unit_destroy();
+    if (unit_create(stage_buf, clen, 0)) { poke_resp_str("{\"error\":\"no pages\"}"); return; }
+    u64 pa = page_alloc();
+    if (!pa) { unit_destroy(); poke_resp_str("{\"error\":\"no pages\"}"); return; }
+    cur->pages[cur->npages++] = pa;
+    volatile u64 *l3 = (volatile u64 *)cur->l3;
+    l3[(UNIT_IO_VA >> 12) & 0x1ff] = PT_PAGE_USER(pa);
+    unit_tables_clean();
+    motion_io_pa = pa;
+    motion_io_t *io = mio();
+    io->njoints = (int)n;
+    for (u32 j = 0; j < n; j++) {
+        u32 lb = ld32(p + 12 + j * 4); float lim; mcpy(&lim, &lb, 4);
+        io->limit[j] = (lim > 0 && lim < 3.2f) ? lim : 1.2f;
+        io->axis[j] = (int)ld32(p + 12 + n * 4 + j * 4);
+    }
+    mset(&msafe, 0, sizeof msafe);
+    msafe.max_rate = 6.0f; msafe.max_tilt = 1.396f; msafe.reset_prev = 1;
+    cur->name[0] = 's'; cur->name[1] = 'k'; cur->name[2] = 'i'; cur->name[3] = 'l'; cur->name[4] = 'l'; cur->name[5] = 0;
+    u64 c = unit_run();                                   /* crt parks itself in SYS_WAIT */
+    if (c != UNIT_SLEEPING || cur->preempted) { motion_reply_err("skill did not reach its wait", (u32)c); unit_destroy(); motion_io_pa = 0; return; }
+    char r[96]; int k = scpy(r, "{\"skill\":\"loaded\",\"joints\":"); k += idec(n, r + k);
+    k += scpy(r + k, ",\"pages\":"); k += idec(cur->npages + 4, r + k); r[k++] = '}';
+    poke_resp((const u8 *)r, k);
+    uprint("[POKE] MLOD skill ("); udec(clen); uprint(" B) at EL0\n");
+}
+
+/* MATT: payload = param f32[8]. A new attempt: time restarts, safety re-arms. */
+static void handle_matt(const u8 *p, int len) {
+    cur = &units[SLOT_SKILL];
+    if (!cur->active || !motion_io_pa) { poke_resp_str("{\"error\":\"no skill\"}"); return; }
+    motion_io_t *io = mio();
+    for (int i = 0; i < 8; i++) { float v = 0; if (len >= (i + 1) * 4) mcpy(&v, p + i * 4, 4); io->param[i] = v; }
+    io->t = 0; io->tick = 0;
+    msafe.reset_prev = 1; msafe.estop = 0; msafe.clamped = msafe.rate_limited = msafe.nonfinite = msafe.steps = 0;
+    poke_resp_str("{\"attempt\":\"armed\"}");
+}
+
+/* MSTP: payload = t f32 | tick u32 | q f32[n] | imu f32[6]
+ * reply  = "MOUT" | cmd f32[n] | clamped u32 | rate_limited u32 | nonfinite u32 | estop u32 | step_us u32 */
+static void handle_mstp(const u8 *p, int len) {
+    cur = &units[SLOT_SKILL];
+    if (!cur->active || !motion_io_pa) { poke_resp_str("{\"error\":\"no skill\"}"); return; }
+    motion_io_t *io = mio();
+    int n = io->njoints;
+    if (len < 8 + n * 4 + 24) { poke_resp_str("{\"error\":\"short step\"}"); return; }
+    mcpy(&io->t, p, 4); io->tick = ld32(p + 4);
+    for (int j = 0; j < n; j++) mcpy(&io->q[j], p + 8 + j * 4, 4);
+    for (int i = 0; i < 6; i++) mcpy(&io->imu[i], p + 8 + n * 4 + i * 4, 4);
+    if (msafe.reset_prev) { for (int j = 0; j < n; j++) msafe.prev[j] = io->q[j]; msafe.reset_prev = 0; }
+
+    /* let the skill compute one step; it may be preempted, but must finish in time */
+    u64 t0 = timer_cnt(), lim = timer_frq() / 1000000 * MOTION_STEP_US;
+    u64 c = unit_resume();
+    while (c == UNIT_SLEEPING && cur->preempted && timer_cnt() - t0 < lim) c = unit_resume();
+    u32 step_us = (u32)((timer_cnt() - t0) * 1000000 / timer_frq());
+    if (c != UNIT_SLEEPING) {                              /* crashed or exited: device stays up */
+        motion_reply_err(c == UNIT_DEAD ? "skill crashed" : "skill exited", (u32)c);
+        unit_destroy(); motion_io_pa = 0; return;
+    }
+    if (cur->preempted) {                                  /* watchdog */
+        unit_log("watchdog: step took too long — skill discarded");
+        motion_reply_err("skill hung", step_us);
+        unit_destroy(); motion_io_pa = 0; return;
+    }
+
+    /* safety filter: the only path from a skill's numbers to a motor */
+    float tilt = fabsk(io->imu[0]) > fabsk(io->imu[1]) ? fabsk(io->imu[0]) : fabsk(io->imu[1]);
+    if (tilt > msafe.max_tilt) msafe.estop = 1;
+    float step = msafe.max_rate / (float)MOTION_HZ;
+    u8 r[4 + MOTION_MAX_JOINTS * 4 + 20]; r[0] = 'M'; r[1] = 'O'; r[2] = 'U'; r[3] = 'T';
+    for (int j = 0; j < n; j++) {
+        float x = io->cmd[j];
+        if (!(x == x) || x > 1e6f || x < -1e6f) { msafe.nonfinite++; x = msafe.prev[j]; }
+        if (msafe.estop) x = msafe.prev[j];
+        else {
+            float L = io->limit[j];
+            if (x > L) { x = L; msafe.clamped++; } else if (x < -L) { x = -L; msafe.clamped++; }
+            float lo = msafe.prev[j] - step, hi = msafe.prev[j] + step;
+            if (x > hi) { x = hi; msafe.rate_limited++; } else if (x < lo) { x = lo; msafe.rate_limited++; }
+        }
+        msafe.prev[j] = x;
+        mcpy(r + 4 + j * 4, &x, 4);
+    }
+    msafe.steps++;
+    u32 tail[5] = { msafe.clamped, msafe.rate_limited, msafe.nonfinite, (u32)msafe.estop, step_us };
+    mcpy(r + 4 + n * 4, tail, 20);
+    poke_resp(r, 4 + n * 4 + 20);
 }
 
 void kernel_main(void) {
@@ -2071,11 +2276,8 @@ void kernel_main(void) {
     }
 #else
     uprint("[NET] disabled (QEMU twin build)\n");
-    uprint("[TWIN] starting demo persona\n\n");
-    persona_fn = demo_persona;
-    persona_tick = 0;
-    persona_last_ms = now_ms();
-    persona_active = 1;
+    twin_uart_init();
+    uprint("[TWIN] protocol on mini UART (QEMU serial 1)\n\n");
 #endif
 
 #ifndef NO_ETH
@@ -2157,6 +2359,20 @@ void kernel_main(void) {
             }
         }
 
+#ifdef NO_ETH
+        {   /* twin transport: "POKE" len32 payload, one frame at a time */
+            static u8 tb[1416]; static int tn = 0; int c;
+            while ((c = twin_getc()) >= 0) {
+                if (tn < 4 && c != "POKE"[tn]) { tn = 0; continue; }
+                tb[tn++] = (u8)c;
+                if (tn >= 8) {
+                    u32 plen = ld32(tb + 4);
+                    if (plen > sizeof tb - 8) { tn = 0; continue; }
+                    if ((u32)tn == 8 + plen) { handle_poke(tb + 8, (int)plen); tn = 0; }
+                }
+            }
+        }
+#endif
         /* Resident driver tick (event-ring drains, sensor polls, ...) */
 
         /* Touch feedback when no persona owns the screen */

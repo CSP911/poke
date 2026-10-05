@@ -31,6 +31,8 @@ def bring_up(axes, intent, tag):
     print(f"\n[인식] 몸 조립: 관절 {len(axes)}개 (모양은 로봇에게 숨김)")
     print("[자기 발견] 관절을 하나씩 흔들어 보는 중")
     body = discover.discover(axes, log=lambda s: print("   " + s.strip()))
+    body["notes"] = ("Lies on flat ground with ordinary friction, head first. The head is at the front (+x); "
+                     "moving forward means the whole body travels toward +x.")
     print(f"   → {body['summary']}")
     print(f"[기술 생성] 의도: {intent}")
     best_run, feedback = None, None

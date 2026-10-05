@@ -172,9 +172,11 @@ reload_tramp_end:
 /* ── EL0 units: exception entry, enter, exit ──
  * A unit runs at EL0 in its own address space. SVC (and faults) from EL0
  * land here on SP_EL1, which is the kernel stack as proc_enter left it.
- * Saved frame (256 bytes): x0-x18 pairs, x29,x30, elr, spsr. */
+ * Saved frame (816 bytes): x0-x30 @0, elr/spsr @248, sp_el0 @264,
+ * q0-q31 @288 (skills compute in floating point; a preempted unit must get
+ * its vector registers back), fpcr/fpsr @800. */
 el0_sync_entry:
-    sub     sp, sp, #288
+    sub     sp, sp, #816
     stp     x0, x1, [sp, #0]
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
@@ -196,6 +198,26 @@ el0_sync_entry:
     stp     x9, x10, [sp, #248]
     mrs     x9, sp_el0
     str     x9, [sp, #264]
+    stp     q0, q1, [sp, #288]
+    stp     q2, q3, [sp, #320]
+    stp     q4, q5, [sp, #352]
+    stp     q6, q7, [sp, #384]
+    stp     q8, q9, [sp, #416]
+    stp     q10, q11, [sp, #448]
+    stp     q12, q13, [sp, #480]
+    stp     q14, q15, [sp, #512]
+    stp     q16, q17, [sp, #544]
+    stp     q18, q19, [sp, #576]
+    stp     q20, q21, [sp, #608]
+    stp     q22, q23, [sp, #640]
+    stp     q24, q25, [sp, #672]
+    stp     q26, q27, [sp, #704]
+    stp     q28, q29, [sp, #736]
+    stp     q30, q31, [sp, #768]
+    mrs     x9, fpcr
+    mrs     x10, fpsr
+    str     x9, [sp, #800]
+    str     x10, [sp, #808]
     mrs     x0, esr_el1
     mrs     x1, far_el1
     mov     x2, sp
@@ -203,6 +225,26 @@ el0_sync_entry:
     ldp     x9, x10, [sp, #248]
     msr     elr_el1, x9
     msr     spsr_el1, x10
+    ldr     x9, [sp, #800]
+    ldr     x10, [sp, #808]
+    msr     fpcr, x9
+    msr     fpsr, x10
+    ldp     q0, q1, [sp, #288]
+    ldp     q2, q3, [sp, #320]
+    ldp     q4, q5, [sp, #352]
+    ldp     q6, q7, [sp, #384]
+    ldp     q8, q9, [sp, #416]
+    ldp     q10, q11, [sp, #448]
+    ldp     q12, q13, [sp, #480]
+    ldp     q14, q15, [sp, #512]
+    ldp     q16, q17, [sp, #544]
+    ldp     q18, q19, [sp, #576]
+    ldp     q20, q21, [sp, #608]
+    ldp     q22, q23, [sp, #640]
+    ldp     q24, q25, [sp, #672]
+    ldp     q26, q27, [sp, #704]
+    ldp     q28, q29, [sp, #736]
+    ldp     q30, q31, [sp, #768]
     ldp     x0, x1, [sp, #0]
     ldp     x2, x3, [sp, #16]
     ldp     x4, x5, [sp, #32]
@@ -219,7 +261,7 @@ el0_sync_entry:
     ldp     x26, x27, [sp, #208]
     ldp     x28, x29, [sp, #224]
     ldr     x30, [sp, #240]
-    add     sp, sp, #288
+    add     sp, sp, #816
     eret
 
 /* u64 proc_resume(ctx, ttbr0): continue a unit that slept in a syscall.
@@ -247,6 +289,26 @@ proc_resume:
     ldp     x10, x11, [x9, #248]
     msr     elr_el1, x10
     msr     spsr_el1, x11
+    ldr     x10, [x9, #800]
+    ldr     x11, [x9, #808]
+    msr     fpcr, x10
+    msr     fpsr, x11
+    ldp     q0, q1, [x9, #288]
+    ldp     q2, q3, [x9, #320]
+    ldp     q4, q5, [x9, #352]
+    ldp     q6, q7, [x9, #384]
+    ldp     q8, q9, [x9, #416]
+    ldp     q10, q11, [x9, #448]
+    ldp     q12, q13, [x9, #480]
+    ldp     q14, q15, [x9, #512]
+    ldp     q16, q17, [x9, #544]
+    ldp     q18, q19, [x9, #576]
+    ldp     q20, q21, [x9, #608]
+    ldp     q22, q23, [x9, #640]
+    ldp     q24, q25, [x9, #672]
+    ldp     q26, q27, [x9, #704]
+    ldp     q28, q29, [x9, #736]
+    ldp     q30, q31, [x9, #768]
     ldp     x2, x3, [x9, #16]
     ldp     x4, x5, [x9, #32]
     ldp     x6, x7, [x9, #48]
@@ -267,7 +329,7 @@ proc_resume:
     eret
 
 el0_irq_entry:
-    sub     sp, sp, #288
+    sub     sp, sp, #816
     stp     x0, x1, [sp, #0]
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
@@ -289,11 +351,51 @@ el0_irq_entry:
     stp     x9, x10, [sp, #248]
     mrs     x9, sp_el0
     str     x9, [sp, #264]
+    stp     q0, q1, [sp, #288]
+    stp     q2, q3, [sp, #320]
+    stp     q4, q5, [sp, #352]
+    stp     q6, q7, [sp, #384]
+    stp     q8, q9, [sp, #416]
+    stp     q10, q11, [sp, #448]
+    stp     q12, q13, [sp, #480]
+    stp     q14, q15, [sp, #512]
+    stp     q16, q17, [sp, #544]
+    stp     q18, q19, [sp, #576]
+    stp     q20, q21, [sp, #608]
+    stp     q22, q23, [sp, #640]
+    stp     q24, q25, [sp, #672]
+    stp     q26, q27, [sp, #704]
+    stp     q28, q29, [sp, #736]
+    stp     q30, q31, [sp, #768]
+    mrs     x9, fpcr
+    mrs     x10, fpsr
+    str     x9, [sp, #800]
+    str     x10, [sp, #808]
     mov     x0, sp
     bl      el0_irq                     /* C: ack, re-arm, preempt (proc_exit) — or return to continue */
     ldp     x9, x10, [sp, #248]
     msr     elr_el1, x9
     msr     spsr_el1, x10
+    ldr     x9, [sp, #800]
+    ldr     x10, [sp, #808]
+    msr     fpcr, x9
+    msr     fpsr, x10
+    ldp     q0, q1, [sp, #288]
+    ldp     q2, q3, [sp, #320]
+    ldp     q4, q5, [sp, #352]
+    ldp     q6, q7, [sp, #384]
+    ldp     q8, q9, [sp, #416]
+    ldp     q10, q11, [sp, #448]
+    ldp     q12, q13, [sp, #480]
+    ldp     q14, q15, [sp, #512]
+    ldp     q16, q17, [sp, #544]
+    ldp     q18, q19, [sp, #576]
+    ldp     q20, q21, [sp, #608]
+    ldp     q22, q23, [sp, #640]
+    ldp     q24, q25, [sp, #672]
+    ldp     q26, q27, [sp, #704]
+    ldp     q28, q29, [sp, #736]
+    ldp     q30, q31, [sp, #768]
     ldp     x0, x1, [sp, #0]
     ldp     x2, x3, [sp, #16]
     ldp     x4, x5, [sp, #32]
@@ -310,7 +412,7 @@ el0_irq_entry:
     ldp     x26, x27, [sp, #208]
     ldp     x28, x29, [sp, #224]
     ldr     x30, [sp, #240]
-    add     sp, sp, #288
+    add     sp, sp, #816
     eret
 
 /* u64 proc_enter(entry, sp_el0, ttbr0): switch to the unit's tables and

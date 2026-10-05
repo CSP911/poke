@@ -64,4 +64,15 @@ typedef struct {
 #define RES_STOP 3
 #define RES_NAME 4
 
+/* Service page: a 4 KB page the kernel maps RW into every resident at
+ * UNIT_SVC_VA. The hub sends SREQ(op, data); the kernel copies it here,
+ * bumps req_seq and wakes the resident, which answers in its TICK by
+ * filling rsp/status/rsp_len and setting rsp_seq = req_seq. */
+#define UNIT_SVC_VA 0x100000190000UL
+#define SVC_MAX 1536
+typedef struct {
+    volatile unsigned int req_seq, op, req_len, _r0; unsigned char req[SVC_MAX];
+    volatile unsigned int rsp_seq, status, rsp_len, _r1; unsigned char rsp[SVC_MAX];
+} svc_page_t;
+
 #endif
