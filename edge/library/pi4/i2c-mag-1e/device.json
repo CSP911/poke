@@ -1,0 +1,35 @@
+{
+  "name": "i2c-mag-1e",
+  "arch": "pi4",
+  "kind": "resident",
+  "provides": [
+    "magnetometer"
+  ],
+  "binary": "resident.bin",
+  "source": "i2c-mag-1e.c",
+  "description": "HMC5883L 3-axis digital magnetometer (Honeywell/DFRobot compass module) at I2C 0x1e on BSC1 — driver written and verified by claude-sonnet-5 during AI incubation",
+  "evidence": "Reading registers 0x0A-0x0C (Identification Registers A/B/C) returned bytes 0x48,0x34,0x33 = ASCII 'H','4','3', which is the exact fixed ID string documented for the HMC5883L - a signature unique to this part.",
+  "service": {
+    "op1": "{\"x\": <int raw>, \"y\": <int raw>, \"z\": <int raw>}  (raw signed 16-bit counts, X Y Z order as the part defines)"
+  },
+  "mappings": [
+    {
+      "pa": "0xFE804000",
+      "len": "0x1000",
+      "attr": "device",
+      "what": "BSC1"
+    },
+    {
+      "pa": "0xFE200000",
+      "len": "0x1000",
+      "attr": "device",
+      "what": "GPIO (pins to ALT0)"
+    }
+  ],
+  "incubated": {
+    "by": "claude-sonnet-5",
+    "at": "2026-10-06 00:30",
+    "rounds": 1,
+    "verified_on": "twin"
+  }
+}

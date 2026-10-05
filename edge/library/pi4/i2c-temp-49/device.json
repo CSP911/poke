@@ -1,0 +1,35 @@
+{
+  "name": "i2c-temp-49",
+  "arch": "pi4",
+  "kind": "resident",
+  "provides": [
+    "temperature"
+  ],
+  "binary": "resident.bin",
+  "source": "i2c-temp-49.c",
+  "description": "TMP102/TMP112-style I2C temperature sensor (12-bit, left-justified in 16-bit word) at I2C 0x49 on BSC1 — driver written and verified by claude-sonnet-5 during AI incubation",
+  "evidence": "Reading pointer 0x00 (temperature register) gave bytes [0x1B,0x80]=0x1B80; right-shifting 4 bits (12-bit left-justified format used by TMP102/TMP112) gives 0x1B8=440, *0.0625°C/LSB = 27.5°C, a sane room temperature. Pointer 0x01 (config register) returned a plausible low-activity config word (0x0080), consistent with a config register rather than random data.",
+  "service": {
+    "op1": "{\"temp_mC\": <int, milli-degrees C>}"
+  },
+  "mappings": [
+    {
+      "pa": "0xFE804000",
+      "len": "0x1000",
+      "attr": "device",
+      "what": "BSC1"
+    },
+    {
+      "pa": "0xFE200000",
+      "len": "0x1000",
+      "attr": "device",
+      "what": "GPIO (pins to ALT0)"
+    }
+  ],
+  "incubated": {
+    "by": "claude-sonnet-5",
+    "at": "2026-10-06 00:21",
+    "rounds": 2,
+    "verified_on": "twin"
+  }
+}
