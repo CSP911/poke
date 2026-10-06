@@ -1,0 +1,154 @@
+<title>POKE 차별점</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F2F1EC; --surface:#FBFAF7; --ink:#1B1C19; --muted:#636760; --line:#D6D5CC;
+  --accent:#C2410C; --accent-soft:#F8E4D6; --slate:#2F3E4E; --slate-soft:#E3E8EC;
+  --ok:#2F7D4F; --ok-soft:#E3F1E7; --warn:#946200; --warn-soft:#F6ECD2;
+  --display:"Gowun Batang","Noto Serif KR",Georgia,serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#141513; --surface:#1B1D1A; --ink:#E8E7E1; --muted:#9A9E96; --line:#2E312C;
+    --accent:#F08A4B; --accent-soft:#3A2416; --slate:#C5D0DA; --slate-soft:#232C34;
+    --ok:#6CC08C; --ok-soft:#153021; --warn:#E6B45A; --warn-soft:#352A10;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#141513; --surface:#1B1D1A; --ink:#E8E7E1; --muted:#9A9E96; --line:#2E312C;
+  --accent:#F08A4B; --accent-soft:#3A2416; --slate:#C5D0DA; --slate-soft:#232C34;
+  --ok:#6CC08C; --ok-soft:#153021; --warn:#E6B45A; --warn-soft:#352A10;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16.5px;line-height:1.8;padding-inline:20px;padding-block:0}
+.page{max-width:900px;margin:0 auto;padding-block:48px 96px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(34px,5.5vw,52px);line-height:1.2;margin:8px 0 14px;text-wrap:balance}
+.lede{font-size:18.5px;max-width:34em;margin:0 0 8px}
+.thesis{font-family:var(--display);font-size:clamp(22px,3vw,28px);line-height:1.5;border-left:4px solid var(--accent);padding:6px 0 6px 20px;margin:36px 0;max-width:30em;text-wrap:balance}
+section{padding-top:56px}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(24px,3.4vw,32px);line-height:1.3;margin:0 0 14px;text-wrap:balance}
+h3{font-weight:700;font-size:17.5px;margin:26px 0 8px}
+p,li{max-width:68ch}
+.tbl{overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:15px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+td.poke{background:var(--accent-soft)}
+.honest{background:var(--warn-soft);border-left:3px solid var(--warn);border-radius:0 10px 10px 0;padding:14px 18px;margin:18px 0}
+.honest b:first-child{color:var(--warn);display:block;margin-bottom:2px}
+.tag{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.tag.ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.tag.sim{color:var(--slate);background:var(--slate-soft);border-color:transparent}
+.layers{display:grid;gap:0;margin:18px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.layers > div{display:grid;grid-template-columns:150px 1fr;gap:16px;padding:14px 18px;border-bottom:1px solid var(--line);background:var(--surface)}
+.layers > div:last-child{border-bottom:0}
+.layers .who{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding-top:4px}
+.layers .ours{background:var(--accent-soft)}
+.layers .ours .who{color:var(--accent)}
+.timeline{list-style:none;padding:0;margin:14px 0;display:grid;gap:10px}
+.timeline li{display:grid;grid-template-columns:96px 1fr;gap:14px;max-width:none}
+.timeline .d{font-family:var(--mono);font-size:13px;color:var(--muted);padding-top:3px}
+.timeline b{font-weight:700}
+.scenes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:14px 0}
+.scene{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:15px}
+.scene b{display:block;font-family:var(--display);font-size:17px;margin-bottom:4px}
+code{font-family:var(--mono);font-size:.88em;background:var(--slate-soft);padding:1px 6px;border-radius:4px}
+.src{font-size:14px;color:var(--muted)}
+.src a{color:var(--accent)}
+footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">POKE · 포지셔닝 메모 · 2026-10-07</div>
+  <h1>POKE 차별점</h1>
+  <p class="lede">로봇을 LLM으로 학습시키는 시도는 2026년 현재 세 갈래로 몰려 있다. 모두 더 똑똑한 <b>뇌</b>를 만드는 경쟁이다. POKE는 그 아래, 뇌가 내린 코드를 <b>몸이 받아 실행하는 층</b>을 바꾼다. 이 메모는 지금 기준으로 무엇이 같고 무엇이 다른지 적는다.</p>
+</header>
+
+<div class="thesis">다른 곳은 더 똑똑한 뇌를 만든다. POKE는 어떤 뇌든 꽂을 수 있고, 몸이 바뀌어도 되고, 뇌가 실수해도 안전하고, 스스로 기억하고, 자기 하드웨어를 스스로 배우는 몸을 만든다.</div>
+
+<section>
+  <h2>1. 지금 로봇 학습의 세 갈래</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>갈래</th><th>방식</th><th>대표 (2026)</th><th>필요한 것</th></tr></thead>
+    <tbody>
+      <tr><td><b>A. VLA 모델</b></td><td>카메라 영상 + 명령어 → 모델이 직접 관절 명령을 출력. 수십만 시간의 원격조종 시연으로 거대 모델을 학습</td><td>π0.5 / π0.7 (Physical Intelligence), Gemini Robotics 2, NVIDIA GR00T N1.7 (3B), Figure Helix 2.5, Xiaomi-Robotics-1 (10만 시간 궤적)</td><td>대규모 시연 데이터, GPU 클러스터, 로봇 옆 GPU PC. 몸의 형태는 학습 때 고정</td></tr>
+      <tr><td><b>B. LLM이 코드·보상을 씀</b></td><td>LLM은 관절을 직접 안 움직이고 보상 함수나 제어 코드를 씀. 시뮬레이터에서 강화학습으로 수천만 번 돌려 정책을 얻고 실기기로 옮김</td><td>Language to Rewards (CoRL 2023), Eureka (ICLR 2024: 29개 환경·10개 형태에서 사람 설계 보상의 83%를 능가), 후속 보상-정책 공진화 연구들</td><td>정밀 시뮬레이터, GPU 수 시간, Linux + ROS</td></tr>
+      <tr><td><b>C. 소규모 모방 학습</b></td><td>사람이 수십~수백 번 시연 → 작은 신경망 정책</td><td>ALOHA/ACT, Diffusion Policy, LeRobot</td><td>텔레옵 장치, 노트북 GPU, 로봇당 데이터</td></tr>
+    </tbody>
+  </table></div>
+  <p>세 갈래의 공통점: <b>Linux + ROS/Python 위에서 돌고, 몸의 형태는 미리 정해져 있고, 학습은 큰 컴퓨터에서 오프라인으로 한다.</b></p>
+</section>
+
+<section>
+  <h2>2. 솔직한 자리매김</h2>
+  <div class="honest"><b>같은 것</b>POKE 코치의 "LLM이 움직임 구조를 쓰고 → 숫자를 시행착오로 다듬는" 고리는 B 갈래(Language to Rewards, Eureka)와 구조가 같다. 2023년에 나온 방식을 다른 자리에서 다시 쓴 것이다. "우리가 먼저"라고 주장하면 안 된다.</div>
+  <div class="honest"><b>지는 싸움</b>움직임의 품질로 겨루면 진다. 시뮬레이션에서 LLM이 쓴 걸음은 손으로 쓴 단순 파동보다 2~3배 느렸다. VLA의 손재주를 LLM이 쓴 C 코드가 따라갈 수 없다.</div>
+  <p>그래서 POKE는 뇌의 자리에 서지 않는다. 뇌가 무엇이든, 그 뇌가 내놓은 것이 <b>어디서 어떻게 실행되는가</b>를 바꾼다.</p>
+  <div class="layers">
+    <div><div class="who">뇌 (남들의 경쟁)</div><div>VLA 정책, LLM이 쓴 코드, 학습된 작은 신경망. POKE에서는 이 모두가 "기술(skill)"이라는 한 종류의 입력이다.</div></div>
+    <div class="ours"><div class="who">POKE</div><div>기술을 격리된 프로세스로 실행하고, 커널이 안전 규칙을 강제하고, 몸을 스스로 발견하고, 배운 것을 기기 자신의 저장소에 기억하고, 처음 보는 하드웨어의 드라이버를 AI가 쓰게 하는 층.</div></div>
+    <div><div class="who">몸</div><div>모터, 센서, 보드. 어떤 조합이든 알파벳처럼 다시 조립된다.</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>3. 지금 기준 차별점</h2>
+  <p>아래는 2026년 10월 현재 <b>동작이 확인된 것</b>만 적었다. <span class="tag ok">실기기</span>는 Pi 4에서, <span class="tag sim">트윈</span>은 QEMU 위의 가상 POKE(같은 커널)에서 검증.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>차별점</th><th>기존 (A·B·C)</th><th>POKE</th><th>검증</th></tr></thead>
+    <tbody>
+      <tr><td><b>몸이 바뀌어도 됨</b></td><td>형태가 바뀌면 데이터를 다시 모아 재학습하거나 시뮬 모델을 다시 만든다</td><td class="poke">관절을 하나씩 흔들어 자기 몸을 발견(3/3 정답) → 기술 생성. 모듈을 뽑으면 다시 발견하고 다시 생성</td><td><span class="tag sim">트윈</span></td></tr>
+      <tr><td><b>학습이 일어나는 곳</b></td><td>GPU 클러스터, 오프라인, 수 시간~수 주. 점수는 보상 함수</td><td class="poke">기기 옆에서 사람이 보며 말로. 15번 시도, 수 분. 점수는 사람의 목소리("끝마디도 더 굽혀"가 해당 숫자만 밀어 올림)</td><td><span class="tag sim">트윈</span></td></tr>
+      <tr><td><b>실행 기판</b></td><td>Linux + ROS + Python, 수 GB, GPU PC</td><td class="poke">OS 없는 베어메탈. 기술은 격리된 프로세스로 300 B~2 KB. 스텝당 150 µs. $35 보드</td><td><span class="tag ok">실기기</span></td></tr>
+      <tr><td><b>안전이 사는 곳</b></td><td>정책 안에 녹아 있거나 상위 소프트웨어</td><td class="poke">커널이 강제: 각도·속도·기울기 한계, NaN 차단, 20 ms 워치독. NaN·무한루프·잘못된 포인터·±50 rad 기술을 넣어도 기기 생존</td><td><span class="tag sim">트윈</span> (격리 기판은 <span class="tag ok">실기기</span>)</td></tr>
+      <tr><td><b>기억</b></td><td>모델 가중치(수십 GB), 서버에</td><td class="poke">기기 자신의 SD에 기술 + 드라이버. 전원을 껐다 켜도 남고, 다음 생성 때 참고로 쓰임</td><td><span class="tag ok">실기기</span></td></tr>
+      <tr><td><b>하드웨어 자체를 배움</b></td><td>드라이버는 사람이 미리 쓴다. 로봇 학습 연구는 이 층을 다루지 않는다</td><td class="poke">미지의 I2C 장치 4개 중 3개를 AI가 버스만 더듬어 식별하고, 3개의 드라이버를 직접 써서 기기에서 자가 검증(3/3)</td><td><span class="tag sim">트윈</span></td></tr>
+      <tr><td><b>코드의 수명</b></td><td>펌웨어로 상주</td><td class="poke">휘발성. 의도가 바뀌면 사라지고 새로 생김. 머물 곳이 없으니 감염시킬 펌웨어도 없음</td><td><span class="tag ok">실기기</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>4. 시뮬레이션으로 이미 해 본 것</h2>
+  <p>"생성되는 몸"의 전 과정은 실제 서보가 오기 전에 시뮬레이션에서 먼저 돌렸다. 두 층의 시뮬레이션을 썼다: <b>몸</b>은 MuJoCo, <b>POKE 자체</b>는 QEMU 트윈(실기기와 같은 커널 바이너리를 가상 Pi 4에서).</p>
+  <ul class="timeline">
+    <li><span class="d">10-01</span><div><b>첫 고리</b> — 서보 모듈 사슬(MuJoCo). 자기 발견 → LLM 기술 생성 → 병렬 시뮬 48×6으로 숫자 다듬기 → 3라운드 피드백 → 모듈 제거 → 재생성. 4관절 3.5 cm/10 s, 모듈 하나 뽑은 뒤 3관절 4.8 cm/10 s. 안전 개입 ≤ 0.5 %.</div></li>
+    <li><span class="d">10-02</span><div><b>음성 코치, 손가락</b> — 세운 관절 3개 = 검지. 가상 관찰자 또는 사람이 보며 말함("움직였어", "반대야", "쥐었어"). 기술은 맥이 아니라 <b>가상 POKE(트윈) 안에서 EL0 프로세스로 실행</b>, 커널 안전 필터를 거침. 맥과 POKE의 결과가 1e-7 이내로 일치.</div></li>
+    <li><span class="d">10-05</span><div><b>기억</b> — 코치가 기기 스토어의 기술을 참고로 받아 시작하고, "그거야"에 기술+숫자+이미지를 기기 SD에 저장. 재부팅 후 스토어에서 꺼내 다시 스텝. 실기기에서는 전원 재부팅 후 6개 레코드 잔존 확인.</div></li>
+    <li><span class="d">10-06</span><div><b>AI 인큐베이팅</b> — QEMU에 가상 I2C 장치 4개를 꽂고 모델에게 버스 서비스만 줌. 23번 접근으로 3개 식별, 드라이버 3개 작성·주입·자가 검증 통과.</div></li>
+  </ul>
+  <p>시뮬레이션이 준 것은 속도만이 아니다. 실기기로 옮길 때 바뀐 것은 <b>주소 하나</b>(SD 컨트롤러)뿐이었고, 그 사실 자체가 "기판이 같다"는 증거다.</p>
+</section>
+
+<section>
+  <h2>5. 가야 할 길</h2>
+  <div class="scenes">
+    <div class="scene"><b>뇌 경쟁에서 빠진다</b>기술 = LLM이 쓴 코드 <i>또는</i> 학습된 작은 신경망을 C로 컴파일한 것. 남들의 뇌 발전이 전부 POKE의 발전이 된다.</div>
+    <div class="scene"><b>남들이 못 찍는 장면</b>다리 하나를 뽑으니 3초 뒤 다시 걷는다. 말로 코치하니 배우고 기억한다. 처음 보는 센서를 꽂으니 AI가 드라이버를 쓴다. 생성 코드가 폭주해도 기기는 멀쩡하다.</div>
+    <div class="scene"><b>정직한 문장</b>"Language to Rewards 계열의 생성-조정 고리를, 베어메탈 격리 실행 + 커널 안전 + 사람 음성 보상 + 기기 내 기억 + 가변 형태 위에서 돌린다."</div>
+  </div>
+  <h3>아직 없는 것</h3>
+  <ul>
+    <li>실제 서보 몸(부품 대기). 시뮬-실기기 차이는 아직 측정 전.</li>
+    <li>지각(카메라). 지금의 "눈"은 사람이다.</li>
+    <li>학습된 신경망 정책을 기술로 받아들이는 경로(설계만 있음).</li>
+    <li>SMP·다중 레지던트(프로세스 테이블 6단계).</li>
+  </ul>
+</section>
+
+<section class="src">
+  <h2 style="font-size:20px">참고</h2>
+  <p>VLA 현황: <a href="https://blog.pebblous.ai/report/vla-architecture-comparison/en/">GR00T · Gemini · π 아키텍처 비교</a>, <a href="https://arxiv.org/html/2503.14734v1">GR00T N1</a>, <a href="https://arxiv.org/pdf/2607.15330">Xiaomi-Robotics-1</a>, <a href="https://arxiv.org/pdf/2604.15395">Foundation Models in Robotics 리뷰</a>, <a href="https://www.marktechpost.com/2026/04/28/top-10-physical-ai-models-powering-real-world-robots-in-2026/">Physical AI 모델 10선 (2026)</a>.
+  LLM 보상 설계: <a href="https://www.alphaxiv.org/abs/2310.12931">Eureka</a>, <a href="https://arxiv.org/pdf/2405.07162">Self-Alignment 보상 학습</a>, <a href="https://ojs.aaai.org/index.php/AAAI/article/view/33597/35752">보상-정책 공진화</a>, <a href="https://arxiv.org/pdf/2606.16458">RHO: Your Coding Agent is Secretly a Roboticist</a>.</p>
+</section>
+
+<footer>POKE: Protocol for Open Kernel Execution · 수치는 저장소의 sim/body 실행 로그와 커밋 메시지(bdf661b, 481409c, 385d3e2, a1788f1)에서 가져옴.</footer>
+</div>
