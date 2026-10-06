@@ -10,7 +10,7 @@ Output: the model's probing transcript, its conclusions, a draft library entry
 per device (build/incubated/0x??.json), and the ground-truth check.
 """
 import os, re, sys, json, time, struct
-import pokeedge
+import pokeedge, routemind
 
 ROOT = pokeedge.ROOT
 HOST = os.environ.get("POKE_HOST", "twin")
@@ -46,7 +46,9 @@ TOOLS = [
          "current_reading": {"type": "string"}}, "required": ["addr", "identity", "confidence", "evidence"]}}}, "required": ["devices"]}},
 ]
 
-SYSTEM = """You are incubating unknown hardware on a bare-metal device (POKE). The only thing you have is an I2C bus service on it: scan, read, write. Nobody will tell you what is attached.
+SYSTEM = """You are incubating unknown hardware on a bare-metal device (POKE). You have an I2C bus service on it: scan, read, write. Nobody will tell you what is attached.
+
+You also have the project's own knowledge, read the RouteMind way: knowledge_table() lists areas with one 'use when' line each; pick the area that fits, knowledge_table(its path) lists its nodes, knowledge_read(path) gives one node's text. Read before you probe blind — earlier incubations left identification recipes and notes on how this device's models behave — but trust the bus over the notes when they disagree, and say so.
 
 Work like an engineer at a bench: scan, then for each address use what you know about common I2C parts at that address — ID / WHO_AM_I registers, register layouts, value ranges, BCD patterns, defaults — and read whatever confirms or refutes a hypothesis. Prefer reads. A write is allowed only when a read cannot settle it, and only to registers you already read (so you can restore them). Keep going until every address is identified or you have exhausted reasonable hypotheses, then call conclude. Report readings in physical units when you can (temperature in °C, time as hh:mm:ss, etc.)."""
 
@@ -85,11 +87,14 @@ def main():
             return {"error": "unknown tool"}
 
         client = anthropic.Anthropic()
+        ktools, krun = routemind.knowledge_tools() if (routemind.available() and "--no-knowledge" not in sys.argv) else ([], None)
+        print("[지식]", "RouteMind 온톨로지 연결됨 (knowledge_table / knowledge_read)" if ktools else "온톨로지 없음 — 버스만으로")
+        tools_all = TOOLS + ktools
         messages = [{"role": "user", "content": "An unknown set of devices has just been attached to this POKE edge's I2C bus. Find out what they are."}]
         conclusion, calls, t0 = None, 0, time.time()
         print(f"\n[인큐베이팅] {MODEL}에게 버스 서비스만 주고 시작 — 장치 정보는 주지 않음\n")
         for turn in range(40):
-            msg = client.messages.create(model=MODEL, max_tokens=4000, system=SYSTEM, tools=TOOLS, messages=messages)
+            msg = client.messages.create(model=MODEL, max_tokens=4000, system=SYSTEM, tools=tools_all, messages=messages)
             messages.append({"role": "assistant", "content": msg.content})
             results = []
             for block in msg.content:
@@ -100,6 +105,10 @@ def main():
                     if block.name == "conclude":
                         conclusion = block.input; results.append({"type": "tool_result", "tool_use_id": block.id, "content": "recorded"})
                         continue
+                    if block.name.startswith("knowledge_"):
+                        out = krun(block.name, block.input); kcalls = locals().get("kcalls", 0) + 1
+                        print(f"  🧭 {block.name}({block.input.get('path') or 'hop 0'}) → {len(out)} chars")
+                        results.append({"type": "tool_result", "tool_use_id": block.id, "content": out}); continue
                     out = run_tool(block.name, block.input)
                     arg = ", ".join(f"{k}={hex(v) if k == 'addr' else v}" for k, v in block.input.items())
                     shown = out.get("addresses") and [hex(a) for a in out["addresses"]] or (out.get("bytes") and bytes(out["bytes"]).hex()) or out.get("status") or out.get("error")
