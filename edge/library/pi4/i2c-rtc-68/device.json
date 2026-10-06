@@ -31,5 +31,6 @@
     "at": "2026-10-06 00:26",
     "rounds": 1,
     "verified_on": "twin"
-  }
+  },
+  "use_when": "Need current time/date from RTC · Reading DS1307/DS1338 clock over I2C · Querying SREQ op 1 for utc/date fields · Verifying I2C 0x68 RTC device is responding · Debugging time sync issues with onboard hardware clock"
 }

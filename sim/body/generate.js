@@ -40,6 +40,8 @@ Rules:
   their params were tuned by a person watching. Start from the best one —
   keep its structure and its param names/order, make the tuned values the
   defaults (used when a param is 0), and improve from there. Say so in "idea".
+  A library entry may instead carry "text": documents an agent fetched from
+  the project's knowledge about skills for this body; read them the same way.
 - If a direction is unknown (for example which sign of a joint angle bends a
   finger toward the palm), expose it as a param with range -1..1 and use its
   sign, so feedback can flip it.`

@@ -20,7 +20,7 @@ person with a simulated watcher that sees the true fingertip position.
 import ctypes, json, math, os, queue, random, re, subprocess, sys, threading, time
 import numpy as np
 import mujoco, mujoco.viewer
-import sim, finger, pokeedge, edgestore
+import sim, finger, pokeedge, edgestore, routemind
 
 HERE = sim.HERE
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -211,7 +211,9 @@ def generate(intent, tag, feedback=None):
         lib = library_for(body)
         if lib:
             body["library"] = lib
-            print(f"   [기억] 이 몸에서 통했던 기술 {len(lib)}개를 참고로 줌: " + ", ".join(f"{l['name']} (score {l['score']})" for l in lib), flush=True)
+            print(f"   [기억] 참고 {LIB_STATS['source']}: {LIB_STATS['chars']} chars" + (f", 경로 {LIB_STATS['route']}" if LIB_STATS['route'] else "")
+                  + ("" if LIB_STATS["source"] == "routemind" else ": " + ", ".join(f"{l['name']} (score {l['score']})" for l in lib)), flush=True)
+            log("library", **LIB_STATS)
     json.dump(body, open(bpath, "w"), ensure_ascii=False)
     src = os.path.join(HERE, "skills", f"gen-coach-{tag}.c")
     cmd = ["node", os.path.join(HERE, "generate.js"), bpath, intent, src] + ([feedback] if feedback else [])
@@ -304,8 +306,18 @@ def edge_store():
             EDGE["store"] = False
     return EDGE["store"] or None
 
+LIB_STATS = {"source": None, "chars": 0, "route": []}
 def library_for(body):
-    """Skills in the store that worked on a body like this one."""
+    """What the hub knows about skills for a body like this one. With RouteMind available, an agent walks the
+    ontology and only the nodes it opened are handed on; otherwise the device's own store is searched."""
+    if routemind.available() and "--no-knowledge" not in sys.argv:
+        import anthropic
+        q = (f"Which movement skills already worked on this body, and what were their structure and tuned params? "
+             f"Body: {body.get('summary')} ({body['njoints']} joints). Intent: a fist / curling the finger toward the palm.")
+        text, summary, route = routemind.gather(anthropic.Anthropic(), os.environ.get("POKE_MODEL", "claude-sonnet-5"), q,
+                                                log=lambda m: print("   " + m, flush=True))
+        LIB_STATS.update(source="routemind", chars=len(text), route=[p for n, p in route if p])
+        return [{"name": "routemind", "text": text, "summary": summary}] if text else []
     st = edge_store()
     if not st:
         return []
@@ -320,6 +332,7 @@ def library_for(body):
             out.append({"name": r["name"], "intent": rec.get("intent"), "score": rec.get("score"),
                         "tuned_params": rec.get("params"), "source": rec.get("source")})
     out.sort(key=lambda x: -(x["score"] or 0))
+    LIB_STATS.update(source="store", chars=sum(len(json.dumps(o)) for o in out[:2]))
     return out[:2]
 
 def remember(name, intent, meta, params, src, attempts, score):

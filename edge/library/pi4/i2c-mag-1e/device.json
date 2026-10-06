@@ -31,5 +31,6 @@
     "at": "2026-10-06 00:30",
     "rounds": 1,
     "verified_on": "twin"
-  }
+  },
+  "use_when": "Need raw 3-axis magnetometer readings · Reading HMC5883L-compatible sensor over I2C at address 0x1e · Querying i2c-mag-1e driver via SREQ op 1 for x/y/z counts · Working with QEMU lsm303dlhc_mag emulated compass/magnetometer · Interpreting signed 16-bit X/Y/Z magnetic field output before scaling to "
 }

@@ -1,0 +1,106 @@
+{
+ "schema": "iris-ontology-regions/v2",
+ "regions": [
+  {
+   "id": "PLATFORM",
+   "source": "platform",
+   "title": "POKE platform",
+   "description": "What the kernel offers to injected code, the twin, and the rules that keep it small",
+   "use_when": "which command injects what (EXLD/EXRN, PRST, RSLD, URUN, MLOD, SREQ) · what a unit may call (syscalls) · how a resident talks to the hub (service page) · whether something belongs in the kernel or in a resident · the QEMU twin and how it differs from the Pi · why the kernel must stay under 64 KB",
+   "export": false,
+   "export_to": [],
+   "nodes": [
+    "commands",
+    "memory-check",
+    "not-linux",
+    "pi4-hardware",
+    "platform",
+    "service-page",
+    "syscalls",
+    "twin"
+   ],
+   "representative": "platform",
+   "fetch": "/v1/regions/platform"
+  },
+  {
+   "id": "DRIVERS",
+   "source": "drivers",
+   "title": "Library residents",
+   "description": "Injected drivers, their windows, service ops and provenance",
+   "use_when": "which resident provides touch, block storage, an I2C bus, or a sensor reading · what windows a driver needs mapped · how to inject or stop one · what a driver's service ops are · which drivers were written by AI and where they were verified",
+   "export": false,
+   "export_to": [],
+   "nodes": [
+    "check-memory",
+    "drivers",
+    "i2c",
+    "i2c-led-60",
+    "i2c-lesson-1",
+    "i2c-lesson-2",
+    "i2c-lesson-3",
+    "i2c-lesson-4",
+    "i2c-mag-1e",
+    "i2c-rtc-68",
+    "i2c-temp-49",
+    "sdcard",
+    "sdcard-lesson-1",
+    "sdcard-lesson-2",
+    "sdcard-lesson-3",
+    "sdcard-lesson-4",
+    "sdcard-lesson-5",
+    "sdcard-lesson-6",
+    "usb-touch-egalax",
+    "usb-touch-egalax-lesson-1",
+    "usb-touch-egalax-lesson-2",
+    "usb-touch-egalax-lesson-3",
+    "usb-touch-egalax-lesson-4",
+    "usb-touch-egalax-lesson-5",
+    "usb-touch-egalax-lesson-6",
+    "usb-touch-egalax-lesson-7",
+    "usb-touch-egalax-lesson-8"
+   ],
+   "representative": "drivers",
+   "fetch": "/v1/regions/drivers"
+  },
+  {
+   "id": "DEVICES",
+   "source": "devices",
+   "title": "Devices and identification",
+   "description": "Chip knowledge: how to recognise and read particular parts, QEMU quirks",
+   "use_when": "an unknown I2C address answered and you want to know what it probably is · how to read a temperature / time / magnetic field from a known part · ID registers and value formats (TMP10x, DS1307/1338, HMC5883/LSM303, PCA9552, eGalax touch, VL805 hub) · which QEMU device models misbehave",
+   "export": false,
+   "export_to": [],
+   "nodes": [
+    "devices",
+    "egalax-touch",
+    "i2c-0x1e",
+    "i2c-0x49",
+    "i2c-0x60",
+    "i2c-0x68",
+    "qemu-models"
+   ],
+   "representative": "devices",
+   "fetch": "/v1/regions/devices"
+  },
+  {
+   "id": "SKILLS",
+   "source": "skills",
+   "title": "Motion skills",
+   "description": "Generated movement programs, their ABI, safety and coaching",
+   "use_when": "how to write a skill for a body (the motion ABI) · which skills worked on a 3-joint finger or a servo chain, with their tuned params · what the safety filter clamps · how skills are tuned from a person's voice · how a skill is stored and restored",
+   "export": false,
+   "export_to": [],
+   "nodes": [
+    "coaching",
+    "crawl-3",
+    "crawl-4",
+    "finger-fist",
+    "motion-abi",
+    "motion-safety",
+    "skills"
+   ],
+   "representative": "skills",
+   "fetch": "/v1/regions/skills"
+  }
+ ]
+}

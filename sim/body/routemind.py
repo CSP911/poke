@@ -97,6 +97,24 @@ def walk(client, model, question, max_hops=6, log=None):
         messages.append({"role": "user", "content": results})
     return "", route
 
+def gather(client, model, question, max_chars=6000, log=None):
+    """Walk, then return the full text of every node the walk read (capped) plus the route.
+    For callers that want the documents, not the model's summary of them."""
+    summary, route = walk(client, model, question, log=log)
+    texts, total = [], 0
+    for name, path in route:
+        if name == "knowledge_read" and path:
+            try:
+                t = read(path)
+            except Exception:
+                continue
+            if total + len(t) > max_chars:
+                t = t[: max(0, max_chars - total)]
+            texts.append(f"### {path}\n{t}"); total += len(t)
+            if total >= max_chars:
+                break
+    return "\n\n".join(texts), summary, route
+
 if __name__ == "__main__":
     print(table())
     print()

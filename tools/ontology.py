@@ -159,7 +159,8 @@ for dj_path in sorted(glob.glob(os.path.join(LIB, "*", "device.json"))):
         body += f"\n## Provenance\nWritten by **{inc.get('by')}** during AI incubation on {inc.get('at')}, verified on **{inc.get('verified_on')}** in {inc.get('rounds')} round(s). Evidence from identification: {dj.get('evidence', '')}\n"
     if dj.get("hardware"):
         body += "\n## Hardware notes\n" + "\n".join(f"- **{k}**: {v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)}" for k, v in dj["hardware"].items()) + "\n"
-    one = (dj.get("description", "").split(".")[0] + ".")[:200]
+    one = dj.get("use_when") or (dj.get("description", "").split(".")[0] + ".")[:200]
+    if dj.get("use_when"): body += f"\n**Use when:** {dj['use_when']}\n"
     add("drivers", nid, name, "driver", one, body, parent="drivers")
     for i, l in enumerate(dj.get("lessons", [])):
         add("drivers", f"{nid}-lesson-{i+1}", f"{name}: lesson {i+1}", "lesson", l[:200], f"# {name} — lesson {i+1}\n{l}\n", parent=nid)
@@ -426,5 +427,19 @@ for src, A, title, desc in AREAS:
                     "export": False, "export_to": [], "nodes": sorted(n["id"] for n in nodes if n["region"] == src),
                     "representative": rep["id"], "fetch": f"/v1/regions/{src}"})
 json.dump({"schema": "iris-ontology-regions/v2", "regions": regions}, open(os.path.join(OUT, "regions.json"), "w"), indent=1, ensure_ascii=False)
+# The served copy: RouteMind's container needs the data directory to be its own git repository (it
+# commits and publishes from HEAD), and POKE's repository must not contain a nested one. So the map
+# is written here (committed with POKE) and mirrored into ontology/run/repo (ignored, the container's).
+SERVE = os.path.join(ROOT, "ontology", "run", "repo")
+if os.path.isdir(SERVE) and os.path.abspath(OUT) != os.path.abspath(SERVE):
+    import shutil
+    for rel in ("CORE.md", "vocab.yaml", "edges.yaml", "regions.json"):
+        shutil.copy2(os.path.join(OUT, rel), os.path.join(SERVE, rel))
+    for d in glob.glob(os.path.join(SERVE, "regions", "*")):
+        for f in glob.glob(os.path.join(d, "*.md")): os.remove(f)
+    for d in glob.glob(os.path.join(OUT, "regions", "*")):
+        os.makedirs(os.path.join(SERVE, "regions", os.path.basename(d)), exist_ok=True)
+        for f in glob.glob(os.path.join(d, "*.md")): shutil.copy2(f, os.path.join(SERVE, "regions", os.path.basename(d), os.path.basename(f)))
+    print(f"mirrored to {SERVE}")
 dropped = [(a, r, b) for a, r, b in edges if a not in ids or b not in ids]
 print(f"{OUT}: {len(nodes)} nodes in {len(AREAS)} areas, {len(edges) - len(dropped)} edges" + (f" ({len(dropped)} dropped: {dropped})" if dropped else ""))

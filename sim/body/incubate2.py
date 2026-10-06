@@ -25,7 +25,7 @@ I2C_DIR = os.path.join(ROOT, "edge", "library", "pi4", "i2c")
 VIRTUAL = ["-device", "tmp105,id=t1,bus=i2c-bus.1,address=0x49",
            "-device", "lsm303dlhc_mag,id=m1,bus=i2c-bus.1,address=0x1e",
            "-device", "ds1338,id=r1,bus=i2c-bus.1,address=0x68",
-           "-device", "pca9552,bus=i2c-bus.1,address=0x60"]
+           "-device", "pca9552,id=l1,bus=i2c-bus.1,address=0x60"]
 MAPS = [(0xFE804000, 0x1000, "device"), (0xFE200000, 0x1000, "device")]
 
 # what the reading must look like, by the kind of device the model said it found
@@ -33,6 +33,7 @@ KINDS = [
     ("temperature", re.compile(r"temp", re.I), '{"temp_mC": <int, milli-degrees C>}'),
     ("rtc", re.compile(r"rtc|clock|ds1307|ds1338|ds3231", re.I), '{"utc": "HH:MM:SS", "date": "YYYY-MM-DD"}'),
     ("magnetometer", re.compile(r"magnet|compass|hmc|lsm303", re.I), '{"x": <int raw>, "y": <int raw>, "z": <int raw>}  (raw signed 16-bit counts, X Y Z order as the part defines)'),
+    ("led", re.compile(r"led|pca955|gpio expander", re.I), '{"input": [<int reg INPUT0>, <int reg INPUT1>], "ls": [<int LS0>, <int LS1>, <int LS2>, <int LS3>]}  — and op 2 must exist: req u8 ls_index (0..3), u8 value → writes that LED-selector register (status 0 ok)'),
 ]
 
 SYSTEM = """You write device drivers for POKE, a bare-metal system where drivers are small C programs ("residents") injected at run time, running as isolated processes with only the hardware windows they need. There is no libc, no printf, no malloc, no memcpy/memset (don't write code that makes the compiler emit them: no struct copies, no large local array initialisers; use static buffers).
@@ -75,9 +76,10 @@ def main():
             print(f"\n══ 0x{addr:02x}: {dev['identity']} ({kind or 'no ground truth'})")
             if not kind:
                 print("   건너뜀: 검증할 정답이 없는 종류"); continue
-            name = {"temperature": "i2c-temp", "rtc": "i2c-rtc", "magnetometer": "i2c-mag"}[kind] + f"-{addr:02x}"
+            name = {"temperature": "i2c-temp", "rtc": "i2c-rtc", "magnetometer": "i2c-mag", "led": "i2c-led"}[kind] + f"-{addr:02x}"
             if os.path.exists(os.path.join(pokeedge.BUILD, "incubated", name, "device.json")) and "--redo" not in sys.argv:
-                print("   이미 검증됨 (build/incubated/%s) — 건너뜀" % name); results.append((name, dev["identity"], True)); continue
+                print("   이미 검증됨 (build/incubated/%s) — 건너뜀" % name); results.append((name, dev["identity"], True))
+                backfill_use_when(client, name, dev, kind, shape); continue
             prompt = (f"Device at I2C address 0x{addr:02x}, identified as: {dev['identity']}.\nEvidence: {dev.get('evidence', '')}\n"
                       f"Read recipe you proposed: {dev.get('read_recipe', '')}\n\nWrite the resident '{name}'. "
                       f"On op 1 answer with JSON of exactly this shape: {shape}. Read the device fresh on every op 1 (do not cache).")
@@ -118,19 +120,77 @@ def main():
                 messages.append({"role": "user", "content": f"The resident runs but its reading is wrong: {detail}. Fix it and output the whole file again."})
             results.append((name, dev["identity"], ok))
             if ok:
-                entry = {"name": name, "arch": "pi4", "kind": "resident", "provides": [kind], "binary": "resident.bin", "source": f"{name}.c",
+                use_when = ask_use_when(client, name, dev, kind, shape)
+                print(f"   use_when: {use_when}")
+                entry = {"name": name, "arch": "pi4", "kind": "resident", "provides": [kind], "binary": "resident.bin", "source": f"{name}.c", "use_when": use_when,
                          "description": f"{dev['identity']} at I2C 0x{addr:02x} on BSC1 — driver written and verified by {MODEL} during AI incubation",
                          "evidence": dev.get("evidence"), "service": {"op1": shape},
                          "mappings": [{"pa": "0xFE804000", "len": "0x1000", "attr": "device", "what": "BSC1"}, {"pa": "0xFE200000", "len": "0x1000", "attr": "device", "what": "GPIO (pins to ALT0)"}],
                          "incubated": {"by": MODEL, "at": time.strftime("%Y-%m-%d %H:%M"), "rounds": rnd, "verified_on": "twin" if twin else host}}
                 json.dump(entry, open(os.path.join(src_dir, "device.json"), "w"), indent=2, ensure_ascii=False)
                 print(f"   ✦ 라이브러리 항목 초안: build/incubated/{name}/")
+                if "--no-register" not in sys.argv:
+                    register(name, src, entry)
         print("\n[2단계 결과]")
         for name, ident, ok in results:
             print(f"  {'✓' if ok else '✗'} {name:<16} {ident[:70]}")
     finally:
         if twin:
             twin.__exit__(None, None, None)
+
+
+def ask_use_when(client, name, dev, kind, shape):
+    """The one line an agent reads to decide whether to come to this driver (RouteMind: an entry with a title and no reason is one nobody picks)."""
+    a = dev["addr"] if isinstance(dev["addr"], int) else int(str(dev["addr"]), 16)
+    msg = client.messages.create(model=MODEL, max_tokens=200, messages=[{"role": "user", "content":
+        f"Write the routing line for a knowledge-map entry about the driver '{name}': the device is {dev['identity']} at I2C 0x{a:02x}; "
+        f"the driver answers SREQ op 1 with {shape}. Format: 3 to 5 situations in which an agent should open this entry, "
+        "separated by ' · ', each a short phrase in the agent's own words (what it is trying to do). Output the line only."}])
+    return "".join(b.text for b in msg.content if b.type == "text").strip().splitlines()[0][:300]
+
+def backfill_use_when(client, name, dev, kind, shape):
+    """An already-registered driver without a routing line gets one (and the map is regenerated)."""
+    dj_path = os.path.join(ROOT, "edge", "library", "pi4", name, "device.json")
+    if not os.path.exists(dj_path):
+        return
+    dj = json.load(open(dj_path))
+    if dj.get("use_when"):
+        return
+    dj["use_when"] = ask_use_when(client, name, dev, kind, shape)
+    json.dump(dj, open(dj_path, "w"), indent=2, ensure_ascii=False)
+    print(f"   use_when (backfill): {dj['use_when']}")
+    regenerate_map(f"use_when for {name}")
+
+def regenerate_map(msg):
+    try:
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "ontology.py")], check=True, capture_output=True)
+        repo = os.path.join(ROOT, "ontology", "run", "repo")           # the container's copy (its own git)
+        subprocess.run(["git", "-C", repo, "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", repo, "-c", "user.name=poke", "-c", "user.email=poke@local", "commit", "-q", "-m", msg], capture_output=True)
+        subprocess.run(["docker", "restart", "poke-ontology"], capture_output=True)
+        return True
+    except Exception as e:
+        print(f"   (지도 재생성 실패: {e})"); return False
+
+def register(name, src, entry):
+    """Stage 3: the verified driver joins edge/library/pi4 with its device.json and Makefile, and the map is regenerated."""
+    lib = os.path.join(ROOT, "edge", "library", "pi4", name); os.makedirs(lib, exist_ok=True)
+    open(os.path.join(lib, f"{name}.c"), "w").write(open(src).read())
+    json.dump(entry, open(os.path.join(lib, "device.json"), "w"), indent=2, ensure_ascii=False)
+    open(os.path.join(lib, ".gitignore"), "w").write("*.o\n*.elf\n*.bin\n")
+    mk = ["# Resident driver written and verified by AI incubation (see device.json \"incubated\"). Injected with `poke resident NAME`.",
+          "CC      = aarch64-elf-gcc", "LD      = aarch64-elf-ld", "OBJCOPY = aarch64-elf-objcopy",
+          "CFLAGS  = -ffreestanding -nostdlib -fno-builtin -fno-stack-protector -Os -Wall \\",
+          "          -mstrict-align -mcpu=cortex-a72 -ffunction-sections -I../i2c", "", "all: resident.bin", "",
+          "resident.bin: NAME.c ../i2c/i2c_bus.h ../resident.ld ../../../kernel/pi4/poke_api.h",
+          "\t$(CC) $(CFLAGS) -c -o NAME.o NAME.c", "\t$(LD) -T ../resident.ld -nostdlib -o NAME.elf NAME.o",
+          "\t$(OBJCOPY) -O binary NAME.elf resident.bin", "\t@echo \"resident.bin: $$(wc -c < resident.bin | tr -d ' ') bytes\"", "",
+          "clean:", "\trm -f *.o *.elf resident.bin", ""]
+    open(os.path.join(lib, "Makefile"), "w").write("\n".join(mk).replace("NAME", name))
+    r = subprocess.run(["make", "-C", lib], capture_output=True, text=True)
+    print(f"   ✦ 라이브러리 등록: edge/library/pi4/{name} ({'built' if r.returncode == 0 else 'build failed: ' + r.stderr[-200:]})")
+    if regenerate_map(f"register {name}"):
+        print(f"   ✦ 지도 재생성: '{name}'이 DRIVERS 영역에 광고됨")
 
 def build_resident(src, name):
     return pokeedge.build_resident(src, name, defines=[], include=I2C_DIR)
@@ -169,6 +229,32 @@ def verify(link, twin, kind):
                 if any(g is None for g in got) or any(abs(int(g) - t) > 3 for g, t in zip(got, expect)):
                     return False, f"set x,y,z={truth} (expected counts {expect}), resident read {got} (pairs so far {vals})"
             return True, "자기장 2회 변경 모두 추종: " + "; ".join(f"{t}→{g}" for t, g in vals)
+        if kind == "led":
+            # ground truth: QEMU's LED state (qom-get ledN), which follows the part — a LED whose selector says ON
+            # (00) pulls its pin low, so INPUT0 reads 0 for that bit; OFF (01) reads 1. Measured on the model:
+            # LS0=0x00 → INPUT0 0xF0, LS0=0x05 → 0xF3.
+            vals = []
+            for ls0 in (0x00, 0x55, 0x05):
+                on = [((ls0 >> (2 * i)) & 3) == 0 for i in range(4)]
+                st, _ = pokeedge.sreq(link, 2, bytes([0, ls0]))
+                if st:
+                    return False, f"op 2 (write LS0=0x{ls0:02x}) returned status {st}"
+                if twin:
+                    leds = []
+                    for i in range(4):
+                        out = [l for l in twin.monitor(f"qom-get l1 led{i}").replace("\r", "").splitlines() if "qemu" not in l]
+                        leds.append("on" in (out[-1] if out else ""))
+                    if leds != on:
+                        return False, f"after your op 2 wrote LS0=0x{ls0:02x} the device's LEDs are {leds} but should be {on} — the write did not reach LS0 (register 0x06)"
+                r = reading(link); inp = r.get("input"); ls = r.get("ls")
+                if not inp or not ls:
+                    return False, f"reading lacks input/ls: {r}"
+                want = sum(0 if on[i] else (1 << i) for i in range(4)) | 0xF0
+                vals.append((ls0, int(inp[0]), int(ls[0])))
+                if int(ls[0]) != ls0 or int(inp[0]) != want:
+                    return False, (f"after LS0=0x{ls0:02x}: your op 1 returned LS0=0x{int(ls[0]):02x}, INPUT0=0x{int(inp[0]):02x}; the bus actually reads "
+                                   f"INPUT0=0x{want:02x} (a LED that is on pulls its pin low). Read the registers fresh from the device on every op 1 — do not return cached values.")
+            return True, "LED 선택 3회 변경: 모니터의 LED 상태와 INPUT0 모두 일치 " + ", ".join(f"LS0=0x{a:02x}→INPUT0=0x{b:02x}" for a, b, _ in vals)
         if kind == "rtc":
             r = reading(link); now = datetime.datetime.now(datetime.timezone.utc)
             try:

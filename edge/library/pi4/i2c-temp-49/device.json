@@ -31,5 +31,6 @@
     "at": "2026-10-06 00:21",
     "rounds": 2,
     "verified_on": "twin"
-  }
+  },
+  "use_when": "Reading ambient or board temperature · Checking I2C device at address 0x49 · Querying temp_mC via SREQ op 1 · Debugging TMP102/TMP112 sensor readings · Monitoring thermal conditions over I2C"
 }
