@@ -210,14 +210,14 @@ def build_unit(src, name=None, defines=()):
 
 RESIDENT_LD = os.path.join(ROOT, "edge", "library", "pi4", "resident.ld")
 
-def build_resident(src, name=None, defines=()):
+def build_resident(src, name=None, defines=(), include=None):
     """Resident C source → flat image for RSLD (resident.ld, kernel prepends its crt)."""
     os.makedirs(BUILD, exist_ok=True)
     name = name or os.path.splitext(os.path.basename(src))[0]
     o, elf, out = (os.path.join(BUILD, f"{name}.{e}") for e in ("o", "elf", "res.bin"))
     r = subprocess.run(["aarch64-elf-gcc", "-ffreestanding", "-nostdlib", "-fno-builtin", "-fno-stack-protector", "-Os",
                         "-mstrict-align", "-mcpu=cortex-a72", "-ffunction-sections", *[f"-D{d}" for d in defines],
-                        "-c", "-o", o, src], capture_output=True, text=True)
+                        *(["-I", include] if include else []), "-c", "-o", o, src], capture_output=True, text=True)
     if r.returncode:
         raise RuntimeError(r.stderr.strip())
     r = subprocess.run(["aarch64-elf-ld", "-T", RESIDENT_LD, "-nostdlib", "-o", elf, o], capture_output=True, text=True)
