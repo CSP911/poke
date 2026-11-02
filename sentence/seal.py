@@ -15,6 +15,10 @@ A real Pi checks it when its EEPROM has SIGNED_BOOT=1 and the hub's public key (
 see netboot/README.md "Signed boot". On the twin, netboot/vboot.py --signed does the same check. The
 verifier here is plain Python (no openssl), the way the bootloader holds only the public key.
 
+A signature says who, not when: before it signs, the hub stamps its public key into the image (stamp, the
+TKEY block), and the image's runtime then asks the hub for a ticket on a fresh nonce before its op runs
+(edge/sentence/rt_fresh.h; the hub's desk is netboot/tftpd.py). A replayed image gets no ticket.
+
 The hub's private key stays on the hub: POKE_KEYS (a directory) or sentence/keys/ (git-ignored, 0600).
 Signing uses the openssl command; it is created on first use.
 
@@ -80,8 +84,8 @@ def _der(b, i):
     return tag, b[i:i + n], i + n
 
 def public_key(pem):
-    """PEM (SubjectPublicKeyInfo or PKCS#1 RSAPublicKey) → (n, e)."""
-    if isinstance(pem, str) and os.path.exists(pem):
+    """PEM (SubjectPublicKeyInfo or PKCS#1 RSAPublicKey; a path or the text) → (n, e)."""
+    if isinstance(pem, str) and "-----" not in pem and os.path.exists(pem):
         pem = open(pem, "rb").read()
     if isinstance(pem, bytes):
         pem = pem.decode()
@@ -258,10 +262,47 @@ def pack(kernel, root=ROOT, manifest=None, firmware=True):
                                     sort_keys=True, ensure_ascii=False).encode()
     return pack_fat(files)
 
-def seal(kernel, root=ROOT, manifest=None, key=None, firmware=True):
-    """→ (boot.img bytes, boot.sig text). Only call this for an image that passed the hub's check."""
-    img = pack(kernel, root, manifest, firmware)
+def seal(kernel, root=ROOT, manifest=None, key=None, firmware=True, wait_ms=3000, target="twin"):
+    """→ (boot.img bytes, boot.sig text). Only call this for an image that passed the hub's check.
+    The kernel is stamped with the ticket key first (stamp), so the signature covers the key too."""
+    img = pack(stamp(kernel, pub_of(key), wait_ms, target), root, manifest, firmware)
     return img, boot_sig(img, key)
+
+# ── freshness: one ticket per boot the hub means (edge/sentence/rt_fresh.h) ──
+# The bootloader checks who signed boot.img, not when. The runtime asks the hub for a ticket on a nonce
+# from the SoC's RNG; the hub signs it only for the image it means to run now (netboot/tftpd.py desk).
+TKEY_MAGIC, TKEY_SIZE = 0x59454B54, 32 + 2 * 256          # "TKEY", rt_fresh.c
+
+def pub_of(key=None):
+    """The public key for a private key path (None: the hub's own)."""
+    if key is None:
+        return ensure_key()[1]
+    return subprocess.run(["openssl", "pkey", "-in", key, "-pubout"], check=True, capture_output=True).stdout
+
+def stamp(kernel, pub=None, wait_ms=3000, target="twin"):
+    """Write the ticket key into the image's TKEY block: e, n, R² mod n and -n⁻¹ mod 2³² (what the node's
+    Montgomery arithmetic needs), the image length the node hashes, how long it waits, and where the nonce
+    comes from (target "pi": the SoC's RNG200; the twin has none: timing jitter). Same input → same bytes."""
+    n, e = public_key(pub or ensure_key()[1])
+    if n.bit_length() != 2048 or e != 65537:
+        raise ValueError("the ticket key must be RSA-2048 with e = 65537")
+    at = [i for i in range(0, len(kernel) - TKEY_SIZE + 1, 16)
+          if struct.unpack_from("<II", kernel, i) == (TKEY_MAGIC, 1)]
+    if len(at) != 1:
+        raise ValueError(f"TKEY block not found exactly once in the image ({len(at)}): its runtime predates fresh boots")
+    i, data = at[0], bytearray(kernel)
+    struct.pack_into("<IIIIIII", data, i, TKEY_MAGIC, 1, len(kernel), e, (-pow(n, -1, 1 << 32)) % (1 << 32), wait_ms,
+                     0 if target == "pi" else 1)
+    data[i + 32:i + 288] = n.to_bytes(256, "little")
+    data[i + 288:i + 544] = (pow(2, 4096, n)).to_bytes(256, "little")
+    return bytes(data)
+
+def ticket_message(nonce, image_sha256):
+    return b"POKE-TICKET1" + nonce + image_sha256
+
+def ticket(nonce, image_sha256, key=None):
+    """The hub's answer to POKE-NONCE: the line the node reads."""
+    return b"POKE-TICKET " + sign(ticket_message(nonce, image_sha256), key).hex().encode() + b"\n"
 
 def open_boot(boot_img, sig_text, pub):
     """The node's side: verify, then open the ramdisk. → (files, None) or (None, why)."""
@@ -284,7 +325,8 @@ if __name__ == "__main__":
             import rtcfg
             data = rtcfg.for_target(data, a[a.index("--target") + 1])
         d = a[a.index("-o") + 1] if "-o" in a else "."
-        img, sig = seal(data, manifest={"source": os.path.basename(a[1])})
+        tgt = a[a.index("--target") + 1] if "--target" in a else "twin"
+        img, sig = seal(data, manifest={"source": os.path.basename(a[1]), "target": tgt}, target=tgt)
         open(os.path.join(d, "boot.img"), "wb").write(img); open(os.path.join(d, "boot.sig"), "w").write(sig)
         print(f"{d}/boot.img {len(img)} B, {d}/boot.sig")
     elif a[0] == "verify":

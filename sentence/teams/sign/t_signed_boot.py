@@ -13,7 +13,13 @@
   S6 서명 부팅 노드는 서명 없는 일반 이미지(sentence.img)를 묻지도 않는다
   S7 같은 이미지 → 같은 boot.img 바이트 (같은 역할 = 같은 발음, R4와 같은 약속)
   S8 boot.sig는 openssl(= rpi-eeprom-digest가 쓰는 도구)로도 검증된다
-  S9 XFAIL: 예전에 서명된 이미지를 다시 보내면(재전송) 켜진다 — Pi 부트로더는 서명만 본다. 신선도 확인 미구현
+
+재전송: Pi 부트로더는 "누가" 서명했는지만 본다. 그래서 이미지 안의 런타임이 op 전에 허브에게 묻는다 —
+노드가 뽑은 일회용 값(nonce)에 허브가 서명한 티켓이 있어야 op가 돈다(edge/sentence/rt_fresh.h).
+  S9  방금 쓴 이미지를 그대로 다시 보내면 부트로더는 받지만 허브가 티켓을 주지 않아 op가 돌지 않는다
+  S10 허브가 예전에 서명한(지금 의도하지 않은) 게이트 이미지를 보내도 게이트는 움직이지 않는다
+  S11 노드는 스스로 확인한다: 녹음된 옛 티켓, 다른 키의 티켓, 깨진 티켓, 무응답 — 모두 op 없이 꺼진다
+  S12 부팅마다 nonce가 다르다, 노드가 보낸 이미지 지문 = 허브가 봉인한 커널의 지문
 """
 import os as _os, sys as _sys; _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "test"))
 import isolate  # noqa: E402,F401 — 소유자 기록 보호
@@ -23,6 +29,7 @@ sys.path.insert(0, SENT)
 TMP = tempfile.mkdtemp(prefix="poke-sign-")
 os.environ["POKE_KEYS"] = os.path.join(TMP, "hub-keys")           # never the hub's real key
 import say, seal
+sys.path.insert(0, os.path.join(SENT, "netboot")); import tftpd as hubd     # the hub's own intent record (what --pend writes)
 
 ok = n = 0
 def check(name, cond, detail=""):
@@ -94,8 +101,12 @@ try:
         mC = ((b or {}).get("result") or {}).get("mC")
         check("S1-signed-image-boots", bool(b) and b.get("signed") and b.get("powered_off") and mC is not None and abs(mC - 23750) <= 500,
               f"mC={mC} off={(b or {}).get('powered_off')} key={(b or {}).get('key')}")
+        sealed = seal.unpack_fat(good_img)[seal.KERNEL]
         check("S1-report-names-key-and-image", (b or {}).get("key") == seal.fingerprint(PUB)
-              and ((b or {}).get("manifest") or {}).get("kernel_sha256") == hashlib.sha256(kernel).hexdigest(), str((b or {}).get("manifest")))
+              and ((b or {}).get("manifest") or {}).get("kernel_sha256") == hashlib.sha256(sealed).hexdigest(), str((b or {}).get("manifest")))
+        fr = (b or {}).get("fresh") or {}
+        check("S1-ticket-given", fr.get("ticket") is True and fr.get("image_sha256") == hashlib.sha256(sealed).hexdigest()
+              and "POKE-FRESH ticket ok" in (b or {}).get("lines", []), str(fr))
     else:
         print("SKIP S1 — netboot/root has no start4cd.elf/fixup4cd.dat (git-ignored firmware); refusal cases still run")
         good_img, good_sig = seal.seal(kernel, root=ROOT)
@@ -137,12 +148,67 @@ try:
     r = subprocess.run(["openssl", "dgst", "-sha256", "-verify", PUB, "-signature", sigf, imgf], capture_output=True, text=True)
     check("S8-openssl-verifies-boot-sig", r.returncode == 0, r.stdout.strip() or r.stderr.strip()[:100])
 
-    # S9 — replay (not solved yet)
+    def ran_nothing(b, why):
+        """booted (the signature was fine), asked for a ticket, got none: no op result, no bus traffic, off"""
+        r, f = (b or {}).get("result") or {}, (b or {}).get("fresh") or {}
+        return (bool(b) and not b.get("refused") and b.get("powered_off") and set(r) == {"error"}
+                and f.get("asked") and not f.get("ticket") and why in str(f.get("hub")) and ((b.get("effects") or {}).get("n") == 0))
+
     if FIRMWARE:
+        # S9 — the image that just ran, sent again
         b = report(offer(kernel, good_img, good_sig))
-        replayed = bool(b) and not b.get("refused") and b.get("powered_off")
-        print(f"{'XFAIL' if replayed else 'XPASS'} S9-replayed-image-refused — {'an old signed image booted again' if replayed else 'refused?'}: "
-              "the Pi bootloader checks the signature only; binding a boot to this request needs a freshness check (planned)")
+        check("S9-replayed-image-runs-nothing", ran_nothing(b, "already had its ticket"),
+              f"{(b or {}).get('result')} hub={((b or {}).get('fresh') or {}).get('hub')}")
+        # S10 — a gate image the hub signed some other time (yesterday's night role), sent while the hub
+        # means the read image (pended, not yet sent)
+        gimg, gsig = seal.seal(open(write_img, "rb").read(), root=ROOT)
+        hubd.intend(ROOT, good_img)
+        b = report(offer(open(write_img, "rb").read(), gimg, gsig))
+        check("S10-old-signed-gate-image-moves-nothing", ran_nothing(b, "not the image the hub means")
+              and 3 not in ((b or {}).get("truth") or {}).get("leds_on", [3]),
+              f"{(b or {}).get('result')} hub={((b or {}).get('fresh') or {}).get('hub')} truth={(b or {}).get('truth')}")
+
+    # S11 — the node's own check, on the twin directly (the hub's desk replaced by an attacker's answers)
+    st = seal.stamp(open(read_img, "rb").read(), PUB, wait_ms=800)
+    stp = os.path.join(TMP, "stamped.img"); open(stp, "wb").write(st)
+    shutil.copy(read_img[:-4] + ".elf", stp[:-4] + ".elf")
+    seen = []
+    def desk(answer):
+        def ask(nonce, h):
+            seen.append((nonce, h)); return answer(nonce, h)
+        return ask
+    good = say.boot(stp, say.default_bench(), ticket=desk(lambda n, h: (seal.ticket(n, h), "ticket")))
+    old_nonce, old_h = seen[-1]
+    cases = {
+        "recorded-ticket":  lambda n, h: (seal.ticket(old_nonce, h), "an earlier boot's ticket"),
+        "other-key":        lambda n, h: (seal.ticket(n, h, key=ATTACKER), "signed by someone else"),
+        "garbage":          lambda n, h: (b"POKE-TICKET " + b"00" * 256 + b"\n", "zeros"),
+        "silence":          None,
+    }
+    outs = {}
+    for k, ans in cases.items():
+        if ans is None:                                  # nobody answers: the wire is cut
+            outs[k] = say.boot(stp, say.default_bench(), ticket=desk(lambda n, h: (b"", "silence")))
+        else:
+            outs[k] = say.boot(stp, say.default_bench(), ticket=desk(ans))
+    check("S11-valid-ticket-runs", ((good.get("result") or {}).get("mC") is not None) and good["powered_off"], str(good.get("result")))
+    gst = os.path.join(TMP, "gate-stamped.img"); open(gst, "wb").write(seal.stamp(open(write_img, "rb").read(), PUB, wait_ms=800))
+    gb = say.boot(gst, say.default_bench(), ticket=desk(lambda n, h: (seal.ticket(n, h), "ticket")), check_wipe=False)
+    check("S11-valid-ticket-gate-moves", 3 in (gb.get("truth") or {}).get("leds_on", []),     # S10's control: the same gate, wanted now
+          f"{gb.get('result')} truth={gb.get('truth')}")
+    for k, b in outs.items():
+        r = b.get("result") or {}
+        check(f"S11-{k}-runs-nothing", set(r) == {"error"} and b["powered_off"] and (b.get("effects") or {}).get("n") == 0
+              and "POKE-FRESH ticket ok" not in b["lines"], str(r))
+    check("S11-wipe-after-refusal", (outs["recorded-ticket"].get("wipe_check") or {}).get("nonzero") == 0,
+          str(outs["recorded-ticket"].get("wipe_check")))
+
+    # S12 — every boot a new nonce; the node names the image the hub stamped
+    nonces = {n for n, _ in seen}
+    check("S12-nonce-new-every-boot", len(nonces) == len(seen) >= 5 and bytes(16) not in nonces, f"{len(nonces)}/{len(seen)}")
+    check("S12-node-names-stamped-image", {h for _, h in seen} == {hashlib.sha256(st).digest(), hashlib.sha256(open(gst, "rb").read()).digest()})
+    check("S12-same-image-same-stamp", seal.stamp(open(read_img, "rb").read(), PUB, wait_ms=800) == st
+          and seal.seal(kernel, root=ROOT)[0] == seal.seal(kernel, root=ROOT)[0])
 finally:
     vboot.terminate(); tftpd.terminate()
     for p in (vboot, tftpd):
@@ -153,5 +219,5 @@ finally:
         print(open(os.path.join(TMP, "procs.log")).read()[-3000:])
     shutil.rmtree(TMP, True)
 
-print(f"signed boot {'PASS' if ok == n else 'FAIL'} {ok}/{n} (+1 xfail)")
+print(f"signed boot {'PASS' if ok == n else 'FAIL'} {ok}/{n}")
 sys.exit(0 if ok == n else 1)

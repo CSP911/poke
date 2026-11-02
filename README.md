@@ -154,7 +154,7 @@ Working on the twin:
 Not yet:
 - a real Pi 4 netbooted end to end (the first hardware number to measure)
 - **role schedules**, i.e. the hub picking a node's role by the clock (T2 R5–R7, written as XFAIL)
-- replay protection: an old signed image can still be served again (signed boot S9, XFAIL), and signed boot has not been enabled on a real Pi
+- signed boot and tickets on a real Pi: both run on the twin only so far, and the Pi's RNG200 and the UART answer path are untried
 - a measured comparison against a Linux baseline
 - ESP32-C3 isolation (RISC-V PMP)
 

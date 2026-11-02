@@ -19,6 +19,9 @@ only for boot.sig and boot.img, checks that boot.sig names this boot.img and car
 that key (../seal.py, the check the Pi 4 bootloader makes), and only then opens the ramdisk and reads
 config.txt, the firmware pair and the kernel from inside it. A refused image is never booted: the report says
 why ("refused") and the bootloader goes back to asking. Plain files on the server are not asked for at all.
+The booted image's runtime then asks the hub for a ticket on a fresh nonce (replay, ../seal.py stamp); here
+the twin's UART wire carries that question to the hub's tftpd as poke-ticket.<nonce>.<image sha256> and
+types the answer back. The report's "fresh" says what the hub answered.
 
 Each request waits up to TFTP_FILE_TIMEOUT for an answer, like the real one; a
 missing required file or a timeout fails this network boot, and after a short
@@ -46,8 +49,9 @@ def log(*a):
 def arg(name, default, cast=str):
     return cast(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
 
-def rrq(server, name, timeout, probe=False):
-    """One TFTP read. Returns the bytes, NOT_FOUND, TIMEOUT, or (probe) the size from the OACK."""
+def rrq(server, name, timeout, probe=False, why=None):
+    """One TFTP read. Returns the bytes, NOT_FOUND, TIMEOUT, or (probe) the size from the OACK.
+    why: a list that gets the server's error message."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(timeout)
     opts = b"tsize\0" + b"0\0" + (b"" if probe else b"blksize\0" + str(BLKSIZE).encode() + b"\0")
     s.sendto(struct.pack("!H", RRQ) + name.encode() + b"\0octet\0" + opts, server)
@@ -57,6 +61,7 @@ def rrq(server, name, timeout, probe=False):
             pkt, tid = s.recvfrom(65536)
             op = struct.unpack("!H", pkt[:2])[0]
             if op == ERROR:
+                if why is not None: why.append(pkt[4:].split(b"\0")[0].decode(errors="replace"))
                 return NOT_FOUND
             if op == OACK:
                 f = pkt[2:].split(b"\0"); o = {f[i].decode().lower(): f[i + 1].decode() for i in range(0, len(f) - 1, 2) if f[i]}
@@ -161,6 +166,16 @@ def signed_boot(get, pre, pubkey, reqs, t0):
     return files[kernel], kernel, {**rec, "start_file": start, "boot_img_bytes": len(img), "manifest": manifest,
                                    "key": seal.fingerprint(pubkey)}
 
+def ticket_wire(server):
+    """The twin's UART to the hub: a POKE-NONCE becomes a ticket request to the hub's tftpd."""
+    def ask(nonce, image_sha256):
+        why = []
+        r = rrq(server, f"poke-ticket.{nonce.hex()}.{image_sha256.hex()}", 5.0, why=why)
+        if isinstance(r, bytes):
+            return r, "ticket"
+        return None, why[0] if why else r
+    return ask
+
 def main():
     server = (arg("--host", "127.0.0.1"), arg("--port", 16969, int))
     file_timeout = arg("--file-timeout", 30.0, float)          # TFTP_FILE_TIMEOUT (bootloader default 30 s)
@@ -194,7 +209,10 @@ def main():
             f"({len(rec['requests'])} requests) → booting")
         bpath = os.path.join(HERE, "bench.json")
         bench = json.load(open(bpath)) if os.path.exists(bpath) else say.default_bench()
-        b = say.boot(path, bench)
+        b = say.boot(path, bench, ticket=ticket_wire(server) if pubkey else None)
+        f = b.get("fresh") or {}
+        if f.get("asked"):
+            log(f"runtime asked the hub for a ticket: {'given' if f.get('ticket') else 'refused — ' + str(f.get('hub'))}")
         os.remove(path)                                        # the image is gone with the boot
         out = {"boot": n, **rec, **{k: v for k, v in b.items()}}
         json.dump(out, open(os.path.join(out_dir, f"{n}.json"), "w"), indent=1, ensure_ascii=False)

@@ -29,13 +29,24 @@ Signed boot: --pend also seals the final image (../seal.py) as pending.img.booti
 boot.img / boot.sig. A bootloader with SIGNED_BOOT=1 asks only for those and boots nothing that the hub's key
 did not sign; one without it keeps asking for the plain files above. Either transfer consumes the sentence.
 
+Tickets (replay): a signature says who made an image, not when, so a sealed image's runtime asks the hub
+before its op runs (edge/sentence/rt_fresh.h): POKE-NONCE <nonce> <image sha256>. --pend writes what the
+hub means to run now (ROOT/intent.json); the desk below signs the nonce only for that image, only after
+boot.img went out, within TICKET_S, and only once — a replayed image, the hub's or a recorded one, gets
+no ticket and runs nothing. A Pi asks over its UART (say.boot_pi answers with desk()); the twin's wire
+(netboot/vboot.py) asks this server for the file poke-ticket.<nonce>.<image sha256>.
+
 RFC 1350 read requests with the blksize/tsize options (RFC 2347/2348); block
 numbers roll over. Path prefixes (serial-number directories) are ignored.
 """
 import os, sys, time, json, socket, struct, threading
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import seal                                         # ../seal.py: the hub's key, boot.img, tickets
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "root")
 PENDING = "pending.img"
+INTENT = "intent.json"                              # the image the hub means to run now: one ticket for it
+TICKET_S = 120.0                                    # boot.img sent → ticket asked: firmware + boot take seconds
 SEALED = {"boot.img": ".bootimg", "boot.sig": ".bootsig"}      # signed boot (seal.py): the ramdisk and its signature
 SERVED_AS = {"kernel8.img", "sentence.img", "sentence-x86.elf", "sentence-x86.pxe"}   # Pi bootloader names; an x86 PC asks iPXE for sentence-x86.elf
 RRQ, DATA, ACK, ERROR, OACK = 1, 3, 4, 5, 6
@@ -69,6 +80,69 @@ def consume(root):
     for suf in ("", *SEALED.values()):
         try: os.replace(p + suf, p + suf + ".booted")
         except OSError: pass
+
+def _write(path, obj):
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    open(tmp, "w").write(json.dumps(obj)); os.replace(tmp, path)
+
+def intend(root, boot_img):
+    """--pend: this sealed image is what the hub means to run next (and nothing before it any more)."""
+    m = json.loads(seal.unpack_fat(boot_img)["poke.json"])
+    _write(os.path.join(root, INTENT), {"kernel_sha256": m["kernel_sha256"], "t_pend": time.time(), "t_served": None})
+
+def served(root, boot_img):
+    """boot.img went out: if it is the intended image, its ticket window opens now."""
+    p = os.path.join(root, INTENT)
+    try:
+        it = json.load(open(p))
+        h = json.loads(seal.unpack_fat(boot_img)["poke.json"])["kernel_sha256"]
+    except (OSError, ValueError, KeyError, struct.error):
+        return
+    if it.get("kernel_sha256") == h and not it.get("t_served") and os.path.exists(p):
+        _write(p, {**it, "t_served": time.time()})
+
+def desk(root, nonce, image_sha256):
+    """The hub's answer to a node's POKE-NONCE → (ticket line, "ticket") or (None, why). One ticket per intent."""
+    if len(nonce) != 16 or len(image_sha256) != 32:
+        return None, "malformed question"
+    p, h = os.path.join(root, INTENT), image_sha256.hex()
+    try:
+        it = json.load(open(p))
+    except (OSError, ValueError):
+        try: done = json.load(open(p + ".ticketed")).get("kernel_sha256") == h
+        except (OSError, ValueError): done = False
+        return None, ("this image already had its ticket — a replay" if done else "the hub means to run nothing now")
+    if it.get("kernel_sha256") != h:
+        return None, "not the image the hub means to run now"
+    if not it.get("t_served"):
+        return None, "the hub has not sent this image yet"
+    if time.time() - it["t_served"] > TICKET_S:
+        return None, f"sent more than {TICKET_S:.0f} s ago"
+    claim = f"{p}.{os.getpid()}.{threading.get_ident()}.claim"
+    try: os.rename(p, claim)                          # the one ticket: whoever renames first
+    except FileNotFoundError: return None, "this image already had its ticket — a replay"
+    if json.load(open(claim)).get("kernel_sha256") != h:          # a new --pend landed in between: put it back
+        try: os.link(claim, p)
+        except FileExistsError: pass
+        os.remove(claim)
+        return None, "not the image the hub means to run now"
+    os.replace(claim, p + ".ticketed")
+    return seal.ticket(nonce, image_sha256), "ticket"
+
+def answer_ticket(name, client, opts, root):
+    """The twin's wire asks for poke-ticket.<nonce>.<image sha256>: the ticket line, or an error saying why."""
+    try:
+        _, n, h = name.split(".")
+        line, why = desk(root, bytes.fromhex(n), bytes.fromhex(h))
+    except ValueError:
+        line, why = None, "malformed question"
+    tlog(root, ev="ticket" if line else "noticket", why=why)
+    log(f"ticket for {name.split('.')[-1][:12]}…: {'given' if line else 'refused — ' + why}")
+    if line:
+        send_file(client, line, opts)
+    else:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.sendto(struct.pack("!HH", ERROR, 2) + why.encode()[:200] + b"\0", client)
 
 def send_file(client, data, opts):
     blk = 512
@@ -120,6 +194,8 @@ def handle(pkt, client, root):
     name = os.path.basename(parts[0].decode(errors="replace"))
     opts = {parts[i].decode().lower(): parts[i + 1].decode() for i in range(2, len(parts) - 1, 2) if parts[i]}
     tlog(root, ev="rrq", file=parts[0].decode(errors="replace"), opts=opts, client=list(client))
+    if name.startswith("poke-ticket."):
+        return answer_ticket(name, client, opts, root)
     if not is_pending(root):
         with lock:
             parked[client[0]] = (pkt, client, time.monotonic())
@@ -151,6 +227,8 @@ def handle(pkt, client, root):
         tlog(root, ev="sent" if ok else "aborted", file=name, bytes=len(data), blksize=blk, ms=round(dt * 1000, 1))
         log(f"{'sent' if ok else 'gave up on'} {name} ({len(data)} B, blk {blk}, {dt*1000:.0f} ms) to {client[0]}"
             + (" — the sentence's image" if last else ""))
+        if ok and name == "boot.img":
+            served(root, data)
         if ok and last:
             consume(root)
             log("sentence consumed; back to idle")
@@ -191,12 +269,12 @@ if __name__ == "__main__":
         data = open(img, "rb").read()
         target = a[a.index("--target") + 1] if "--target" in a else None
         if target:                                       # per-target settings (RCFG): pi = watchdog on, Pi I2C clock
-            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             import rtcfg
             data = rtcfg.for_target(data, target)
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        import seal                                      # the hub signs the final bytes (after RCFG): boot.img + boot.sig
-        bimg, bsig = seal.seal(data, root=root, manifest={"source": os.path.basename(img), "target": target or "twin"})
+        # the hub stamps its ticket key in and signs the final bytes (after RCFG): boot.img + boot.sig
+        bimg, bsig = seal.seal(data, root=root, manifest={"source": os.path.basename(img), "target": target or "twin"},
+                               target=target or "twin")
+        intend(root, bimg)                               # from now on only this image gets a ticket
         p = pending_path(root)
         for suf, body in ((SEALED["boot.img"], bimg), (SEALED["boot.sig"], bsig.encode())):
             open(p + suf + ".tmp", "wb").write(body); os.replace(p + suf + ".tmp", p + suf)

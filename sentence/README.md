@@ -38,7 +38,7 @@
 | 실험대 (트윈) | `bench.py`, `say.boot` | QEMU raspi4b + I2C 1번 버스의 가상 장치. 기본: TMP105 0x48, DS1338 0x68, LSM303 0x1e, PCA9552 0x60. `POKE_BENCH=ext`면 TMP421 0x4c, PCA9554 0x20, SSD0303 0x3c 추가. 기록부 노드(세 방 집, 공장 line1)는 노드 파일의 트윈 목록으로 부팅 |
 | 새 장치 | `incubate.py`, `probe.py` | 버스 스캔 → 식별 → 조각 작성 → 트윈에서 검증 → 등록(실기기팀) |
 | 실기기 | `netboot/`, `rtcfg.py`, `say.py --pi` | Pi 4 EEPROM 부트로더가 TFTP로 이미지를 가져감. 이미지 안의 RCFG 블록이 대상별 설정(워치독, I2C 분주) |
-| 서명 부팅 | `seal.py`, `netboot/vboot.py --signed` | 허브가 최종 이미지를 Pi 서명 부팅 형식(boot.img + boot.sig, RSA-2048)으로 봉인. 가상 부트로더가 확인하고 서명 없거나 바뀐 이미지는 켜지 않음. 키는 `keys/`(커밋 안 됨). 재전송 방지는 아직 |
+| 서명 부팅 | `seal.py`, `netboot/vboot.py --signed` | 허브가 최종 이미지를 Pi 서명 부팅 형식(boot.img + boot.sig, RSA-2048)으로 봉인. 가상 부트로더가 확인하고 서명 없거나 바뀐 이미지는 켜지 않음. 켜진 뒤에는 런타임이 일회용 값으로 허브의 티켓을 받아야 op를 돌림 — 다시 보낸 옛 이미지는 아무것도 하지 않음. 키는 `keys/`(커밋 안 됨) |
 | 데모 화면 | `ui/server.py`, `ui/index.html` | 표준 라이브러리 HTTP + SSE 한 페이지 |
 | 회귀 시험 | `regress.py`, `TESTS.md` | 모든 팀이 단계마다 돌리는 시험. 케이스마다 범주: 불변(I1 격리 … I6 부품 진실) / 변환(T1 목적, T2 시간·역할, T3 몸, T4 기체, T5 세계) |
 | 몸 기록부 | `registry.py`, `registry/`, `registry_build.py` | L0 노드 / L1 부착(핀 역할: switch·contact·motion·leak·cover·climate) / L2 부품 형 / L3 능력 어휘 16개 / L4 계획. 모델은 능력만 보고, 이미지마다 허가된 능력만 담은 `poke_body.h` 생성. `POKE_SITE=factory`면 공장 현장(line1) |

@@ -131,11 +131,39 @@ them against the current docs on the first run.
 What to record on the first hardware run: the request order in signed mode (`netboot-times.jsonl`), and
 whether FAT16 and the size of `boot.img` (~2.1 MB with the cut-down firmware) are accepted.
 
-**Not solved: replay.** The bootloader checks the signature, not the time. An old signed image (yesterday's
-day role, for instance) can be served again and will boot. The twin test shows this as XFAIL (S9). Binding a
-boot to this request needs a freshness check from the node's side: the runtime draws a nonce from the
-hardware RNG, and the hub answers with a signed ticket for that nonce, role and time window. That is the next
-step.
+### Tickets — an old signed image runs nothing
+
+A signature says who made an image, not when. An image the hub signed yesterday (the day role, for
+instance) is still signed today, and anyone on the wire can send it again; the bootloader will boot it. So
+the image's own runtime asks before its op runs (`../../edge/sentence/rt_fresh.h`, before the I2C pins are
+even set up):
+
+```
+node → hub   POKE-NONCE <16 random bytes> <sha256 of the image as loaded>
+hub  → node  POKE-TICKET <RSA-2048 over SHA-256("POKE-TICKET1" ‖ nonce ‖ image hash)>   or POKE-NOTICKET
+```
+
+- **The key** sits in the image's TKEY block. `seal.stamp` writes it in before signing, so the bootloader's
+  check covers it too. The node needs only the public key. It does the RSA check itself: 17 Montgomery
+  products, about 4 KB of runtime code.
+- **The nonce** comes from the SoC's RNG200 on a Pi. QEMU's `raspi4b` has no RNG200, so twin images take it
+  from timing jitter. That is enough that no two boots repeat (test S12), but it is not a security-grade
+  source. The hub stamps which source to use: `--target pi` → RNG200.
+- **The hub's rule** (`tftpd.desk`): `--pend` writes `root/intent.json`, the image the hub means to run now.
+  It gives one ticket, for that image only, after `boot.img` went out and within 120 s. The record then
+  becomes `intent.json.ticketed`.
+- **Without a ticket** (no answer within 3 s, the wrong signature, or a refusal), the op never runs. The node
+  reports why and powers off.
+- **Who carries the question:** on a Pi, the hub's serial reader answers (`say.boot_pi`). This needs the
+  adapter's TX on GPIO 15 as well as GPIO 14 → RX. On the twin, `vboot.py` carries the line to `tftpd` as a
+  request for `poke-ticket.<nonce>.<hash>`.
+
+What it does not cover:
+- Images signed before tickets existed carry no key and do not ask. Rotate the hub's key if any of them
+  could still be on a wire.
+- The ticket proves the hub wanted this image now. It does not choose the role by the clock; that is R5.
+- On the Pi, how long the check takes with the data cache off has not been measured yet. On the twin it adds
+  10–30 ms per boot, including the hub's signing.
 
 ## Tests (twin, no Pi)
 
@@ -143,7 +171,7 @@ step.
 |---|---|
 | `tftptest.py IMG` | idle → no answer; pending → files and image; consumed once; parked request answered in ~0.1 s; a repeated request starts one transfer |
 | `../teams/hw/t_netboot_order.py [N] [--cd]` | tftpd + `vboot.py` (the bootloader's real request order) → twin: N sentences in a row, order, sizes, one consumption each, power-off |
-| `../teams/sign/t_signed_boot.py` | signed boot (tftpd + `vboot.py --signed` → twin): the hub's image boots; missing signature, one changed byte, another key, a forged hash line are refused and never booted; a plain image is never asked for; same image → same `boot.img`; openssl verifies `boot.sig`; replay XFAIL |
+| `../teams/sign/t_signed_boot.py` | signed boot (tftpd + `vboot.py --signed` → twin): the hub's image boots; missing signature, one changed byte, another key, a forged hash line are refused and never booted; a plain image is never asked for; same image → same `boot.img`; openssl verifies `boot.sig`; a replayed or old signed image gets no ticket and runs nothing (S9–S10); the node refuses recorded, foreign, broken or missing tickets (S11); a new nonce every boot (S12) |
 | `../teams/hw/t_power.py` | RCFG, budget, the 14 s rule, cdiv reaching the I2C divider, reset partition (0 / 63 with halt), memory zeroed after power-off (QMP `pmemsave`) |
 
 ## Not yet measured

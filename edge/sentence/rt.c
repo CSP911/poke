@@ -5,6 +5,7 @@
 #include "rt.h"
 #include "pt.h"
 #include "rt_power.h"                          /* 실기기팀: watchdog, RCFG, power-off */
+#include "rt_fresh.h"                          /* 서명팀: the hub's ticket for this boot (replay) */
 typedef unsigned int u32; typedef unsigned long u64;
 
 #define R(a) (*(volatile u32 *)(a))
@@ -319,6 +320,8 @@ void sentence_boot(void) {
     rcap = RES_OP_CAP;
     rtp_boot();
     puts_("POKE-BOOT\n");
+    const char *stale = rtf_check();                /* before any pin is set up: an old image does nothing */
+    if (stale) { puts_("POKE-FAULT kind=stale\n"); k_fail(stale); finish(); }
     i2c_pins();
     mmu_on();
     budget_on();

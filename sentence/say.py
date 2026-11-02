@@ -44,8 +44,9 @@ def sh(cmd, **kw):
 # Runtime v1: the runtime runs at EL1 and fences the op at EL0 (edge/sentence/pt.h). image.ld places
 # runtime objects by name (poke_rt_*.o); everything else — the op and ustub.o, the op's side of rt.h —
 # lands in the op's pages. Extra runtime pieces (e.g. rt_power.c) join RUNTIME_SRC as poke_rt_<name>.o.
-RUNTIME_SRC = [("boot.S", "poke_rt_boot.o"), ("rt.c", "poke_rt_main.o"), ("rt_power.c", "poke_rt_power.o"), ("ustub.S", "ustub.o")]
-RUNTIME_DEPS = ("rt.h", "pt.h", "rt_power.h", "image.ld")
+RUNTIME_SRC = [("boot.S", "poke_rt_boot.o"), ("rt.c", "poke_rt_main.o"), ("rt_power.c", "poke_rt_power.o"), ("rt_fresh.c", "poke_rt_fresh.o"),
+               ("ustub.S", "ustub.o")]
+RUNTIME_DEPS = ("rt.h", "pt.h", "rt_power.h", "rt_fresh.h", "image.ld")
 RUNTIME_CFLAGS = [*CFLAGS, "-Os"]                    # R1: the runtime is built for size (its loops wait on the bus or the clock)
 
 def runtime_objs():
@@ -668,9 +669,12 @@ class QMP:
     def get(self, qid, prop):
         return self.call("qom-get", path=f"/machine/peripheral/{qid}", property=prop)
 
-def boot(img_path, bench_state=None, budget_s=30, script=(), check_wipe=True):
+def boot(img_path, bench_state=None, budget_s=30, script=(), check_wipe=True, ticket=None):
     """Boot one image on the twin. Returns the node's lines, the parsed result, timings, and ground truth
-    read from the devices after the node powered off."""
+    read from the devices after the node powered off.
+    ticket: the hub's ticket desk for an image sealed for netboot (seal.stamp) — called as
+    ticket(nonce, image_sha256) → (line or None, note) when the node asks (POKE-NONCE); the twin's UART
+    then runs both ways, like the Pi's TX/RX wires to the hub's serial adapter."""
     port = 20000 + int.from_bytes(os.urandom(2), "little") % 20000
     devs = []
     for model, qid, addr in BENCH:
@@ -678,12 +682,16 @@ def boot(img_path, bench_state=None, budget_s=30, script=(), check_wipe=True):
     os.makedirs(os.path.join(BUILD, "serial"), exist_ok=True)
     serial = os.path.join(BUILD, "serial", f"{os.getpid()}-{port}.txt"); open(serial, "w").close()  # one file per boot: twins may run side by side
     t_launch = time.time()
+    sock = serial[:-4] + ".sock"
+    uart = ["-chardev", f"socket,id=u0,path={sock},server=on,wait=off", "-serial", "chardev:u0"] if ticket else ["-serial", f"file:{serial}"]
     q = subprocess.Popen(["qemu-system-aarch64", "-M", "raspi4b", "-kernel", img_path, "-display", "none", "-S",
-                          "-serial", f"file:{serial}", "-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off", "-monitor", "none",
+                          *uart, "-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off", "-monitor", "none",
                           "-action", "reboot=shutdown,shutdown=pause", *devs],
                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    mon = None
+    mon, wire, fresh = None, None, []
     try:                                                      # whatever happens, the QEMU process does not outlive this call
+        if ticket:
+            wire = _uart_wire(sock, serial, ticket, fresh)
         mon = QMP(port)
         for k, v in (bench_state or {}).items():
             qid, prop = k.split(); mon.set(qid, prop, v)
@@ -723,6 +731,9 @@ def boot(img_path, bench_state=None, budget_s=30, script=(), check_wipe=True):
             except (OSError, ValueError, RuntimeError): pass
         try: q.wait(5)
         except subprocess.TimeoutExpired: q.kill(); q.wait()
+        if wire:
+            wire.join(2)
+        if os.path.exists(sock): os.remove(sock)
         try: lines = open(serial, errors="replace").read().replace("\r", "").splitlines()
         except OSError: lines = []
         try: os.remove(serial)                                # gone on every path, the failed ones too
@@ -737,7 +748,40 @@ def boot(img_path, bench_state=None, budget_s=30, script=(), check_wipe=True):
     out["effects"] = parse_effects(lines)                     # verify team X1: the runtime's record of bus actions
     if off_line and not vm_off: out["warning"] = "a POKE-OFF line appeared but the machine was still running"
     if wipe: out["wipe_check"] = wipe
+    if ticket: out["fresh"] = fresh[-1] if fresh else {"asked": False}
     return out
+
+def _uart_wire(sock, serial, ticket, fresh):
+    """The twin's UART as a two-way wire: what the node sends goes to the serial file (read as before);
+    a POKE-NONCE line is handed to the hub's ticket desk and its answer typed into the node's RX."""
+    import socket as _s, threading
+    c = _s.socket(_s.AF_UNIX, _s.SOCK_STREAM)
+    for _ in range(250):
+        try: c.connect(sock); break
+        except OSError: time.sleep(0.02)
+    else:
+        raise RuntimeError("the twin's UART socket did not come up")
+    def run():
+        buf = b""
+        with open(serial, "ab", buffering=0) as f:
+            while True:
+                try: chunk = c.recv(4096)
+                except OSError: break
+                if not chunk: break
+                f.write(chunk); buf += chunk
+                while b"\n" in buf:
+                    l, buf = buf.split(b"\n", 1)
+                    l = l.decode(errors="replace").strip().split()
+                    if l[:1] != ["POKE-NONCE"] or len(l) != 3:
+                        continue
+                    try: line, note = ticket(bytes.fromhex(l[1]), bytes.fromhex(l[2]))
+                    except (ValueError, OSError, RuntimeError) as e: line, note = None, f"desk failed: {e}"
+                    fresh.append({"asked": True, "nonce": l[1], "image_sha256": l[2], "ticket": bool(line), "hub": note})
+                    try: c.sendall(b"POKE-NOTICKET\n" if line is None else line)        # b"": say nothing (a cut wire)
+                    except OSError: break
+        c.close()
+    t = threading.Thread(target=run, daemon=True); t.start()
+    return t
 
 def wipe_check(mon, img_path):
     """After the node reset itself, read back the memory our image used beyond its own code — the op's
@@ -778,10 +822,11 @@ def parse_result(lines):
         return None, f"result line is not valid JSON ({e.msg})"
 
 # ── boot on a real Pi 4 (netboot) ───────────────────────────────────────
-def serial_lines(dev, until, budget_s):
-    """Read ASCII lines from a USB-serial adapter (115200 8N1) until a line starts with `until`."""
+def serial_lines(dev, until, budget_s, answer=None):
+    """Read ASCII lines from a USB-serial adapter (115200 8N1) until a line starts with `until`.
+    answer(line) → bytes or None: written back to the node (adapter TX → GPIO 15 RX), e.g. a ticket."""
     import termios
-    fd = os.open(dev, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    fd = os.open(dev, (os.O_RDWR if answer else os.O_RDONLY) | os.O_NOCTTY | os.O_NONBLOCK)
     try:
         a = termios.tcgetattr(fd)
         a[0] = 0; a[1] = 0; a[2] = termios.CS8 | termios.CREAD | termios.CLOCAL; a[3] = 0
@@ -801,6 +846,9 @@ def serial_lines(dev, until, budget_s):
                     lines.append(l)
                     if l.startswith(until):
                         return lines, True
+                    back = answer(l) if answer else None
+                    if back:
+                        os.write(fd, back)
             else:
                 time.sleep(0.01)
         return lines, False
@@ -833,17 +881,28 @@ def boot_pi(img_path, serial_dev=None, budget_s=60):
     import glob
     dev = serial_dev or (sorted(glob.glob("/dev/cu.usbserial*") + glob.glob("/dev/cu.usbmodem*")) or [None])[0]
     if not dev:
-        raise RuntimeError("no USB-serial adapter found (the node reports on its UART: GPIO 14 TX → adapter RX, GND → GND)")
+        raise RuntimeError("no USB-serial adapter found (the node reports on its UART: GPIO 14 TX → adapter RX, GND → GND; and asks for its ticket: adapter TX → GPIO 15 RX)")
     # --target pi: the Pi's image settings (watchdog armed at boot, I2C divider for its core clock)
     subprocess.run([sys.executable, os.path.join(HERE, "netboot", "tftpd.py"), "--pend", img_path, "--target", "pi"], check=True, capture_output=True)
     t0 = time.time()
-    lines, off = serial_lines(dev, "POKE-OFF", budget_s)
+    sys.path.insert(0, os.path.join(HERE, "netboot")); import tftpd      # the hub's ticket desk (replay, rt_fresh.h)
+    fresh = []
+    def answer(l):
+        f = l.split()
+        if f[:1] != ["POKE-NONCE"] or len(f) != 3:
+            return None
+        try: line, why = tftpd.desk(tftpd.ROOT, bytes.fromhex(f[1]), bytes.fromhex(f[2]))
+        except ValueError: line, why = None, "malformed question"
+        fresh.append({"asked": True, "nonce": f[1], "image_sha256": f[2], "ticket": bool(line), "hub": why})
+        return line or b"POKE-NOTICKET\n"
+    lines, off = serial_lines(dev, "POKE-OFF", budget_s, answer=answer)
     res, bad = parse_result(lines)
     end = next((l for l in lines if l.startswith("POKE-END")), "")
     return {"lines": lines, "result": res, "powered_off": off, "vm_status": "real Pi 4 (netboot)", "truth": {}, "result_error": bad,
             "effects": parse_effects(lines),
             "node_ms": int(re.search(r"ms=(\d+)", end).group(1)) if end else None,
-            "boot_to_off_ms": round((time.time() - t0) * 1000), "qemu_total_ms": None}
+            "boot_to_off_ms": round((time.time() - t0) * 1000), "qemu_total_ms": None,
+            "fresh": fresh[-1] if fresh else {"asked": False}}
 
 # ── the sentence → op ───────────────────────────────────────────────────
 def catalog():
