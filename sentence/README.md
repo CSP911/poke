@@ -38,6 +38,7 @@
 | 실험대 (트윈) | `bench.py`, `say.boot` | QEMU raspi4b + I2C 1번 버스의 가상 장치. 기본: TMP105 0x48, DS1338 0x68, LSM303 0x1e, PCA9552 0x60. `POKE_BENCH=ext`면 TMP421 0x4c, PCA9554 0x20, SSD0303 0x3c 추가. 기록부 노드(세 방 집, 공장 line1)는 노드 파일의 트윈 목록으로 부팅 |
 | 새 장치 | `incubate.py`, `probe.py` | 버스 스캔 → 식별 → 조각 작성 → 트윈에서 검증 → 등록(실기기팀) |
 | 실기기 | `netboot/`, `rtcfg.py`, `say.py --pi` | Pi 4 EEPROM 부트로더가 TFTP로 이미지를 가져감. 이미지 안의 RCFG 블록이 대상별 설정(워치독, I2C 분주) |
+| 서명 부팅 | `seal.py`, `netboot/vboot.py --signed` | 허브가 최종 이미지를 Pi 서명 부팅 형식(boot.img + boot.sig, RSA-2048)으로 봉인. 가상 부트로더가 확인하고 서명 없거나 바뀐 이미지는 켜지 않음. 키는 `keys/`(커밋 안 됨). 재전송 방지는 아직 |
 | 데모 화면 | `ui/server.py`, `ui/index.html` | 표준 라이브러리 HTTP + SSE 한 페이지 |
 | 회귀 시험 | `regress.py`, `TESTS.md` | 모든 팀이 단계마다 돌리는 시험. 케이스마다 범주: 불변(I1 격리 … I6 부품 진실) / 변환(T1 목적, T2 시간·역할, T3 몸, T4 기체, T5 세계) |
 | 몸 기록부 | `registry.py`, `registry/`, `registry_build.py` | L0 노드 / L1 부착(핀 역할: switch·contact·motion·leak·cover·climate) / L2 부품 형 / L3 능력 어휘 16개 / L4 계획. 모델은 능력만 보고, 이미지마다 허가된 능력만 담은 `poke_body.h` 생성. `POKE_SITE=factory`면 공장 현장(line1) |
@@ -74,7 +75,7 @@ $P regress.py --full                         # 새 문장 생성, 넷부팅, 예
 
 $P say.py --preflight                        # 실기기 준비 점검(보고선, 10.0.0.1, TFTP, 펌웨어, config)
 $P say.py --pi --preflight "온도 알려줘"      # 점검이 통과할 때만 실기기로 보냄
-$P say.py --netboot-twin "LED 3번 켜줘"       # 넷부팅 경로를 가상 부트로더로 (netboot/README.md)
+$P say.py --netboot-twin "LED 3번 켜줘"       # 넷부팅 경로를 가상 부트로더로 (netboot/README.md; vboot.py --signed면 서명 확인)
 ```
 
 종료 코드: 0 정상, 1 결과에 문제, 3 허브가 멈춤(확인 없음, 되물음, 범위 밖, 정책, 할 수 없음, 실기기 준비 안 됨), 4 오류.
@@ -138,7 +139,7 @@ TMP105를 0x4a로 옮긴 몸에서 실행했습니다.
 - 이미지 약 16.5–20.5 KB(v1 격리 런타임과 효과 기록 포함), op 0.2–1.4 KB.
 - 비움 실측: 노드가 리셋된 뒤 허브가 트윈 메모리를 읽어 보니, 이 부팅이 쓴 영역(op·런타임 데이터·스택) 약 76–80 KB 중 0이 아닌 바이트 0. CLI와 화면에 그 값이 그대로 나옵니다. 넷부팅 트윈과 Pi는 실측이 없어 이미지에서 읽은 범위만 표시합니다.
 - 예약: "30초 동안 10초마다 온도"는 10초 간격 부팅 4회입니다.
-- 회귀: `--quick` 158건 약 70초(모델 호출 0), `--full` 약 2분. 범주(불변 I1–I6, 변환 T1–T5)는 `TESTS.md`.
+- 회귀: `--quick` 159건 약 70–150초(모델 호출 0), `--full` 약 2분. 범주(불변 I1–I6, 변환 T1–T5)는 `TESTS.md`.
 
 ## 한계
 

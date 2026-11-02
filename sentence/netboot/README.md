@@ -94,12 +94,56 @@ reports why, before the watchdog would reset the node without a word. On the
 twin the watchdog stays off (QEMU resets the moment it is armed); `wdog=2`
 tests the 14 s rule there.
 
+## Signed boot — only the hub's images run
+
+The node keeps nothing, so whatever answers its TFTP request decides what it becomes, and TFTP has no
+authentication. The hub therefore speaks the Pi 4 bootloader's own secure-boot format (`../seal.py`):
+
+- `boot.img`: a FAT16 ramdisk with `config.txt`, the firmware pair `config.txt` selects, the device tree,
+  `sentence.img` and `poke.json` (the image's hash and what it is for).
+- `boot.sig`: `sha256 / ts / rsa2048`, an RSA-2048 PKCS#1 v1.5 signature over SHA-256 of `boot.img` by the
+  hub's key. This is the format `rpi-eeprom-digest` writes, and `openssl dgst -verify` accepts it (test S8).
+
+`tftpd.py --pend` signs the final bytes, after the RCFG patch, and serves them as `boot.img` and `boot.sig`
+next to the plain files. The hub's key is created on first use in `sentence/keys/` (git-ignored, 0600), or
+in `POKE_KEYS` if that is set. `../seal.py key` prints its paths and fingerprint.
+
+On the twin, `vboot.py --signed ../keys/hub-rsa2048.pub.pem` behaves like a bootloader with `SIGNED_BOOT=1`:
+- it asks only for `boot.sig` and `boot.img`, checks the hash and the signature, and only then opens the ramdisk;
+- a refused image is never booted, and its report carries `"refused": <why>`;
+- the regression's netboot case runs this way.
+
+On a real Pi there are three steps. Only the last cannot be undone. **None of them has been tried on
+hardware yet.** The commands follow the Raspberry Pi secure-boot documentation as we understand it; check
+them against the current docs on the first run.
+
+1. **Ramdisk, unsigned** (reversible). Add `boot_ramdisk=1` to the TFTP root's `config.txt`. The bootloader
+   then loads `boot.img`, which shows that the Pi accepts our FAT16 ramdisk and finds the firmware and kernel
+   inside it.
+2. **Signed boot without OTP** (reversible by reflashing the EEPROM). Put `SIGNED_BOOT=1` in the EEPROM
+   config. Then build the EEPROM image with the hub's public key
+   (`rpi-eeprom-config -c boot.conf -p hub-rsa2048.pub.pem -o pieeprom.upd pieeprom.bin`), sign that image
+   with the same key (`rpi-eeprom-digest -i pieeprom.upd -o pieeprom.sig -k hub-rsa2048.pem`), and flash it.
+   From then on the bootloader refuses any `boot.img` the hub did not sign.
+3. **OTP** (irreversible, owner's decision). Program the key's hash into the SoC's OTP. After that the EEPROM
+   can no longer be reflashed to switch the check off.
+
+What to record on the first hardware run: the request order in signed mode (`netboot-times.jsonl`), and
+whether FAT16 and the size of `boot.img` (~2.1 MB with the cut-down firmware) are accepted.
+
+**Not solved: replay.** The bootloader checks the signature, not the time. An old signed image (yesterday's
+day role, for instance) can be served again and will boot. The twin test shows this as XFAIL (S9). Binding a
+boot to this request needs a freshness check from the node's side: the runtime draws a nonce from the
+hardware RNG, and the hub answers with a signed ticket for that nonce, role and time window. That is the next
+step.
+
 ## Tests (twin, no Pi)
 
 | | |
 |---|---|
 | `tftptest.py IMG` | idle → no answer; pending → files and image; consumed once; parked request answered in ~0.1 s; a repeated request starts one transfer |
 | `../teams/hw/t_netboot_order.py [N] [--cd]` | tftpd + `vboot.py` (the bootloader's real request order) → twin: N sentences in a row, order, sizes, one consumption each, power-off |
+| `../teams/sign/t_signed_boot.py` | signed boot (tftpd + `vboot.py --signed` → twin): the hub's image boots; missing signature, one changed byte, another key, a forged hash line are refused and never booted; a plain image is never asked for; same image → same `boot.img`; openssl verifies `boot.sig`; replay XFAIL |
 | `../teams/hw/t_power.py` | RCFG, budget, the 14 s rule, cdiv reaching the I2C divider, reset partition (0 / 63 with halt), memory zeroed after power-off (QMP `pmemsave`) |
 
 ## Not yet measured

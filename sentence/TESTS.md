@@ -16,7 +16,7 @@ POKE는 "바뀌는 것"이 본질이다. 노드는 요청마다 다른 이미지
 
 | 범주 | 지키는 것 | 주요 스위트·시험 |
 |---|---|---|
-| I1 격리·안전 | op가 노드나 방을 해치지 못함 (EL0, 허용 목록, 값 범위, 계산 주소, 무한 루프) | fault, fence, boottest, check-fp, checktest, policy/refused-*, verify/t_r3·t_v6·t_v7 |
+| I1 격리·안전 | op가 노드나 방을 해치지 못함 (EL0, 허용 목록, 값 범위, 계산 주소, 무한 루프). 허브가 서명한 이미지만 켜짐(넷부팅, Pi 서명 부팅 형식) | fault, fence, boottest, check-fp, checktest, policy/refused-*, verify/t_r3·t_v6·t_v7, **sign/t_signed_boot** (S1–S8 통과, S9 재전송 XFAIL) |
 | I2 휘발 | 끝나면 노드에 우리 코드나 데이터가 0 B | policy/op-region-zero 외, hw/t_power |
 | I3 보고 | 결과와 메시지 형식, 허브가 결과를 그대로 믿어도 됨 | result, hub/parse, message, time |
 | I4 허브 견고성 | 동시 요청, QEMU·파일 누수, 기록 경합, 소유자 기록 보호 | hub, keylock, guard |

@@ -11,3 +11,5 @@ netboot/netboot-times.jsonl
 netboot/root/*.dat
 netboot/root/*.dtb
 netboot/root/*.elf
+# the hub's signing key (seal.py) — never committed
+keys/

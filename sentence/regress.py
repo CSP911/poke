@@ -92,6 +92,7 @@ CATEGORY_RULES = [
     ("policy/refused", "I1"), ("policy/", "I2"),
     ("teams/hw/t_power", "I2"),
     ("teams/verify/t_r3", "I1"), ("teams/verify/t_v6", "I1"), ("teams/verify/t_v7", "I1"),
+    ("teams/sign/", "I1"),
     ("teams/verify/t_x2", "I5"), ("teams/verify/t_r2", "T3"), ("teams/verify/t_x3", "T3"),
     ("teams/hw/", "T3"), ("teams/x86/", "T4"),
     ("teams/registry/t_registry", "T1"), ("teams/registry/t_world", "T5"), ("teams/role/", "T2"),
@@ -348,7 +349,8 @@ TEAM_TESTS = [("verify/t_r2", ["teams/verify/t_r2.py"], "quick"), ("verify/t_r3"
               ("x86/selftest", ["x86.py", "selftest"], "full"),
               ("registry/t_registry", ["teams/registry/t_registry.py"], "quick"),
               ("registry/t_world", ["teams/registry/t_world.py"], "quick"),
-              ("role/t_role_shift", ["teams/role/t_role_shift.py"], "quick")]   # L0–L3 registry, capability-API images   # x86 PC over PXE: fences, wipe, ~50 s
+              ("role/t_role_shift", ["teams/role/t_role_shift.py"], "quick"),
+              ("sign/t_signed_boot", ["teams/sign/t_signed_boot.py"], "quick")]   # only hub-signed images boot (netboot, Pi format)   # L0–L3 registry, capability-API images   # x86 PC over PXE: fences, wipe, ~50 s
 for _n, _argv, _mode in TEAM_TESTS:
     def _f(argv=_argv):
         if not os.path.exists(os.path.join(HERE, argv[0])):
@@ -834,7 +836,8 @@ def _netboot():
     import fcntl; fcntl.flock(lock, fcntl.LOCK_EX)           # netboot/root and vboot-out are shared: one run at a time
     log = open(os.path.join(OUT, f"netboot-{PID}.log"), "w")
     t = subprocess.Popen([PY, "-u", os.path.join(nb, "tftpd.py"), "--port", str(port)], stdout=log, stderr=subprocess.STDOUT)
-    v = subprocess.Popen([PY, "-u", "vboot.py", "--port", str(port)], cwd=nb, stdout=log, stderr=subprocess.STDOUT)
+    import seal                                              # the netboot path is signed boot: the hub's key, the Pi's format
+    v = subprocess.Popen([PY, "-u", "vboot.py", "--port", str(port), "--signed", seal.ensure_key()[1]], cwd=nb, stdout=log, stderr=subprocess.STDOUT)
     try:
         time.sleep(1.5); good = []
         for s, check_ in (("온도 알려줘", lambda r: any(abs(x - 23.75) <= 0.5 for x in _nums(r))), ("LED 3번 켜줘", lambda r: not (r or {}).get("error")), ("온도 알려줘", lambda r: bool(r))):

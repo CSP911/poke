@@ -63,12 +63,12 @@ The full map, including what is not built yet (marked XFAIL until it is), is in 
 
 ## What never changes
 
-Whatever role the node takes, these hold. They are tested on every run (`regress --quick`: 158 cases,
-about 70 s, no model calls).
+Whatever role the node takes, these hold. They are tested on every run (`regress --quick`: 159 cases,
+about 1–2.5 min, no model calls).
 
 | | Invariant | How it is enforced |
 |---|---|---|
-| I1 | An image cannot hurt the node or the room | The op runs at EL0 behind a page table, with no hardware window. I2C goes only through a supervisor call, checked against an allow list baked into the image (addresses, registers, value ranges, write counts). There is a 20 s timer budget, and an image that fails the static check never boots. |
+| I1 | An image cannot hurt the node or the room | The op runs at EL0 behind a page table, with no hardware window. I2C goes only through a supervisor call, checked against an allow list baked into the image (addresses, registers, value ranges, write counts). There is a 20 s timer budget, and an image that fails the static check never boots. Over the network, only images the hub signed boot: the hub uses the Pi 4 bootloader's secure-boot format (`boot.img` + `boot.sig`, RSA-2048), and anything unsigned or altered is refused. |
 | I2 | Nothing of ours stays | Before resetting, the runtime zeroes everything the run used. The hub then reads the twin's RAM back and counts the non-zero bytes. Measured: **0 of ~76–80 KB**. |
 | I3 | The report can be trusted | Every bus transfer is reported by the runtime on its own `POKE-EFFECTS` line, which the op cannot forge. |
 | I4 | The hub holds under load | Concurrent requests, leaked QEMU processes and files, and races on the record store are all tested. |
@@ -154,6 +154,7 @@ Working on the twin:
 Not yet:
 - a real Pi 4 netbooted end to end (the first hardware number to measure)
 - **role schedules**, i.e. the hub picking a node's role by the clock (T2 R5–R7, written as XFAIL)
+- replay protection: an old signed image can still be served again (signed boot S9, XFAIL), and signed boot has not been enabled on a real Pi
 - a measured comparison against a Linux baseline
 - ESP32-C3 isolation (RISC-V PMP)
 

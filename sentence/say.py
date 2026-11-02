@@ -820,7 +820,8 @@ def boot_netboot_twin(img_path, budget_s=60):
         if new:
             time.sleep(0.05)
             b = json.load(open(os.path.join(out, sorted(new)[-1])))
-            b["vm_status"] = f"{b.get('vm_status')} · via TFTP in {b.get('fetched_ms')} ms"
+            b["vm_status"] = (f"REFUSED by the bootloader: {b['refused']}" if b.get("refused") else
+                              f"{b.get('vm_status')} · via TFTP in {b.get('fetched_ms')} ms" + (" · signed" if b.get("signed") else ""))
             return b
         time.sleep(0.05)
     raise RuntimeError("the virtual bootloader did not boot the image (is netboot/vboot.py running with netboot/tftpd.py?)")

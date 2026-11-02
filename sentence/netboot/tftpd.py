@@ -25,6 +25,10 @@ Every request and transfer is appended to netboot/netboot-times.jsonl
     tftpd.py --pend IMAGE [--target pi]       make IMAGE the next sentence (writes ROOT/pending.img);
                                               --target pi writes the Pi's RCFG (watchdog, I2C clock) into it
 
+Signed boot: --pend also seals the final image (../seal.py) as pending.img.bootimg / .bootsig, served as
+boot.img / boot.sig. A bootloader with SIGNED_BOOT=1 asks only for those and boots nothing that the hub's key
+did not sign; one without it keeps asking for the plain files above. Either transfer consumes the sentence.
+
 RFC 1350 read requests with the blksize/tsize options (RFC 2347/2348); block
 numbers roll over. Path prefixes (serial-number directories) are ignored.
 """
@@ -32,6 +36,7 @@ import os, sys, time, json, socket, struct, threading
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "root")
 PENDING = "pending.img"
+SEALED = {"boot.img": ".bootimg", "boot.sig": ".bootsig"}      # signed boot (seal.py): the ramdisk and its signature
 SERVED_AS = {"kernel8.img", "sentence.img", "sentence-x86.elf", "sentence-x86.pxe"}   # Pi bootloader names; an x86 PC asks iPXE for sentence-x86.elf
 RRQ, DATA, ACK, ERROR, OACK = 1, 3, 4, 5, 6
 PARK_S = 25.0                       # < the bootloader's TFTP_FILE_TIMEOUT (default 30 s, minimum 5 s)
@@ -57,6 +62,13 @@ def pending_path(root):
 
 def is_pending(root):
     return os.path.exists(pending_path(root))
+
+def consume(root):
+    """The sentence went out: every form of it (plain image, boot.img, boot.sig) is done."""
+    p = pending_path(root)
+    for suf in ("", *SEALED.values()):
+        try: os.replace(p + suf, p + suf + ".booted")
+        except OSError: pass
 
 def send_file(client, data, opts):
     blk = 512
@@ -120,9 +132,11 @@ def handle(pkt, client, root):
         active.add(key)
     try:
         if name in SERVED_AS:
-            path, consume = pending_path(root), True
+            path, last = pending_path(root), True
+        elif name in SEALED:
+            path, last = pending_path(root) + SEALED[name], name == "boot.img"
         else:
-            path, consume = os.path.join(root, name), False
+            path, last = os.path.join(root, name), False
         try:
             data = open(path, "rb").read()
         except OSError:
@@ -136,9 +150,9 @@ def handle(pkt, client, root):
         dt = time.monotonic() - t
         tlog(root, ev="sent" if ok else "aborted", file=name, bytes=len(data), blksize=blk, ms=round(dt * 1000, 1))
         log(f"{'sent' if ok else 'gave up on'} {name} ({len(data)} B, blk {blk}, {dt*1000:.0f} ms) to {client[0]}"
-            + (" — the sentence's image" if consume else ""))
-        if ok and consume:
-            os.replace(path, path + ".booted")
+            + (" — the sentence's image" if last else ""))
+        if ok and last:
+            consume(root)
             log("sentence consumed; back to idle")
     finally:
         with lock:
@@ -180,7 +194,13 @@ if __name__ == "__main__":
             sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             import rtcfg
             data = rtcfg.for_target(data, target)
-        tmp = pending_path(root) + ".tmp"; open(tmp, "wb").write(data); os.replace(tmp, pending_path(root))
-        log(f"pending: {img} ({len(data)} B)" + (f", RCFG for {target}" if target else ""))
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        import seal                                      # the hub signs the final bytes (after RCFG): boot.img + boot.sig
+        bimg, bsig = seal.seal(data, root=root, manifest={"source": os.path.basename(img), "target": target or "twin"})
+        p = pending_path(root)
+        for suf, body in ((SEALED["boot.img"], bimg), (SEALED["boot.sig"], bsig.encode())):
+            open(p + suf + ".tmp", "wb").write(body); os.replace(p + suf + ".tmp", p + suf)
+        tmp = p + ".tmp"; open(tmp, "wb").write(data); os.replace(tmp, p)      # last: its presence means "pending"
+        log(f"pending: {img} ({len(data)} B)" + (f", RCFG for {target}" if target else "") + f", sealed boot.img {len(bimg)} B")
     else:
         serve(int(a[a.index("--port") + 1]) if "--port" in a else 69, root)

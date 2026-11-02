@@ -14,6 +14,12 @@ release notes; a published dnsmasq log of a Pi 4 netboot):
                cmdline.txt, armstub8-gic.bin   (missing ones are fine)
                <kernel> probe (tsize, early terminate), then <kernel> in full
 
+Signed boot (--signed PUBKEY, the EEPROM's SIGNED_BOOT=1 with the hub's public key): after the probe it asks
+only for boot.sig and boot.img, checks that boot.sig names this boot.img and carries an RSA-2048 signature by
+that key (../seal.py, the check the Pi 4 bootloader makes), and only then opens the ramdisk and reads
+config.txt, the firmware pair and the kernel from inside it. A refused image is never booted: the report says
+why ("refused") and the bootloader goes back to asking. Plain files on the server are not asked for at all.
+
 Each request waits up to TFTP_FILE_TIMEOUT for an answer, like the real one; a
 missing required file or a timeout fails this network boot, and after a short
 network restart (RESTART, 0xf) it starts again from the probe. When the image
@@ -21,11 +27,12 @@ has arrived it boots the twin with it, writes netboot/vboot-out/<n>.json for
 the hub, and goes back to asking — the node holds nothing of ours.
 
     vboot.py [--port 16969] [--host 127.0.0.1] [--file-timeout 30] [--restart-s 0.25] [--out DIR] [--once]
+             [--signed PUBKEY]
 """
 import os, sys, json, time, socket, struct
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-import say
+import say, seal
 
 OUT = os.path.join(HERE, "vboot-out")
 SERIAL = "1a2b3c4d"
@@ -79,8 +86,14 @@ def cfg_value(cfg, key, default=None):
             v = l.split("=", 1)[1].strip()
     return v
 
-def netboot(server, file_timeout):
-    """One NETWORK boot-mode attempt. Returns (image, kernel name, record) or (None, reason, record)."""
+class Refused(Exception):
+    """The image arrived but the bootloader will not run it (signed boot)."""
+    def __init__(self, why, rec):
+        super().__init__(why); self.why, self.rec = why, rec
+
+def netboot(server, file_timeout, pubkey=None):
+    """One NETWORK boot-mode attempt. Returns (image, kernel name, record) or (None, reason, record).
+    With pubkey (signed boot) a fetched but unsigned or tampered image raises Refused."""
     reqs = []
     def get(name, probe=False, timeout=None):
         t = time.monotonic()
@@ -94,6 +107,8 @@ def netboot(server, file_timeout):
         return None, "no answer", reqs
     t0 = time.monotonic()
     pre = f"{SERIAL}/" if p != NOT_FOUND else ""
+    if pubkey:
+        return signed_boot(get, pre, pubkey, reqs, t0)
     cfg = get(pre + "config.txt")
     if cfg == TIMEOUT:
         return None, "config.txt timed out", reqs
@@ -116,16 +131,58 @@ def netboot(server, file_timeout):
         return None, f"{kernel} failed", reqs
     return img, kernel, {"requests": reqs, "fetched_ms": round((time.monotonic() - t0) * 1000), "start_file": start}
 
+def signed_boot(get, pre, pubkey, reqs, t0):
+    """SIGNED_BOOT=1: boot.sig + boot.img only; verify before anything inside is read."""
+    sig = get(pre + "boot.sig")
+    if sig == TIMEOUT:
+        return None, "boot.sig timed out", reqs
+    img = get(pre + "boot.img")
+    if img == TIMEOUT:
+        return None, "boot.img timed out", reqs
+    rec = {"requests": reqs, "fetched_ms": round((time.monotonic() - t0) * 1000), "signed": True}
+    if not isinstance(img, bytes):
+        if sig == NOT_FOUND:
+            return None, "no boot.img / boot.sig", reqs        # nothing sealed is offered: like an idle hub
+        raise Refused("no boot.img", rec)
+    files, why = seal.open_boot(img, sig if isinstance(sig, bytes) else b"", pubkey)
+    if files is None:
+        raise Refused(why, rec)
+    cfg = files.get("config.txt", b"").decode(errors="replace")
+    cd = cfg_value(cfg, "gpu_mem") == "16"
+    start, fixup = ("start4cd.elf", "fixup4cd.dat") if cd else ("start4.elf", "fixup4.dat")
+    for f in (start, fixup):
+        if f not in files:
+            return None, f"{f} missing in boot.img", reqs
+    kernel = cfg_value(cfg, "kernel", "kernel8.img")
+    if kernel not in files:
+        return None, f"{kernel} missing in boot.img", reqs
+    try: manifest = json.loads(files.get("poke.json") or b"{}")
+    except ValueError: manifest = {}
+    return files[kernel], kernel, {**rec, "start_file": start, "boot_img_bytes": len(img), "manifest": manifest,
+                                   "key": seal.fingerprint(pubkey)}
+
 def main():
     server = (arg("--host", "127.0.0.1"), arg("--port", 16969, int))
     file_timeout = arg("--file-timeout", 30.0, float)          # TFTP_FILE_TIMEOUT (bootloader default 30 s)
     restart_s = arg("--restart-s", 0.25, float)                # network re-init between attempts
     out_dir = arg("--out", OUT)                                # where boot reports go (the hub reads them)
+    pubkey = arg("--signed", None)                             # SIGNED_BOOT=1 with the hub's public key
     os.makedirs(out_dir, exist_ok=True)
     n = 1 + max([int(f[:-5]) for f in os.listdir(out_dir) if f.endswith(".json") and f[:-5].isdigit()] or [-1])
     idle = 0
+    if pubkey:
+        log(f"signed boot: only images signed by key {seal.fingerprint(pubkey)} boot")
     while True:
-        img, what, rec = netboot(server, file_timeout)
+        try:
+            img, what, rec = netboot(server, file_timeout, pubkey)
+        except Refused as r:                                   # fetched, checked, not run: the hub hears why
+            log(f"REFUSED boot.img: {r.why} — not booted; nothing of it runs")
+            json.dump({"boot": n, **r.rec, "refused": r.why, "powered_off": False, "result": None},
+                      open(os.path.join(out_dir, f"{n}.json"), "w"), indent=1, ensure_ascii=False)
+            n += 1
+            if "--once" in sys.argv:
+                return
+            time.sleep(restart_s); continue
         if img is None:
             idle += 1
             if what != "no answer" or idle % 20 == 1:
