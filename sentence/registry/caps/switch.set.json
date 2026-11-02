@@ -1,0 +1,9 @@
+{
+ "cap": "switch.set",
+ "v": 1,
+ "call": "int cap_switch_set(cap_t c, int on)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "켜거나 끈다 (on 1 = 켬, 0 = 끔) — LED, 출력 핀",
+ "safety": "changes-room",
+ "outputs": []
+}

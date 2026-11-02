@@ -1,0 +1,16 @@
+{
+ "cap": "time.read",
+ "v": 1,
+ "call": "int cap_time_read(cap_t c, int *year, int *month, int *day, int *hour, int *min, int *sec)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "장치 시계를 읽는다 (24시간)",
+ "safety": "inert",
+ "outputs": [
+  "year",
+  "month",
+  "day",
+  "hour",
+  "min",
+  "sec"
+ ]
+}

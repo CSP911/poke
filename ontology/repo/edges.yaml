@@ -123,6 +123,39 @@
 - from: qemu-models
   rel: LEARNED_FROM
   to: twin
+- from: part-adm1272
+  rel: FOUND_ON
+  to: i2c
+- from: part-dps310
+  rel: FOUND_ON
+  to: i2c
+- from: part-emc1403
+  rel: FOUND_ON
+  to: i2c
+- from: part-led
+  rel: FOUND_ON
+  to: i2c
+- from: part-mag
+  rel: FOUND_ON
+  to: i2c
+- from: part-pca9554
+  rel: FOUND_ON
+  to: i2c
+- from: part-pca9555
+  rel: FOUND_ON
+  to: i2c
+- from: part-rtc
+  rel: FOUND_ON
+  to: i2c
+- from: part-ssd0303
+  rel: FOUND_ON
+  to: i2c
+- from: part-tmp105
+  rel: FOUND_ON
+  to: i2c
+- from: part-tmp421
+  rel: FOUND_ON
+  to: i2c
 - from: finger-fist
   rel: SPEAKS
   to: motion-abi

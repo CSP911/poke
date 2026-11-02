@@ -1,0 +1,161 @@
+<title>잠든 컴퓨터 지도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#EFF0F2; --surface:#F9FAFB; --ink:#16181C; --muted:#5C616B; --line:#D5D8DE;
+  --accent:#3B4FA0; --accent-soft:#E0E4F4; --moon:#7A5C1E; --moon-soft:#F2E9D3; --no:#9A3A2E; --no-soft:#F4DEDA;
+  --display:"IBM Plex Sans KR","Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#101217; --surface:#181B22; --ink:#E6E8EC; --muted:#9AA0AB; --line:#2A2E37;
+    --accent:#9FB0F0; --accent-soft:#1C2340; --moon:#E3C27A; --moon-soft:#33290F; --no:#EE9384; --no-soft:#3A1D18;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#101217; --surface:#181B22; --ink:#E6E8EC; --muted:#9AA0AB; --line:#2A2E37;
+  --accent:#9FB0F0; --accent-soft:#1C2340; --moon:#E3C27A; --moon-soft:#33290F; --no:#EE9384; --no-soft:#3A1D18;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.7;padding-inline:20px;padding-block:0}
+.page{max-width:980px;margin:0 auto;padding-block:44px 90px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(32px,5vw,48px);line-height:1.2;margin:8px 0 14px;text-wrap:balance}
+.lede{font-size:18px;max-width:42em;margin:0}
+.verdict{border-left:4px solid var(--moon);background:var(--moon-soft);border-radius:0 12px 12px 0;padding:16px 20px;margin:22px 0 0;max-width:48em}
+.verdict b{font-family:var(--display)}
+section{padding-top:40px}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(20px,2.4vw,25px);margin:0 0 14px;text-wrap:balance}
+p,li{max-width:70ch}
+.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:6px 0 10px}
+.nums div{border-left:3px solid var(--accent);padding:4px 0 4px 14px}
+.nums b{display:block;font-family:var(--display);font-size:26px;line-height:1.15;font-variant-numeric:tabular-nums}
+.nums span{font-size:13.5px;color:var(--muted)}
+.small{font-size:13.5px;color:var(--muted)}
+.tbl{overflow-x:auto;margin:10px 0}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14.5px}
+th,td{text-align:left;vertical-align:top;padding:9px 11px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.card.top{box-shadow:inset 4px 0 0 var(--moon);border-color:var(--moon)}
+.say{font-family:var(--display);font-weight:700;font-size:17.5px;line-height:1.35}
+.say em{font-style:normal;color:var(--accent)}
+.card.top .say em{color:var(--moon)}
+.badge{align-self:flex-start;font-family:var(--mono);font-size:11px;padding:1px 8px;border-radius:99px;background:var(--moon-soft);color:var(--moon)}
+.card p{margin:0;font-size:14.5px}
+.lab{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;display:block}
+.steps{list-style:none;padding:0;margin:0;display:grid;gap:12px;counter-reset:s}
+.steps li{counter-increment:s;display:grid;grid-template-columns:2.2em 1fr;gap:4px 12px;max-width:none}
+.steps li::before{content:counter(s);font-family:var(--display);font-weight:700;font-size:24px;color:var(--moon);line-height:1.2}
+.steps b{font-family:var(--display)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.two div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+.two h3{font-family:var(--display);font-size:16px;margin:0 0 6px}
+.two ul{margin:0;padding-left:18px;font-size:14.5px}
+.two .no h3{color:var(--no)}
+footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--line);font-size:13.5px;color:var(--muted)}
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">POKE · 유휴 자원 회의 · 2026-10-12 · 자원 지도 · 수요 산업 · 공급과 신뢰 · 반대 변호인</div>
+  <h1>잠든 컴퓨터 지도</h1>
+  <p class="lede">소유자의 관점: 우리 사회에 뿌려진 PC와 작은 기기들이 노는 시간만 잘 써도, 많은 산업에서 드라마틱한 절감과 창의성이 나온다. 네 팀이 자원, 수요, 공급, 반론을 나눠 따졌다.</p>
+  <div class="verdict"><b>회의 결론.</b> 관점은 맞다. 다만 절감의 근거를 바꿔야 한다. 클라우드 할인 서버와 전기료로 비교하면 차이는 10배 안쪽이고 관리비에 먹힌다. 드라마는 다른 곳에서 나온다. <b>"아무것도 설치할 수 없어서" 잠들어 있던 기계가 처음으로 깨어난다는 것</b>, 그리고 <b>데이터를 밖으로 보낼 수 없는 조직이 서버를 사지 않고 자기 PC로 해결한다는 것</b>이다. POKE의 설치 없음·흔적 없음·허락된 일만·영수증이 바로 그 잠금을 푼다.</div>
+</header>
+
+<section>
+  <h2>얼마나 잠들어 있나 (한국, 추정 포함)</h2>
+  <div class="nums">
+    <div><b>1,000만+ 대</b><span>기업·공공 사무실 PC, 주당 약 70% 유휴(추정)</span></div>
+    <div><b>202만 대</b><span>초·중·고 학교 기기, 방학 포함 80% 이상 유휴</span></div>
+    <div><b>약 47만 대</b><span>PC방 게이밍 PC, 오전·낮 시간 유휴</span></div>
+    <div><b>약 650 MW</b><span>사무실 PC 1,000만 대를 밤에 돌릴 때. 국내 데이터센터 수요의 약 15%(추정)</span></div>
+  </div>
+  <p class="small">기업 PC 대수와 PC방 좌석 수는 추정이다. 밤에 전원이 꺼지는 기관은 원격으로 켜는 기능이 없으면 0이 된다. 셋톱박스·스마트폰·충전기는 제조사의 부팅 잠금 때문에 이 방식으로도 열리지 않는다.</p>
+</section>
+
+<section>
+  <h2>이 방식으로 처음 깨어나는 자원</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>자원</th><th>지금 잠든 이유</th><th>POKE가 푸는 것</th></tr></thead>
+    <tbody>
+      <tr><td><b>공공기관·학교 PC</b></td><td>아무것도 설치할 수 없는 보안 정책</td><td>설치·디스크 접근·흔적이 없고, 한 일이 영수증으로 남는다. 보안 심사를 통과할 수 있는 형태. 2026년 망분리 개편으로 제도의 문도 열리는 중</td></tr>
+      <tr><td><b>윈도10 지원 종료·퇴역 PC</b></td><td>OS 보안 지원이 끊김</td><td>OS를 쓰지 않으니 "지원 종료"와 무관하다. 교체 직전 몇 년을 계산 자원으로</td></tr>
+      <tr><td><b>PC방 낮 시간 GPU</b></td><td>놀리는 시간을 팔 통로가 없음</td><td>그 일만 하는 이미지로 부팅하고 아침에 원상태. 손님용 환경을 건드리지 않는다</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>이런 산업에서 쓸 수 있어요</h2>
+  <div class="grid">
+    <div class="card top"><span class="badge">가장 좁고 강한 시장</span>
+      <div class="say"><em>금융·공공·병원</em>의 야간 일괄 작업에 쓸 수 있어요</div>
+      <p>데이터를 건물 밖으로 보낼 수 없는 조직이 문서 비식별화·OCR, 리스크 계산, 회귀 테스트를 밤에 자기 사무실 PC로 돌린다. 경쟁 상대는 클라우드가 아니라 서버 구매와 몇 달의 조달 기간이다.</p>
+    </div>
+    <div class="card top"><span class="badge">창의성이 가장 큰 곳</span>
+      <div class="say"><em>신약·소재 연구</em>에 쓸 수 있어요</div>
+      <p>화합물 10억 개 스크리닝에 클라우드 약 2.3만 달러가 든다. 학교 실습실 PC의 방학으로 대학원생이 표적 단백질 하나가 아니라 여럿을 시험한다.</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>영상·애니메이션</em> 산업에서 쓸 수 있어요</div>
+      <p>90초 영상 렌더링에 400–800달러. PC방의 빈 시간으로 1인 창작자가 "한 번만 렌더"에서 "백 번 실험"으로 바뀐다.</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>게임 개발</em>에서 쓸 수 있어요</div>
+      <p>사내 유휴 PC로 빌드 56분 → 8분 사례가 이미 있다(설치형). POKE는 설치 없이 같은 효과를 노린다.</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>반도체 설계 검증</em>에 쓸 수 있어요</div>
+      <p>팹리스가 회귀 시뮬레이션을 직원 PC의 밤으로. 다만 도구 라이선스가 계산비보다 훨씬 비싸서 절감은 계산 몫에 한정된다.</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>중소기업 IT</em>에서 쓸 수 있어요</div>
+      <p>회계 마감, 데이터 정리, AI 라벨링을 회사 PC가 퇴근 후에. 기업이 클라우드를 망설이는 이유 1·2위가 비용과 보안이고, 데이터가 밖으로 나가지 않으니 둘 다 풀린다.</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>동네 환경 측정</em>에 쓸 수 있어요</div>
+      <p>계산이 아닌 유휴 자원. 이미 깔린 매장 키오스크와 공유기가 밤에 측정소가 되고, 기록이 위조할 수 없게 남는다. 고소득 지역에 몰린 측정망의 빈틈을 메운다.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>누가 왜 내놓나: 시장의 순서</h2>
+  <p>선의만으로는 공급이 유지되지 않는다(BOINC 참여 컴퓨터 약 70만 → 6만 대). 가정 PC는 보상이 전기료를 넘기 어렵다. 그래서 빌려주는 쪽과 쓰는 쪽이 같은 곳에서 시작한다.</p>
+  <ol class="steps">
+    <li><div><b>사내 유휴 PC 클라우드.</b> 망분리 금융·공공·병원, 그리고 설계·제조·게임 회사. 신뢰·보상·책임이 회사 안에서 닫히고 규제가 없다. POKE는 PC 대수 기준 구독.</div></li>
+    <li><div><b>공공 야간 계산 공유제.</b> 공공기관 PC(해마다 40–60만 대 신규)의 밤을 대학·중소기업에 정부 바우처로 연결한다. 공공기관 절전 의무 규정과 부딪히므로 규제 샌드박스가 필요하다.</div></li>
+    <li><div><b>지역 계산 협동조합.</b> PC방(1년 새 406곳 폐업, 새벽·오전 빈자리)과 학교를 묶어 지역 기업의 렌더링·AI 추론에. 조합이 운영하고 POKE는 플랫폼 수수료.</div></li>
+  </ol>
+</section>
+
+<section>
+  <h2>반대 변호인이 남긴 것</h2>
+  <div class="two">
+    <div><h3>POKE가 없애는 실패 원인</h3><ul>
+      <li>설치 거부감과 보안 승인 장벽</li>
+      <li>기계 주인의 데이터 노출 걱정</li>
+      <li>작업을 옮기는 비용(자연어로 일을 만든다)</li>
+      <li>무엇을 했는지 감사하기 어려움(영수증)</li>
+    </ul></div>
+    <div class="no"><h3>못 없애는 실패 원인</h3><ul>
+      <li>수요 부족: 선행 사례는 기계가 아니라 맡길 일이 부족해서 멈췄다</li>
+      <li>클라우드 할인 서버 대비 단가와 와트당 효율</li>
+      <li>쪼개지지 않는 일, 대형 AI 학습(가정 회선은 데이터센터보다 500–2000배 느림)</li>
+      <li>실제 PC의 네트워크 부팅 관문: BIOS, 원격 켜기, 보안 부팅, BitLocker 복구 키 요구</li>
+      <li>답이 맞는지 검증하는 비용(영수증은 무엇을 실행했는지만 증명)</li>
+    </ul></div>
+  </div>
+  <p style="margin-top:14px"><b>성립 조건.</b> 실제 사무용 PC 100대에서 하룻밤 네트워크 부팅 성공률 95% 이상, BitLocker 복구 키 요구 0건, 배치 하나의 완료 시간이 서버 구매보다 유리. 지금까지의 3.6배 속도 향상은 맥 한 대 위 가상 기계 4대의 숫자라, 실제 분산 이득은 아직 재지 않았다.</p>
+</section>
+
+<footer>근거: 과기정통부 인터넷이용실태조사, 학교 디지털기기 현황, PC방 업계 통계, 공공기관 에너지이용 합리화 규정, 국정원 N²SF, Nature Computational Science(2025) 도킹 비용, Incredibuild 사례, BOINC·SETI@home·Folding@home·Akash·Salad·Render 공개 자료 등 각 팀 보고서의 출처. 대수 일부는 추정.</footer>
+</div>

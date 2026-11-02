@@ -1,0 +1,41 @@
+{
+ "id": "mag",
+ "identity": "i2c-mag-1e",
+ "fragment": "mag.h",
+ "default_addr": "0x1e",
+ "identify": null,
+ "verification": {
+  "kind": "library driver (earlier incubation)"
+ },
+ "implements": [
+  {
+   "cap": "magnetic.read",
+   "channels": {
+    "": 0
+   },
+   "body": "return mag_read(ADDR, x, y, z);",
+   "spec": {
+    "unit": "counts",
+    "basis": "fragment"
+   },
+   "fns": [
+    "mag_read"
+   ],
+   "access": "read",
+   "policy": "allow"
+  }
+ ],
+ "functions": {
+  "mag_read": {
+   "access": "read",
+   "write_regs": [
+    0,
+    1,
+    2
+   ],
+   "max_write": 2,
+   "policy": "allow"
+  }
+ },
+ "unbound": []
+}

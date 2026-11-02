@@ -1,0 +1,109 @@
+{
+ "poke_card": 1,
+ "exported": "2026-10-11T22:30:06+0900",
+ "from_body": {
+  "label": "기본 실험대"
+ },
+ "kind": "op",
+ "sentences": [
+  "온도 알려줘"
+ ],
+ "template": "온도알려줘",
+ "params": [],
+ "templated": false,
+ "op": "/* MANIFEST {\"v\": 1, \"uses\": [{\"fn\": \"tmp105_read_mC\"}], \"max_s\": 2, \"summary_ko\": \"온도 센서에서 지금 방 온도를 읽어 알려드려요.\", \"labels_ko\": {\"temp_c\": \"온도 (°C)\"}} */\n/* PARAMS [] */\n#include \"rt.h\"\n#include \"tmp105.h\"\n\n#define TMP105_ADDR 0x48\n\nvoid op_main(void)\n{\n    long mC = 0;\n    int err = tmp105_read_mC(TMP105_ADDR, &mC);\n    if (err != 0) {\n        fail(\"온도 센서가 응답하지 않아요.\");\n        return;\n    }\n    report_fixed(\"temp_c\", mC, 3);\n    say(\"온도를 읽었어요.\");\n}",
+ "manifest": {
+  "v": 1,
+  "uses": [
+   {
+    "fn": "tmp105_read_mC"
+   }
+  ],
+  "max_s": 2,
+  "summary_ko": "온도 센서에서 지금 방 온도를 읽어 알려드려요.",
+  "labels_ko": {
+   "temp_c": "온도 (°C)"
+  }
+ },
+ "colophon": {
+  "date": "2026-10-11T21:59:07+0900",
+  "model": "Claude Code CLI (claude -p, default model)",
+  "gen_s": 11.6,
+  "rounds": 1,
+  "catalog": "a01f72eb",
+  "replaces": "2026-10-11T21:58:07+0900",
+  "body": {
+   "label": "기본 실험대",
+   "note": "주소 0x48을 op 안에 숫자로 박은 옛 발음"
+  }
+ },
+ "traces": [
+  {
+   "at": "2026-10-11T22:24:58+0900",
+   "sentence": "온도 알려줘",
+   "params": {},
+   "result": {
+    "temp_c": 23.75
+   },
+   "ok": true,
+   "node_ms": 327,
+   "body": "4e8dec7b21",
+   "body_label": "기본 실험대",
+   "op_date": "2026-10-11T22:24:12+0900"
+  },
+  {
+   "at": "2026-10-11T22:25:19+0900",
+   "sentence": "온도 알려줘",
+   "params": {},
+   "result": {
+    "temp_c": 23.75
+   },
+   "ok": true,
+   "node_ms": 374,
+   "body": "4e8dec7b21",
+   "body_label": "기본 실험대",
+   "op_date": "2026-10-11T22:24:12+0900"
+  },
+  {
+   "at": "2026-10-11T22:25:21+0900",
+   "sentence": "온도 알려줘",
+   "params": {},
+   "result": {
+    "temp_c": 23.75
+   },
+   "ok": true,
+   "node_ms": 352,
+   "body": "4e8dec7b21",
+   "body_label": "기본 실험대",
+   "op_date": "2026-10-11T22:24:12+0900"
+  },
+  {
+   "at": "2026-10-11T22:25:22+0900",
+   "sentence": "온도 알려줘",
+   "params": {},
+   "result": {
+    "temp_c": 23.75
+   },
+   "ok": true,
+   "node_ms": 342,
+   "body": "4e8dec7b21",
+   "body_label": "기본 실험대",
+   "op_date": "2026-10-11T22:24:12+0900"
+  },
+  {
+   "at": "2026-10-11T22:25:22+0900",
+   "sentence": "온도 알려줘",
+   "params": {},
+   "result": {
+    "temp_c": 27.0
+   },
+   "ok": true,
+   "node_ms": 359,
+   "body": "4e8dec7b21",
+   "body_label": "기본 실험대",
+   "op_date": "2026-10-11T22:24:12+0900"
+  }
+ ],
+ "lineage": [],
+ "origin": null
+}

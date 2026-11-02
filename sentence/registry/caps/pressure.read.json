@@ -1,0 +1,11 @@
+{
+ "cap": "pressure.read",
+ "v": 1,
+ "call": "int cap_pressure_read(cap_t c, long *pa)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "기압을 한 번 읽는다 (Pa)",
+ "safety": "inert",
+ "outputs": [
+  "pa"
+ ]
+}

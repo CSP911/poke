@@ -1,0 +1,78 @@
+{
+ "id": "tmp105",
+ "identity": "i2c-temp-4a",
+ "fragment": "tmp105.h",
+ "default_addr": "0x48",
+ "identify": null,
+ "verification": {
+  "kind": "library driver (earlier incubation)"
+ },
+ "implements": [
+  {
+   "cap": "temperature.read",
+   "channels": {
+    "": 0
+   },
+   "body": "return tmp105_read_mC(ADDR, milli_c);",
+   "spec": {
+    "unit": "m°C",
+    "resolution": 62.5,
+    "basis": "fragment (12-bit)"
+   },
+   "fns": [
+    "tmp105_read_mC"
+   ],
+   "access": "read",
+   "policy": "allow",
+   "measured": {
+    "when": "2026-11-02 10:50",
+    "on": "twin",
+    "channels": {
+     "0": {
+      "points": [
+       [
+        0,
+        0
+       ],
+       [
+        12312,
+        12250
+       ],
+       [
+        25062,
+        25000
+       ],
+       [
+        38500,
+        38500
+       ],
+       [
+        70750,
+        70750
+       ],
+       [
+        100125,
+        100125
+       ]
+      ],
+      "max_abs_err_mC": 62,
+      "fraction_kept": true,
+      "claimed_resolution": 62.5,
+      "verdict": "ok"
+     }
+    }
+   }
+  }
+ ],
+ "functions": {
+  "tmp105_read_mC": {
+   "access": "read",
+   "write_regs": [
+    1
+   ],
+   "max_write": 2,
+   "policy": "allow"
+  }
+ },
+ "unbound": []
+}

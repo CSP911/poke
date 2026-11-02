@@ -1,0 +1,185 @@
+<title>더늠</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F1EEE6; --surface:#FAF8F2; --ink:#1C1A17; --muted:#666158; --line:#D8D2C4;
+  --accent:#A3361F; --accent-soft:#F4E2DA; --ink2:#2E4A3E; --ink2-soft:#E1EBE5;
+  --ok:#2F7D4F; --ok-soft:#E3F1E7; --warn:#8C5E00; --warn-soft:#F5EBD2; --bad:#A3261F; --bad-soft:#F7E1DE;
+  --display:"Gowun Batang","Noto Serif KR",Georgia,serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#151412; --surface:#1D1B18; --ink:#ECE8DF; --muted:#A39E93; --line:#322F2A;
+    --accent:#E58A6F; --accent-soft:#3A221B; --ink2:#9CC7B2; --ink2-soft:#1D2C25;
+    --ok:#6CC08C; --ok-soft:#153021; --warn:#E6B45A; --warn-soft:#352A10; --bad:#F08A7E; --bad-soft:#3A1C19;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#151412; --surface:#1D1B18; --ink:#ECE8DF; --muted:#A39E93; --line:#322F2A;
+  --accent:#E58A6F; --accent-soft:#3A221B; --ink2:#9CC7B2; --ink2-soft:#1D2C25;
+  --ok:#6CC08C; --ok-soft:#153021; --warn:#E6B45A; --warn-soft:#352A10; --bad:#F08A7E; --bad-soft:#3A1C19;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16.5px;line-height:1.8;padding-inline:20px;padding-block:0}
+.page{max-width:920px;margin:0 auto;padding-block:48px 96px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(56px,10vw,104px);line-height:1;margin:12px 0 4px;letter-spacing:-.02em}
+.en{font-family:var(--mono);font-size:14px;color:var(--muted);margin:0 0 22px}
+.thesis{font-family:var(--display);font-size:clamp(24px,3.4vw,32px);line-height:1.45;margin:8px 0 18px;max-width:22em;text-wrap:balance}
+.def{font-size:18px;max-width:36em;margin:0}
+.origin{font-size:14.5px;color:var(--muted);max-width:40em;margin:14px 0 0}
+section{padding-top:52px}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(24px,3.4vw,32px);line-height:1.3;margin:0 0 14px;text-wrap:balance}
+h3{font-weight:700;font-size:17.5px;margin:24px 0 8px}
+p,li{max-width:68ch}
+.scene{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:14px 0;font-family:var(--display);font-size:17.5px;line-height:1.8}
+.scene .who{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--accent);display:block;margin-bottom:4px}
+.layers{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:14px 0}
+.layer{border-top:3px solid var(--ink2);background:var(--surface);border-radius:0 0 10px 10px;padding:14px 16px;font-size:15px}
+.layer b{display:block;font-family:var(--display);font-size:20px;margin-bottom:4px}
+.tbl{overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:15px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+td.n{font-family:var(--mono)}
+tr.hl td{background:var(--ink2-soft)}
+.finding{display:grid;grid-template-columns:28px 1fr;gap:10px;margin:10px 0}
+.finding .m{font-family:var(--mono);font-weight:500;color:var(--ink2)}
+.attack{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+@media (max-width:700px){.attack{grid-template-columns:1fr}}
+.attack > div{padding:14px 16px;border-radius:10px;font-size:15px}
+.attack .a{background:var(--bad-soft)}
+.attack .r{background:var(--ink2-soft)}
+.attack b{display:block;margin-bottom:4px}
+.tag{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.tag.ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
+.tag.warn{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.tag.bad{color:var(--bad);background:var(--bad-soft);border-color:transparent}
+.steps{list-style:none;padding:0;margin:14px 0;display:grid;gap:10px}
+.steps li{display:grid;grid-template-columns:72px 1fr;gap:14px;max-width:none}
+.steps .w{font-family:var(--mono);font-size:13px;color:var(--ink2);padding-top:3px}
+.kill{border:1px dashed var(--bad);border-radius:10px;padding:14px 18px;margin:14px 0}
+.kill b{color:var(--bad)}
+code{font-family:var(--mono);font-size:.88em;background:var(--ink2-soft);padding:1px 6px;border-radius:4px}
+footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+footer a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">POKE · 환상의 회사 2기 · 이사회 결론 · 2026-10-10</div>
+  <h1>더늠</h1>
+  <p class="en">Deoneum Robotics</p>
+  <p class="thesis">몸은 매번 새로 받는다. 존재는 문장으로만 건너간다.</p>
+  <p class="en" style="margin-top:-8px">"생성되는 몸"의 다음 장 — 몸이 바뀌어도 기술이 다시 태어난다면, 바뀌지 않는 것은 무엇인가.</p>
+  <p class="def">로봇의 "누구"를 몸이나 프로그램이 아니라 <b>사람이 말로 가르친 문장, 그 결과의 흔적, 실패의 계보</b>로 정의하고, 매번 새로 받은 몸에 그것을 다시 발음시켜 같은 존재를 잇는 분야.</p>
+  <p class="origin">이름은 판소리에서 왔다. <b>더늠</b>은 명창이 만들어 그 이름으로 전해지는 대목이다. 송흥록의 귀곡성은 송흥록의 목이 사라진 뒤에도 다른 명창의 목으로 불린다. 대목은 목을 갈아타며 살아남는다. 이 분야의 로봇 기술도 그렇다.</p>
+</header>
+
+<section>
+  <h2>네 장면</h2>
+  <div class="scene"><span class="who">첫 장면 · 손가락에서 바퀴로</span>책상 위 관절 세 개짜리 손가락. "주먹 쥐어봐." 손가락이 엉뚱하게 펴진다. "아니, 반대야." … "오, 검지 말았어." … "오히려 풀렸어." … "끝마디도 더." … "그거야!" — 열다섯 번째 시도. 이제 그 손가락을 뽑고, 바퀴 둘에 관절 하나짜리 처음 보는 몸을 꽂는다. 바이너리는 하나도 건너가지 않는다(화면: <b>건너간 코드 0 B · 상주 0 B</b>). 건너가는 건 방금의 말들과 실패의 순서뿐. "공을 쥐어 와." 첫 시도, 새 몸이 끝마디를 먼저 접듯 앞바퀴를 먼저 멈칫 세운다 — 아까 그 손가락의 버릇이다. 이 모든 것이 Pi 4 위 37 KB 커널에서, 기술마다 격리된 프로세스로 돈다.</div>
+  <div class="scene"><span class="who">일곱 살 → 스무 살</span>서연이 손바닥 로봇에게 공 굴리기를 가르친다. 로봇은 미는 순간 한 박자 머뭇거린다. 실패 계보에는 "아빠: 천천히"가 남는다. 열두 살, 자전거 옆을 달리는 바퀴 몸이 출발 전에 똑같이 머뭇거린다. 스무 살, 기숙사 책상의 팔이 펜을 굴려 건네기 전에 한 박자 쉰다. 서연이 웃는다. "너구나."</div>
+  <div class="scene"><span class="who">경기장</span>두 아이가 같은 상자에서 처음 보는 몸을 받는다. 화면에 "상주 0 B · 커널 해시 일치" — 빈 몸 증명. 반입할 수 있는 건 기술 카드뿐이고 코칭은 3분. 말로 가르치는 동안 몸이 꿈틀대다 공을 민다. 우승 카드 "지수의 옆걸음 · 실패 22회"는 다음 시즌 다른 아이의 다른 몸에서 다시 발음된다.</div>
+  <div class="scene"><span class="who">이사</span>할아버지가 손녀 로봇에게 "물 주기 전에 흙을 눌러 봐"를 가르치고 이듬해 돌아가신다. 3년 뒤 모터가 다 닳은 로봇은 새 팔로 옮겨 가고, 흙을 누르는 그 동작이 다시 태어난다. 계보에는 할아버지의 이름이 코치로 남아 있다. <b>아이보는 장례를 치렀다. 이 로봇은 이사를 한다.</b></div>
+</section>
+
+<section>
+  <h2>세 층</h2>
+  <div class="layers">
+    <div class="layer"><b>몸</b>서보 모듈, IMU, $35 보드. 누구나 끼워 조립하고 부서져도 된다. 처음 보는 부품은 AI 인큐베이팅으로 받아들이고, 커널 안전 필터가 체급이 된다.</div>
+    <div class="layer"><b>존재</b>바이너리가 아니라 다섯 가지: <b>문장</b>(코치의 말), <b>결과 흔적</b>(기대 궤적), <b>실패 계보</b>(실패 사유와 교정 발화의 순서), <b>몸 지문</b>(자기 발견 결과), <b>콜로폰</b>(코치 이름·날짜·발음한 모델·부모 기록). 기기 SD 스토어 + 허브 원장 + 사용자가 소유하는 오픈 포맷 사본(회사가 망해도 남는다).</div>
+    <div class="layer"><b>무대</b>코칭 → 경기 → 카드 수집과 전승. 음성 코치, 휘발 실행(빈 몸 증명), 트윈 선별(실행 전 거름).</div>
+  </div>
+</section>
+
+<section>
+  <h2>왜 운영체제가 없는 세상에서만</h2>
+  <p>POKE의 두 규칙이 이 분야를 <b>강제</b>한다. 규칙 3(상주 금지): 기기에는 정체성이 숨을 곳이 없다 — 데몬도, 캐시된 가중치도, 설정 파일도 없다. 규칙 6(휘발이 기본, 기억은 명시적): 기억은 따로 하는 의도적 행위라서 건너가는 것의 전부가 기록 하나로 열거된다. 둘이 함께 있으면 정체성은 문장으로 증류될 수밖에 없고, 동시에 <b>"문장 말고는 아무것도 건너가지 않았다"</b>를 증명할 수 있다 — 37 KB 커널의 해시와 상주 0 B가 그 증명이다.</p>
+  <p>리눅스 로봇은 정체성이 /home, 파라미터, 가중치, 데몬 상태에 흩어져 있고 디스크 이미지를 통째로 옮기면 되니 증류를 강제받지 않는다. 그 대신 몸의 형태가 바뀌면 그 이미지는 맞지 않고, 무엇이 건너갔는지도 증명하지 못한다. 반대 변호인의 말대로 OS 없음이 가장 날카롭게 본질인 자리는 <b>심판</b>이다: 숨은 상태가 물리적으로 존재할 수 없는 몸.</p>
+</section>
+
+<section>
+  <h2>회의 중에 잰 것</h2>
+  <p>이 분야가 기대는 미검증 주장은 하나였다: <b>바이너리도 소스도 없이 기억 기록만 들고 처음 보는 몸으로 가면, 백지보다 빠른가.</b> 실험 팀이 시뮬레이터에서 쟀다. 원래 몸 A(관절 4개)에서 "불빛 쪽으로 기어가"를 배우고, 처음 보는 몸 B(관절 5개)와 C(위아래·옆 축이 섞인 4개)로 옮겼다. 기억 기록은 3,322 B, 건너간 바이너리와 소스는 0 B. 튜너 운을 빼려고 팔마다 생성 3회 × 튜너 시드 5개 = 15회씩. 리타게팅 팔은 회의 막바지에 이사회가 직접 추가했다(A의 프로그램을 그대로 새 몸에 옮겨 튜닝, 시드 5개).</p>
+  <div class="tbl"><table>
+    <thead><tr><th>몸</th><th>팔</th><th>무엇이 건너갔나</th><th>기준 도달</th><th>도달 시도 수(중앙값)</th><th>6초 최고 전진(중앙값)</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td>B ppppp</td><td><b>T 기억 기록</b></td><td>문장·흔적·계보·숫자 3.3 KB, 프로그램 0 B</td><td class="n">15/15</td><td class="n">96</td><td class="n">191 cm</td></tr>
+      <tr><td></td><td>X 백지</td><td>몸 지문만 (같은 LLM)</td><td class="n">5/15</td><td class="n">미도달</td><td class="n">130 cm</td></tr>
+      <tr><td></td><td>R 리타게팅</td><td>A의 프로그램 그대로</td><td class="n">5/5</td><td class="n">96</td><td class="n">182 cm</td></tr>
+      <tr class="hl"><td>C pypy</td><td><b>T 기억 기록</b></td><td>문장·흔적·계보·숫자, 프로그램 0 B</td><td class="n">13/15</td><td class="n">144</td><td class="n">109 cm</td></tr>
+      <tr><td></td><td>X 백지</td><td>몸 지문만</td><td class="n">10/15</td><td class="n">240</td><td class="n">95 cm</td></tr>
+      <tr><td></td><td>R 리타게팅</td><td>A의 프로그램 그대로</td><td class="n">5/5</td><td class="n">192</td><td class="n">108 cm</td></tr>
+    </tbody>
+  </table></div>
+  <p style="font-size:14px;color:var(--muted)">기준 = 그 몸에서 나온 6초 최고 전진의 70% (B 147.8 cm, C 90.4 cm — 리타게팅 팔을 넣고 다시 잡은 값; 처음 기준 87.85 cm로는 C에서 T 13/15·144회, X 11/15·144회로 <b>동률</b>). 시도 1회 = 시뮬레이션 1회, 해상도 48. "15회"는 생성 3회 × 튜너 시드 5개라 <b>독립 생성 표본은 팔마다 3개</b>, R 팔은 프로그램 1개 × 시드 5개로 구조가 다르다. 생성기는 API 크레딧 소진으로 원래 생성 스크립트 대신 같은 프롬프트를 글자 그대로 받은 독립 서브에이전트가 썼다.</p>
+  <div class="finding"><span class="m">1</span><div><b>기억은 백지를 이긴다 — B에서는 분명하고, C에서는 기준선에 따라 우세~동률.</b> B: 기준 도달 5/15 → 15/15, 생성 직후(튜닝 전) 전진 중앙값 −33 → +142 cm. C: 도달 중앙값 240 → 144회지만 기준선을 조금만 낮추면 동률이고, 생성 직후 전진도 차이가 없으며(8.4 vs 8.8 cm), 10초 최종 튜닝에서는 오히려 백지가 높았다(135 vs 124 cm). 생성된 기술들은 거의 모두 idea에 라이브러리의 scaled-stickslip-crawl을 출발점으로 밝혔고, 축이 섞인 C에서는 "yaw 관절이 파동을, pitch는 들기"처럼 구조를 몸에 맞게 다시 짰다(그중 하나는 옆으로 50 cm 샜다).</div></div>
+  <div class="finding"><span class="m">2</span><div><b>문장은 프로그램만큼 간다 — 리타게팅과 비겼다.</b> 프로그램 0 B를 들고 간 T와 프로그램을 통째로 옮긴 R이 B에서 같고(96 = 96), C의 144 vs 192는 48회 해상도와 표본 차이를 감안하면 노이즈 수준이다. 게다가 R은 A의 숫자를 그대로 쓰기만 해도(튜닝 0회) B에서 150.5 cm로 이미 기준을 넘었다 — 사슬 몸끼리는 관절이 쉽게 대응해 리타게팅이 아주 유리한 조건이었다. 반대 변호인이 요구한 "리타게팅보다 30% 이상"은 이 조건에서 성립하지 않았다. 남은 의미는 하나: <b>프로그램을 버려도 같은 곳까지 간다</b> — POKE의 명제("발음은 버려도 된다")에는 부합하지만, 이 분야의 우위는 관절이 대응하지 않는 몸(다리 ↔ 바퀴, 손가락 ↔ 바퀴) 사이에서 증명해야 한다.</div></div>
+  <div class="finding"><span class="m">3</span><div><b>나쁜 버릇도 건너간 듯하다 (신호, 증거 아님).</b> 원래 기술은 안전 필터에 80.8% 걸리는 "무리하는" 걸음이었고, 기억을 받은 T의 안전 개입은 중앙값 ~71%(백지 ~22%). 다만 백지 쪽 개입률이 0.4~96%로 퍼져 있고, 개입률은 속도와 얽혀 있으며(백지 최고 기록이 96%), 생성물마다 한 번씩만 쟀다. 그래도 설계 교훈은 분명하다: 존재 기록에 <b>안전 계보</b>(무엇이 위험했고 어떻게 고쳤나)가 들어가야 한다.</div></div>
+  <div class="finding"><span class="m">!</span><div><b>오늘 건너간 "문장"은 아이의 말이 아니었다.</b> 기억 기록(3,322 B)에 든 것은 코치의 발화가 아니라 엔지니어 수준의 알고리즘 설명(idea)과 튜닝된 숫자였다. "프로그램 0 B"는 맞지만 사실상 의사코드를 건넨 셈이다. 장면 속 "아빠: 천천히"까지 가려면 <b>코칭 대화 원문만으로</b> 건너가는지를 따로 재야 한다 — 다음 실험의 첫 줄.</div></div>
+  <div class="finding"><span class="m">4</span><div><b>POKE 위에서 돈다 (기술 1개 확인).</b> 기억으로 태어난 기술 하나를 1,448 B aarch64 이미지로 빌드해 가상 POKE(트윈)에서 MuJoCo 몸과 고리를 돌렸다: 10초 +340 cm, 맥 로컬과 1.9% 차이, 안전 개입 수 동일, 스텝 78 µs. 빈 몸 증명(커널 해시, 상주 0 B)은 이번 실험에서 잰 것이 아니다.</div></div>
+</section>
+
+<section>
+  <h2>회사는 어떻게 여기까지 왔나</h2>
+  <p>스카우트 5팀(로봇 산업 · 모듈·군집 · 사람과 로봇 · 우주·자연 · 상상력)이 10개 후보를 냈고, 겹침을 합쳐 8개가 심사에 올랐다. 심사 4팀이 <b>독립적으로 같은 곳에 수렴</b>했다.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>심사</th><th>1위</th><th>조합</th></tr></thead>
+    <tbody>
+      <tr><td>너의 대리인 (취향)</td><td>테세우스 로봇학 9 · 트레이너 스포츠 8</td><td>"몸은 매번 새로, 내 로봇은 하나"</td></tr>
+      <tr><td>CTO실</td><td>테세우스 18 = 트레이너 18</td><td>테세우스(엔진) + 트레이너(무대)</td></tr>
+      <tr><td>사업개발</td><td>테세우스 18 = 트레이너 18</td><td>트레이너가 테세우스를 기술 카드 층으로 흡수</td></tr>
+      <tr><td>반대 변호인</td><td>가장 살아남기 쉬운 것 = 테세우스</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+  <p style="font-size:15px">탈락: 열린 몸·온디맨드 신체(세 팀 독립 제안, 그러나 결합부 하드웨어가 30년 병목이고 "로봇 부품 시장" 서사), 움직임 악보(더늠의 상업 층으로 흡수), 성장 건축(ARMADAS와 겹침), 문장 물질(Kilobot이 10년 전에), 키네틱 웨어·바다 정원업(카메라·해양 하드웨어).</p>
+</section>
+
+<section>
+  <h2>반대 변호인의 공격과 접는 조건</h2>
+  <div class="attack">
+    <div class="a"><b>정체성은 문장이 아니라 해석기에 묶여 있다</b>모델 버전이 바뀌면 같은 문장이 다른 걸음이 된다. 그러면 존재를 끊는 쪽은 허브 LLM — Moxie의 축소판.</div>
+    <div class="r"><b>답</b>정체성은 문장 하나가 아니라 <b>문장과 결과 흔적의 쌍</b>이다. 모델은 성대일 뿐이고 기준은 흔적이다: 재발음 결과를 흔적과 대조해 맞을 때까지 다듬고, 끝내 맞지 않으면 거부. <b>시험:</b> 기술 카드 20장을 모델 두 세대로 재발음 → 성공 판정 18장 이상 일치, 보폭·속도 편차 ±15% 이내.</div>
+    <div class="a"><b>이길 상대는 백지가 아니다</b>언어 기반 VLA가 이미 zero-shot 교차 형태를 한다. 리타게팅도 있다.</div>
+    <div class="r"><b>답과 현재</b>오늘 잰 것: 백지는 이겼고(B 분명, C 기준선 의존) 리타게팅과는 비겼다(프로그램 0 B로). 관절이 대응하는 사슬끼리라 리타게팅에 유리했다. 다음: 관절이 대응하지 않는 몸 사이(손가락 ↔ 바퀴, 다리 ↔ 바퀴)에서 리타게팅이 깨지는 곳을 잰다. 겨루는 축도 다르다 — GPU·데이터 없이 3분 코칭.</div>
+    <div class="a"><b>"같은 존재"는 주관이고 aibo 장례는 일화다</b>약 800대, 판매량의 0.5% 수준.</div>
+    <div class="r"><b>답</b>버릇을 실패 계보에서 뽑은 행동 벡터(출발 전 지연, 치우침, 실패 후 재시도 패턴)로 정의. <b>시험:</b> 코치 5명의 기록을 새 몸에 재발음 → 블라인드로 "누구의 로봇" 맞히기 60% 이상(우연 20%). 오늘 실험의 3번(안전 버릇 전이)이 첫 정량 신호.</div>
+    <div class="a"><b>놀이에 그친다</b>Mindstorms는 단종, Anki는 파산.</div>
+    <div class="r"><b>답</b>놀이는 입구다. 시험: 한 학기 리그의 3개월 재참가율 40% 이상, 아이가 쓴 코칭 문장의 길이·구조가 회차마다 자라는가.</div>
+  </div>
+  <div class="kill"><b>이게 거짓이면 접는다.</b> ① 모델 두 세대 사이 기술 카드 재현율이 90%에 못 미치고 흔적 대조로도 회복되지 않을 때. ② 관절이 대응하지 않는 몸 사이에서도 기억 기록이 리타게팅·백지와 구별되지 않고, 버릇 블라인드 판별이 우연과 구별되지 않을 때.</div>
+</section>
+
+<section>
+  <h2>로드맵</h2>
+  <ul class="steps">
+    <li><span class="w">2주</span><div><b>시뮬.</b> 존재 기록 포맷 v0(다섯 요소 + 안전 계보), 흔적 대조 재발음 고리, 그리고 네 가지 시험: <b>코칭 대화 원문만으로 건너가는가</b>(오늘의 엔지니어 문장 대신), 손가락 ↔ 바퀴처럼 관절이 대응하지 않는 몸 사이의 T vs R vs X(생성 표본 ≥ 6), 모델 세대 불변성, 코치 5명 버릇 블라인드 판별. 지금 있는 것 위에 선다 — 음성 코치, SD 기억, 자기 발견, 트윈, 오늘의 <code>theseus.py</code>.</div></li>
+    <li><span class="w">90일</span><div><b>실기기.</b> 서보 4~5개 + IMU + Pi 4. 몸을 바꿔 끼운 뒤 같은 버릇이 첫 시도에 튀어나오는 장면. 빈 몸 증명 화면. 첫 경기: 메이커 행사 부스 즉석 코칭 대결 + 30초 숏폼. 기술 카드 = QR이 곧 기록.</div></li>
+    <li><span class="w">1년</span><div><b>첫 리그.</b> 방과후·메이커스페이스 4곳 코칭 리그 키트(모듈 세트 + 허브 시즌권), 리그 참가비. 존재 보관소 v1(오픈 내보내기 — 회사가 망해도 남는다). 지표: 첫 "이사" 사례, 시즌 재참가율, 카드 전승률.</div></li>
+  </ul>
+</section>
+
+<section>
+  <h2>오늘 발굴한 여섯 묶음의 자리</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>묶음</th><th>더늠에서</th></tr></thead>
+    <tbody>
+      <tr><td>A 휘발성 정량화</td><td>빈 몸 증명 — 상주 바이트 측정이 곧 경기 전 도핑 검사이고, "문장 말고는 아무것도 건너가지 않았다"의 보증</td></tr>
+      <tr><td>B 바이너리 없는 기억</td><td>존재 기록 그 자체 — 득어망전, 몸 지문, 콜로폰, 더늠 계보, 재공연으로 흔적 대조</td></tr>
+      <tr><td>C 변하는 몸을 아는 법</td><td>새 몸 받아들이기 — 첫 시도의 예측 잔차로 새 몸을 감지 → 자기 발견 → 재발음</td></tr>
+      <tr><td>D 가장 짧은 발음</td><td>카드 하나의 발음은 수백 B~1.5 KB (오늘 1,448 B). 공식구 사전이 리그의 표준 어휘</td></tr>
+      <tr><td>E 실행 전 선별·선언</td><td>트윈에서 먼저 돌려 거름, 바이너리의 범위 선언 = 체급 신고</td></tr>
+      <tr><td>F 타이밍 잔차</td><td>대여 몸의 열화 검사, 몸 지문의 보조 (약함)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>환상의 회사 2기, 21:37–22:37. R1 스카우트 5팀 → R2 심사 4팀(너의 대리인 · CTO실 · 사업개발 · 반대 변호인) → R3 결선(실험 · 설계 · 반대 변호인 2차) → R4 이사회(리타게팅 대조 추가). 실험 산출물: <code>sim/body/theseus.py</code>, <code>sim/body/build/theseus/</code>. 출처(반대 변호인·사업개발): aibo 장례(NPR 2018), aibo AI Cloud Plan(Sony), Moxie 종료(Axios 2024), LAP 언어-행동 사전학습(arXiv 2602.10556), Mindstorms 단종(Engadget), FRC·세계 휴머노이드 로봇 경기대회 수치. 전제: <a href="../design/not-linux.md">not-linux.md</a>, <a href="generative-body.html">생성되는 몸</a>.</footer>
+</div>

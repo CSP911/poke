@@ -53,17 +53,37 @@ Intent: ${intent}
 ${feedback ? `\nPrevious attempt result (improve on it): ${feedback}` : ''}`
 
 ;(async () => {
-  const client = makeClient()
-  const msg = await client.messages.stream({
+  if (process.env.POKE_LLM === 'cli') return viaCli()
+  let client
+  try { client = makeClient() } catch (e) { return viaCli() }
+  let msg
+  try { msg = await client.messages.stream({
     model: process.env.POKE_MODEL || 'claude-sonnet-5',
     max_tokens: 32000,
     system,
     messages: [{ role: 'user', content: user }],
-  }).finalMessage()
-  const code = textOf(msg)
-  if (!code) { console.error(`no text (stop_reason=${msg.stop_reason})`); process.exit(2) }
+  }).finalMessage() } catch (e) {
+    if (/credit balance|authentication|api key/i.test(String(e.message))) return viaCli()
+    throw e
+  }
+  finish(textOf(msg), msg.stop_reason)
+})().catch((e) => { console.error(e.message); process.exit(1) })
+
+/* Claude Code CLI instead of the API: the person's own Claude login, no API credit. */
+function viaCli() {
+  const { execFileSync } = require('child_process')
+  const out = JSON.parse(execFileSync(process.env.POKE_CLAUDE || 'claude',
+    ['-p', user, '--system-prompt', system, '--tools', '', '--output-format', 'json', '--no-session-persistence'],
+    { encoding: 'utf8', maxBuffer: 16 << 20, cwd: require('os').tmpdir(),
+      env: Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^ANTHROPIC_(API_KEY|AUTH_TOKEN)$/.test(k))) }))
+  if (out.is_error) { console.error('claude -p: ' + String(out.result).slice(0, 300)); process.exit(1) }
+  finish(String(out.result || '').trim().replace(/^```\w*\n?/, '').replace(/\n?```$/, ''), 'end_turn')
+}
+
+function finish(code, stopReason) {
+  if (!code) { console.error(`no text (stop_reason=${stopReason})`); process.exit(2) }
   const m = code.split('\n')[0].match(/SKILL-META\s+(\{.*\})/)
   if (!m) { console.error('missing SKILL-META line'); fs.writeFileSync(outPath, code + '\n'); process.exit(3) }
   fs.writeFileSync(outPath, code + '\n')
   process.stdout.write(m[1] + '\n')
-})().catch((e) => { console.error(e.message); process.exit(1) })
+}

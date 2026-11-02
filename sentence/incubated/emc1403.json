@@ -1,0 +1,1030 @@
+{
+ "name": "emc1403",
+ "addr": "0x18",
+ "part": "EMC1403-3",
+ "identity": "SMBus temperature sensor, internal + 2 remote diodes (SMSC/Microchip)",
+ "fragment_part": null,
+ "confidence": 0.75,
+ "evidence": "0xFE manufacturer ID = 0x5D (SMSC), 0xFD product ID = 0x21 (EMC1403), 0xFF revision = 0x04; 0x05/0x07/0x15 reset 0x55 (85 C high limits), 0x05 writable and read back; temperature registers read-only. Against: conv-rate, THERM, hysteresis, alert defaults read 0x00 and config 0x03 not writable",
+ "registers": "0x00 internal temp, 0x01/0x10 ext1 temp high/low, 0x23/0x24 ext2 temp, 0x02 status, 0x03 config, 0x05 int high limit, 0x07 ext1 high limit, 0x15 ext2 high limit (reset 0x55 = 85 C), 0x0F one-shot, 0xFD PID, 0xFE MID, 0xFF REV; byte registers, no auto-increment",
+ "learned": "2026-10-13 13:11",
+ "by": "Claude Code CLI (claude -p / agent with probe.py only)",
+ "bench": "lab",
+ "functions": [
+  {
+   "sig": "static int emc1403_identify(unsigned addr)",
+   "doc": "1 = EMC1403 (MID 0xFE=0x5D, PID 0xFD=0x21), 0 = other part, negative = bus error / cannot tell",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int emc1403_read(unsigned addr, unsigned ch, long *mc)",
+   "doc": "temperature of channel ch (0 internal, 1 remote 1, 2 remote 2) in m°C, 0.125 °C steps, 0..127875 (extended range -64000..191875); 0 = ok, 1 = bad channel, else i2c error",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int emc1403_read_all(unsigned addr, long *t0, long *t1, long *t2)",
+   "doc": "all three temperatures in m°C (internal, remote 1, remote 2); 0 = ok, else i2c error",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ ],
+ "tests": [
+  {
+   "name": "all_channels",
+   "knobs": {
+    "temperature0": {
+     "min": 0,
+     "max": 120000
+    },
+    "temperature1": {
+     "min": 0,
+     "max": 120000
+    },
+    "temperature2": {
+     "min": 0,
+     "max": 120000
+    }
+   },
+   "params": {},
+   "text": false,
+   "expect": {
+    "id": "1",
+    "t0_c": "temperature0 // 1000",
+    "t1_c": "temperature1 // 1000",
+    "t2_c": "temperature2 // 1000",
+    "t0_mc": "temperature0",
+    "t1_mc": "temperature1",
+    "t2_mc": "temperature2"
+   },
+   "tol": {
+    "id": 0,
+    "t0_c": 0,
+    "t1_c": 0,
+    "t2_c": 0,
+    "t0_mc": 1000,
+    "t1_mc": 1000,
+    "t2_mc": 1000
+   },
+   "expect_knobs": {},
+   "expect_range": {}
+  },
+  {
+   "name": "one_channel",
+   "knobs": {
+    "temperature0": {
+     "min": 0,
+     "max": 120000
+    },
+    "temperature1": {
+     "min": 0,
+     "max": 120000
+    },
+    "temperature2": {
+     "min": 0,
+     "max": 120000
+    }
+   },
+   "params": {
+    "P_CH": {
+     "min": 0,
+     "max": 2
+    }
+   },
+   "text": false,
+   "expect": {
+    "ch": "P_CH",
+    "t_c": "(temperature0 if P_CH == 0 else (temperature1 if P_CH == 1 else temperature2)) // 1000",
+    "bad_ch_rc": "1"
+   },
+   "tol": {
+    "ch": 0,
+    "t_c": 0,
+    "bad_ch_rc": 0
+   },
+   "expect_knobs": {},
+   "expect_range": {}
+  }
+ ],
+ "test_ops": [
+  "#include \"rt.h\"\n#include \"emc1403.h\"\n\nvoid op_main(void)\n{\n    long t0 = 0, t1 = 0, t2 = 0;\n    int id, rc;\n\n    id = emc1403_identify(0x18);\n    if (id < 0) { fail(\"emc1403 identify: bus error\"); return; }\n    report_int(\"id\", id);\n\n    rc = emc1403_read_all(0x18, &t0, &t1, &t2);\n    if (rc) { fail(\"emc1403 read_all failed\"); return; }\n\n    report_int(\"t0_mc\", t0);\n    report_int(\"t1_mc\", t1);\n    report_int(\"t2_mc\", t2);\n    report_int(\"t0_c\", t0 / 1000);\n    report_int(\"t1_c\", t1 / 1000);\n    report_int(\"t2_c\", t2 / 1000);\n    report_fixed(\"t0\", t0, 3);\n    report_fixed(\"t1\", t1, 3);\n    report_fixed(\"t2\", t2, 3);\n}\n",
+  "#include \"rt.h\"\n#include \"emc1403.h\"\n\nvoid op_main(void)\n{\n    long t = 0, dummy = 0;\n    int rc;\n\n    rc = emc1403_read(0x18, (unsigned)P_CH, &t);\n    if (rc) { fail(\"emc1403 read failed\"); return; }\n\n    report_int(\"ch\", P_CH);\n    report_int(\"t_mc\", t);\n    report_int(\"t_c\", t / 1000);\n    report_fixed(\"t\", t, 3);\n\n    /* channel 3 does not exist: the fragment must refuse it without touching the bus */\n    rc = emc1403_read(0x18, 3, &dummy);\n    report_int(\"bad_ch_rc\", rc);\n}\n"
+ ],
+ "verification": [
+  {
+   "test": "all_channels",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {
+      "temperature0": 92336,
+      "temperature1": 104322,
+      "temperature2": 23687
+     },
+     "text": null,
+     "result": {
+      "id": 1,
+      "t0_mc": 92000,
+      "t1_mc": 104000,
+      "t2_mc": 23000,
+      "t0_c": 92,
+      "t1_c": 104,
+      "t2_c": 23,
+      "t0": 92.0,
+      "t1": 104.0,
+      "t2": 23.0
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 1600000000000000011620020b0000000b00000000000000180100000000000000000000000000000000000000000000000000000000000000000b000100180200000000000000000000000000000000000000000000000000600000000000001800000101000000fe000000000000000000000018010001010000005d00000000000000010000001800000101000000fd0000000000000001000000180100010100000021000000000000000100000018000001010000000300000000000000010000001801000101000000000000000000000001000000180000010100000000000000000000000100000018010001010000005c0000000000000001000000180000010100000029000000000000000100000018010001010000000000000000000000010000001800000101000000030000000000000001000000180100010100000000000000000000000100000018000001010000000100000000000000010000001801000101000000680000000000000001000000180000010100000010000000000000000100000018010001010000000000000000000000010000001800000101000000030000000000000001000000180100010100000000000000000000000100000018000001010000002300000000000000010000001801000101000000170000000000000001000000180000010100000024000000000000000100000018010001010000000000000000000000",
+      "POKE-RESULT {\"id\":1,\"t0_mc\":92000,\"t1_mc\":104000,\"t2_mc\":23000,\"t0_c\":92,\"t1_c\":104,\"t2_c\":23,\"t0\":92.000,\"t1\":104.000,\"t2\":23.000}",
+      "POKE-END ms=4 status=ok",
+      "POKE-OFF"
+     ],
+     "effects": {
+      "v": 2,
+      "n": 22,
+      "truncated": false,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 24,
+        "w": 11,
+        "r": 11,
+        "denied": 0,
+        "regs": [],
+        "ptr": [
+         0,
+         1,
+         3,
+         16,
+         35,
+         36,
+         41,
+         253,
+         254
+        ]
+       }
+      ],
+      "x": [
+       [
+        0,
+        "w",
+        24,
+        "fe",
+        1,
+        0
+       ],
+       [
+        0,
+        "r",
+        24,
+        "5d",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "fd",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "21",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "03",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "5c",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "29",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "03",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "01",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "68",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "10",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "03",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "23",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "17",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "24",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ]
+      ]
+     },
+     "checks": [
+      {
+       "key": "id",
+       "want": 1,
+       "got": 1,
+       "ok": true
+      },
+      {
+       "key": "t0_c",
+       "want": 92,
+       "got": 92,
+       "ok": true
+      },
+      {
+       "key": "t1_c",
+       "want": 104,
+       "got": 104,
+       "ok": true
+      },
+      {
+       "key": "t2_c",
+       "want": 23,
+       "got": 23,
+       "ok": true
+      },
+      {
+       "key": "t0_mc",
+       "want": 92336,
+       "got": 92000,
+       "ok": true
+      },
+      {
+       "key": "t1_mc",
+       "want": 104322,
+       "got": 104000,
+       "ok": true
+      },
+      {
+       "key": "t2_mc",
+       "want": 23687,
+       "got": 23000,
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {
+      "temperature0": 75316,
+      "temperature1": 83464,
+      "temperature2": 18215
+     },
+     "text": null,
+     "result": {
+      "id": 1,
+      "t0_mc": 75000,
+      "t1_mc": 83000,
+      "t2_mc": 18000,
+      "t0_c": 75,
+      "t1_c": 83,
+      "t2_c": 18,
+      "t0": 75.0,
+      "t1": 83.0,
+      "t2": 18.0
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 1600000000000000011620020b0000000b00000000000000180100000000000000000000000000000000000000000000000000000000000000000b000100180200000000000000000000000000000000000000000000000000600000000000001800000101000000fe000000000000000000000018010001010000005d00000000000000010000001800000101000000fd0000000000000001000000180100010100000021000000000000000100000018000001010000000300000000000000010000001801000101000000000000000000000001000000180000010100000000000000000000000100000018010001010000004b0000000000000001000000180000010100000029000000000000000100000018010001010000000000000000000000010000001800000101000000030000000000000001000000180100010100000000000000000000000100000018000001010000000100000000000000010000001801000101000000530000000000000001000000180000010100000010000000000000000100000018010001010000000000000000000000010000001800000101000000030000000000000001000000180100010100000000000000000000000100000018000001010000002300000000000000010000001801000101000000120000000000000001000000180000010100000024000000000000000100000018010001010000000000000000000000",
+      "POKE-RESULT {\"id\":1,\"t0_mc\":75000,\"t1_mc\":83000,\"t2_mc\":18000,\"t0_c\":75,\"t1_c\":83,\"t2_c\":18,\"t0\":75.000,\"t1\":83.000,\"t2\":18.000}",
+      "POKE-END ms=5 status=ok",
+      "POKE-OFF"
+     ],
+     "effects": {
+      "v": 2,
+      "n": 22,
+      "truncated": false,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 24,
+        "w": 11,
+        "r": 11,
+        "denied": 0,
+        "regs": [],
+        "ptr": [
+         0,
+         1,
+         3,
+         16,
+         35,
+         36,
+         41,
+         253,
+         254
+        ]
+       }
+      ],
+      "x": [
+       [
+        0,
+        "w",
+        24,
+        "fe",
+        1,
+        0
+       ],
+       [
+        0,
+        "r",
+        24,
+        "5d",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "fd",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "21",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "03",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "4b",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "29",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "03",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "01",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "53",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "10",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "03",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "23",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "12",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "24",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ]
+      ]
+     },
+     "checks": [
+      {
+       "key": "id",
+       "want": 1,
+       "got": 1,
+       "ok": true
+      },
+      {
+       "key": "t0_c",
+       "want": 75,
+       "got": 75,
+       "ok": true
+      },
+      {
+       "key": "t1_c",
+       "want": 83,
+       "got": 83,
+       "ok": true
+      },
+      {
+       "key": "t2_c",
+       "want": 18,
+       "got": 18,
+       "ok": true
+      },
+      {
+       "key": "t0_mc",
+       "want": 75316,
+       "got": 75000,
+       "ok": true
+      },
+      {
+       "key": "t1_mc",
+       "want": 83464,
+       "got": 83000,
+       "ok": true
+      },
+      {
+       "key": "t2_mc",
+       "want": 18215,
+       "got": 18000,
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  },
+  {
+   "test": "one_channel",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {
+      "temperature0": 11368,
+      "temperature1": 85346,
+      "temperature2": 78836,
+      "P_CH": 2
+     },
+     "text": null,
+     "result": {
+      "ch": 2,
+      "t_mc": 78000,
+      "t_c": 78,
+      "t": 78.0,
+      "bad_ch_rc": 1
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 06000000000000000106200203000000030000000000000018010000000000000000000000000000000000000000000000000000000000000000080000001800000000000000000000000000000000000000000000000000000000000000000018000001010000000300000000000000000000001801000101000000000000000000000001000000180000010100000023000000000000000100000018010001010000004e0000000000000001000000180000010100000024000000000000000100000018010001010000000000000000000000",
+      "POKE-RESULT {\"ch\":2,\"t_mc\":78000,\"t_c\":78,\"t\":78.000,\"bad_ch_rc\":1}",
+      "POKE-END ms=2 status=ok",
+      "POKE-OFF"
+     ],
+     "effects": {
+      "v": 2,
+      "n": 6,
+      "truncated": false,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 24,
+        "w": 3,
+        "r": 3,
+        "denied": 0,
+        "regs": [],
+        "ptr": [
+         3,
+         35,
+         36
+        ]
+       }
+      ],
+      "x": [
+       [
+        0,
+        "w",
+        24,
+        "03",
+        1,
+        0
+       ],
+       [
+        0,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "23",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "4e",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "24",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ]
+      ]
+     },
+     "checks": [
+      {
+       "key": "ch",
+       "want": 2,
+       "got": 2,
+       "ok": true
+      },
+      {
+       "key": "t_c",
+       "want": 78,
+       "got": 78,
+       "ok": true
+      },
+      {
+       "key": "bad_ch_rc",
+       "want": 1,
+       "got": 1,
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {
+      "temperature0": 5616,
+      "temperature1": 74567,
+      "temperature2": 97718,
+      "P_CH": 2
+     },
+     "text": null,
+     "result": {
+      "ch": 2,
+      "t_mc": 97000,
+      "t_c": 97,
+      "t": 97.0,
+      "bad_ch_rc": 1
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 0600000000000000010620020300000003000000000000001801000000000000000000000000000000000000000000000000000000000000000008000000180000000000000000000000000000000000000000000000000000000000010000001800000101000000030000000000000001000000180100010100000000000000000000000100000018000001010000002300000000000000010000001801000101000000610000000000000001000000180000010100000024000000000000000100000018010001010000000000000000000000",
+      "POKE-RESULT {\"ch\":2,\"t_mc\":97000,\"t_c\":97,\"t\":97.000,\"bad_ch_rc\":1}",
+      "POKE-END ms=2 status=ok",
+      "POKE-OFF"
+     ],
+     "effects": {
+      "v": 2,
+      "n": 6,
+      "truncated": false,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 24,
+        "w": 3,
+        "r": 3,
+        "denied": 0,
+        "regs": [],
+        "ptr": [
+         3,
+         35,
+         36
+        ]
+       }
+      ],
+      "x": [
+       [
+        1,
+        "w",
+        24,
+        "03",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "23",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "61",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        24,
+        "24",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        24,
+        "00",
+        1,
+        0
+       ]
+      ]
+     },
+     "checks": [
+      {
+       "key": "ch",
+       "want": 2,
+       "got": 2,
+       "ok": true
+      },
+      {
+       "key": "t_c",
+       "want": 97,
+       "got": 97,
+       "ok": true
+      },
+      {
+       "key": "bad_ch_rc",
+       "want": 1,
+       "got": 1,
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  },
+  {
+   "test": "identify (hub)",
+   "ok": true,
+   "draws": [
+    {
+     "fn": "emc1403_identify",
+     "at": {
+      "0x18": 1,
+      "0x48": 0,
+      "0x68": 0,
+      "0x1e": 0,
+      "0x60": 0,
+      "0x24": 0,
+      "0x10": 0
+     },
+     "error": null
+    }
+   ],
+   "problems": []
+  }
+ ],
+ "rounds": 2,
+ "twin_knobs": [
+  "temperature1",
+  "temperature2",
+  "temperature0"
+ ],
+ "verified": true,
+ "verification_kind": "twin knobs / screen, two hub draws per test",
+ "identify": "emc1403_identify",
+ "identify_kind": "id",
+ "oracle": null,
+ "kept_on_node": "nothing — the fragment lives on the hub and joins an image only when a sentence needs it",
+ "declared_functions": [
+  {
+   "sig": "static int emc1403_identify(unsigned addr)",
+   "doc": "1 = EMC1403 (MID 0xFE=0x5D, PID 0xFD=0x21), 0 = other part, negative = bus error / cannot tell",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int emc1403_read(unsigned addr, unsigned ch, long *mc)",
+   "doc": "temperature of channel ch (0 internal, 1 remote 1, 2 remote 2) in m°C, 0.125 °C steps, 0..127875 (extended range -64000..191875); 0 = ok, 1 = bad channel, else i2c error",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int emc1403_read_all(unsigned addr, long *t0, long *t1, long *t2)",
+   "doc": "all three temperatures in m°C (internal, remote 1, remote 2); 0 = ok, else i2c error",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ ],
+ "review": [
+  {
+   "fn": "emc1403_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "emc1403_read",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "emc1403_read_all",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  }
+ ],
+ "review_problems": [
+  "identify (hub): a verification run without POKE-EFFECTS — nothing seen, nothing kept"
+ ]
+}

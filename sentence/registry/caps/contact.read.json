@@ -1,0 +1,11 @@
+{
+ "cap": "contact.read",
+ "v": 1,
+ "call": "int cap_contact_read(cap_t c, int *open)",
+ "returns": "0 ok, nonzero error (op should fail())",
+ "describes_ko": "문·창이 열렸는지 읽는다 (1 열림, 0 닫힘)",
+ "safety": "inert",
+ "outputs": [
+  "open"
+ ]
+}

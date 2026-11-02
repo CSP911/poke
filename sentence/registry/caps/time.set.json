@@ -1,0 +1,9 @@
+{
+ "cap": "time.set",
+ "v": 1,
+ "call": "int cap_time_set(cap_t c, int year, int month, int day, int hour, int min, int sec)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "장치 시계를 맞춘다",
+ "safety": "changes-memory",
+ "outputs": []
+}

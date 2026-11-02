@@ -1,0 +1,185 @@
+{
+  "tmp105": {
+    "name": "tmp105",
+    "use_when": "reading the room temperature from a TMP105/TMP75 on I2C · checking whether the sensor at 0x4a (or 0x48-0x4f) answers · getting temperature in milli-degrees C for a threshold or overheating check · converting the 12-bit temperature register into mC",
+    "functions": [
+      "static int tmp105_read_mC(unsigned addr, long *mC)  /* temperature in milli-degrees C; 0 = ok, else the i2c error code */"
+    ],
+    "header": "tmp105.h",
+    "default_addr": "0x48",
+    "from_driver": "i2c-temp-4a",
+    "builds": true,
+    "build_error": ""
+  },
+  "rtc": {
+    "name": "rtc",
+    "use_when": "need to read the time from the hardware clock · want the current date on the device · timestamping a log entry or sensor reading · setting the hardware clock to a known date and time · found something answering at I2C address 0x68 and want to know what it is",
+    "functions": [
+      "static int rtc_read(unsigned addr, int *year, int *month, int *day, int *hour, int *min, int *sec)  /* 24-hour, year as 4 digits; 0 = ok */",
+      "static int rtc_set(unsigned addr, int year, int month, int day, int hour, int min, int sec)  /* 0 = ok */"
+    ],
+    "header": "rtc.h",
+    "default_addr": "0x68",
+    "from_driver": "i2c-rtc-68",
+    "builds": true,
+    "build_error": ""
+  },
+  "mag": {
+    "name": "mag",
+    "use_when": "reading the magnetometer's raw X/Y/Z counts · getting a compass heading or checking which way the device faces · sensing a nearby magnet or a change in the magnetic field · driving an HMC5883L-compatible or LSM303DLHC magnetometer at I2C 0x1e",
+    "functions": [
+      "static int mag_read(unsigned addr, int *x, int *y, int *z)  /* raw signed counts; puts the part into measurement mode if needed; 0 = ok */"
+    ],
+    "header": "mag.h",
+    "default_addr": "0x1e",
+    "from_driver": "i2c-mag-1e",
+    "builds": true,
+    "build_error": ""
+  },
+  "led": {
+    "name": "led",
+    "use_when": "turn an LED on the PCA9552 expander on or off · make an LED blink at PWM0 or PWM1 rate · read which of the 16 expander pins are high or low right now · check a button wired to a PCA9552 pin",
+    "functions": [
+      "static int led_set(unsigned addr, int led, int mode)  /* led 0..15; mode 0 = on, 1 = off, 2 = blink rate 0 (PWM0), 3 = blink rate 1 (PWM1); 0 = ok */",
+      "static int led_inputs(unsigned addr, unsigned *pins)  /* 16 pin levels, bit i = pin i (an LED that is on reads 0); 0 = ok */"
+    ],
+    "header": "led.h",
+    "default_addr": "0x60",
+    "from_driver": "i2c-led-61",
+    "builds": true,
+    "build_error": ""
+  },
+  "tmp421": {
+    "name": "tmp421",
+    "use_when": "보드(칩 자체) 온도가 몇 도인지 알고 싶을 때 · 원격 다이오드에 붙은 부품(CPU, 방열판 등) 온도를 재야 할 때 · 보드 온도와 원격 온도를 함께 보고해야 할 때 · 과열 여부를 확인하려고 현재 온도를 읽을 때",
+    "functions": [
+      "static int tmp421_read_mc(unsigned addr, unsigned channel, long *mc)  /* channel 0 = local (board), 1 = remote; *mc = temperature in milli-°C (0.0625 °C steps, 0..127000 standard range, -64000..191000 extended range); 0 = ok, 1 = bad channel, else i2c error */",
+      "static int tmp421_read_both(unsigned addr, long *local_mc, long *remote_mc)  /* board and remote temperatures in milli-°C (0.0625 °C steps); 0 = ok, else i2c error */",
+      "static int tmp421_identify(unsigned addr)  /* Reads the manufacturer ID (0xFE) and device ID (0xFF). Returns 1 if they are 0x55 (TI) and 0x21 (TMP421), 0 for any other part (TMP422 and TMP423 report 0x22 and 0x23), and a negative value if the bus read fails. */"
+    ],
+    "header": "tmp421.h",
+    "default_addr": "0x4c",
+    "from_driver": "incubate 2026-10-11 22:02",
+    "builds": true,
+    "build_error": "",
+    "bench": [
+      "ext"
+    ],
+    "incubated": "sentence/incubated/tmp421.json",
+    "identify": "tmp421_identify"
+  },
+  "pca9554": {
+    "name": "pca9554",
+    "use_when": "read whether a button, switch or contact on an expander pin is high or low · turn a relay, LED or enable line on an expander pin on or off · check the level of all eight expander pins at once · confirm that an output pin really took the level it was set to",
+    "functions": [
+      "static int pca9554_read(unsigned addr, unsigned *levels)  /* true level of P0..P7 as a bit mask (bit n = Pn, 1 = high, 0..255), invert register undone; 0 = ok */",
+      "static int pca9554_set_pin(unsigned addr, unsigned pin, unsigned level)  /* make pin 0..7 an output and drive it high (level != 0) or low (level 0), other pins unchanged; 1 = bad pin, 0 = ok */",
+      "static int pca9554_identify(unsigned addr)  /* Reads only. Returns 1 if each of registers 0..3 gives the same byte twice in a 2-byte read, registers 4..7 read the same as 0..3, and the four are not all one value. Returns 0 if any check fails (a part that reads the same value everywhere, such as 0xFF, is not taken as this part). Returns a negative bus error if a read fails. The part has no ID register. */"
+    ],
+    "header": "pca9554.h",
+    "default_addr": "0x20",
+    "from_driver": "incubate 2026-10-11 22:03",
+    "builds": true,
+    "build_error": "",
+    "bench": [
+      "ext"
+    ],
+    "incubated": "sentence/incubated/pca9554.json",
+    "identify": "pca9554_identify"
+  },
+  "ssd0303": {
+    "name": "ssd0303",
+    "use_when": "show a short word or number on the little OLED screen · put a status message on the bench display · blank the OLED screen and turn it on · write a reading on the display so a person can see it",
+    "functions": [
+      "static int ssd0303_on(unsigned addr)  /* blank the whole display RAM (8 pages x 132 columns), then no mirror, normal (not all-on, not inverted), start line 0, display on; screen is 96x16 px; 0 = ok */",
+      "static int ssd0303_text(unsigned addr, unsigned line, unsigned x, const char *s)  /* draw s left to right in a 5x7 font, 6 px per char (16 chars fit on a line); line 0 = rows 0-7, 1 = rows 8-15; x = 0-95 screen pixel column; A-Z 0-9 space, lowercase shown as uppercase, other chars blank, chars past the right edge dropped; call ssd0303_on first; 0 = ok, 1 = bad line/x */",
+      "static int ssd0303_identify(unsigned addr)  /* Always returns -1 (cannot tell): this SSD1306-type OLED controller is write-only over I2C, with no ID, revision or status register to read (every read on the bench returns 0xFF), so nothing readable can confirm the part. */"
+    ],
+    "header": "ssd0303.h",
+    "default_addr": "0x3c",
+    "from_driver": "incubate 2026-10-11 22:16",
+    "builds": true,
+    "build_error": "",
+    "bench": [
+      "ext"
+    ],
+    "incubated": "sentence/incubated/ssd0303.json"
+  },
+  "dps310": {
+    "name": "dps310",
+    "use_when": "someone asks for the air pressure or a barometer reading · estimating altitude or height above sea level from pressure · checking the temperature at the board or in the room · watching for weather changes from rising or falling pressure",
+    "functions": [
+      "static int dps310_read(unsigned addr, long *temp_mc, long *press_pa)  /* compensated temperature in milli-degC (-40000..85000) and pressure in Pa (30000..120000); triggers a 1x measurement if none is ready; 0 = ok */",
+      "static int dps310_read_raw(unsigned addr, long *temp_raw, long *press_raw)  /* raw 24-bit signed TMP (0x03..05) and PSR (0x00..02) at 1x oversampling, scale 524288; measures first if needed; 0 = ok */",
+      "static int dps310_compensate(unsigned addr, long temp_raw, long press_raw, long *temp_mc, long *press_pa)  /* reads the chip's coefficients 0x10..0x21 and turns 24-bit raw values into milli-degC and Pa; 0 = ok */",
+      "static int dps310_identify(unsigned addr)  /* 1 if product ID 0x0D reads 0x10 (DPS310/DPS368 share it); 0 if 0x0D has another non-0xFF value, 0xD0 has a Bosch-style ID (not 0xFF) or reserved MEAS_CFG bit 3 is set; -1 if a read fails or 0x0D reads 0xFF and nothing rules it out (the bench part reads 0xFF, so it gives -1 here) */"
+    ],
+    "header": "dps310.h",
+    "default_addr": "0x77",
+    "from_driver": "incubate 2026-10-11 22:29",
+    "builds": true,
+    "build_error": "",
+    "bench": [
+      "ext"
+    ],
+    "incubated": "sentence/incubated/dps310.json"
+  },
+  "adm1272": {
+    "name": "adm1272",
+    "use_when": "보드 입력 전압이 몇 V인지 물을 때 · 부하에 흐르는 전류(A)를 확인할 때 · 지금 소비 전력(W)을 알고 싶을 때 · 출력 전압이 떨어졌는지 점검할 때 · 전원 레일에 붙은 PMBus 칩이 ADM1272인지 확인할 때",
+    "functions": [
+      "static int adm1272_identify(unsigned addr)  /* Returns 1 if MFR_ID (0x99) is the block 'ADI' and MFR_MODEL (0x9A, read whole: count 10 + 10 bytes) starts with 'ADM1272', 0 if not, negative if the bus failed. Reads whole blocks so no bytes stay queued in the part. */",
+      "static int adm1272_read_word(unsigned addr, unsigned cmd, unsigned *raw)  /* Reads the raw little-endian PMBus word at cmd (0x88 VIN, 0x8B VOUT, 0x8C IOUT, 0x97 PIN, 0xD4 PMON_CONFIG). 0 = ok, or the i2c error. */",
+      "static int adm1272_read_vi(unsigned addr, unsigned long rs_uohm, long *vin_mv, long *vout_mv, long *iout_ma)  /* Reads VIN and VOUT in mV (0..100000) and IOUT in mA (signed). rs_uohm = sense resistor in µΩ (the bench twin uses 300). Ranges from PMON_CONFIG. 0 = ok, 1 if rs = 0, or the i2c error. */",
+      "static int adm1272_read_pin(unsigned addr, unsigned long rs_uohm, long *pin_mw)  /* Reads input power in mW. rs_uohm = sense resistor in µΩ (the bench twin uses 300). 0 = ok, 1 if rs = 0, or the i2c error. */"
+    ],
+    "header": "adm1272.h",
+    "default_addr": "0x10",
+    "from_driver": "incubate 2026-10-13 13:06",
+    "builds": true,
+    "build_error": "",
+    "bench": [
+      "lab"
+    ],
+    "incubated": "sentence/incubated/adm1272.json",
+    "identify": "adm1272_identify"
+  },
+  "pca9555": {
+    "name": "pca9555",
+    "use_when": "read which of the 16 pins (buttons, switches, LED lines) are high or low right now · turn one LED or output pin on the expander on or off · check a single input line, e.g. whether a door contact is closed · find out whether the chip at an address really is a PCA9555/TCA9555 port expander",
+    "functions": [
+      "static int pca9555_read(unsigned addr, unsigned *pins)  /* reads all 16 pin levels into *pins: bit i = P0.i for i 0-7, bit 8+i = P1.i; clears polarity inversion first so 1 = high; 0 = ok */",
+      "static int pca9555_set_pin(unsigned addr, unsigned pin, unsigned level)  /* makes pin 0-15 (0-7 = P0.0-P0.7, 8-15 = P1.0-P1.7) an output and drives it low (level 0) or high (level != 0); leaves the other pins as they were; 0 = ok, 1 = pin > 15 */",
+      "static int pca9555_identify(unsigned addr)  /* read only; there is no ID register, so it checks the power-on map (output 2/3 = FF, polarity 4/5 = 00, config 6/7 = FF): 1 = PCA9555, 0 = not it or no ACK, -1 = polarity is 00 but outputs/config have been changed since power-on, so it cannot tell */"
+    ],
+    "header": "pca9555.h",
+    "default_addr": "0x24",
+    "from_driver": "incubate 2026-10-13 13:10",
+    "builds": true,
+    "build_error": "",
+    "bench": [
+      "lab"
+    ],
+    "incubated": "sentence/incubated/pca9555.json",
+    "identify": "pca9555_identify"
+  },
+  "emc1403": {
+    "name": "emc1403",
+    "use_when": "보드나 칩 내부 온도를 알고 싶을 때 · 원격 다이오드에 연결된 CPU/전원부 온도를 읽을 때 · 세 지점 온도를 한 번에 비교할 때 · 과열 여부를 확인할 때",
+    "functions": [
+      "static int emc1403_identify(unsigned addr)  /* 1 = EMC1403 (MID 0xFE=0x5D, PID 0xFD=0x21), 0 = other part, negative = bus error / cannot tell */",
+      "static int emc1403_read(unsigned addr, unsigned ch, long *mc)  /* temperature of channel ch (0 internal, 1 remote 1, 2 remote 2) in m°C, 0.125 °C steps, 0..127875 (extended range -64000..191875); 0 = ok, 1 = bad channel, else i2c error */",
+      "static int emc1403_read_all(unsigned addr, long *t0, long *t1, long *t2)  /* all three temperatures in m°C (internal, remote 1, remote 2); 0 = ok, else i2c error */"
+    ],
+    "header": "emc1403.h",
+    "default_addr": "0x18",
+    "from_driver": "incubate 2026-10-13 13:11",
+    "builds": true,
+    "build_error": "",
+    "bench": [
+      "lab"
+    ],
+    "incubated": "sentence/incubated/emc1403.json",
+    "identify": "emc1403_identify"
+  }
+}

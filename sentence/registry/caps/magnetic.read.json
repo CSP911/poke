@@ -1,0 +1,13 @@
+{
+ "cap": "magnetic.read",
+ "v": 1,
+ "call": "int cap_magnetic_read(cap_t c, int *x, int *y, int *z)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "자기장 세 축을 읽는다 (센서 원시 단위)",
+ "safety": "inert",
+ "outputs": [
+  "x",
+  "y",
+  "z"
+ ]
+}

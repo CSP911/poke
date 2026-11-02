@@ -1,0 +1,1105 @@
+{
+ "name": "adm1272",
+ "addr": "0x10",
+ "part": "ADM1272",
+ "identity": "PMBus hot-swap controller / power monitor (Analog Devices)",
+ "fragment_part": null,
+ "confidence": 0.95,
+ "evidence": "PMBus command codes answer: 0x98 PMBUS_REVISION=0x22; block 0x99 MFR_ID = 03 'ADI'; block 0x9A MFR_MODEL = 0A 'ADM1272-A1'; 0x9B MFR_REVISION = 02 '25'; 0x01 OPERATION=0x80; 0x20 VOUT_MODE=0x40 (direct); 0xD4 PMON_CONFIG=0x3F35",
+ "registers": "PMBus: 0x01 OPERATION, 0x20 VOUT_MODE, 0x78/0x79 STATUS (0), 0x88 READ_VIN, 0x8B READ_VOUT, 0x8C READ_IOUT, 0x8D READ_TEMP1, 0x97 READ_PIN, 0x98-0x9B PMBus revision/MFR blocks, 0xD3 PMON_CONTROL=0x0101, 0xD4 PMON_CONFIG (bit5 VRANGE=100V, bit0 IRANGE=30mV, bit3 TEMP1_EN=0). Words little-endian, direct format X=(Y*10^-R - b)/m: V m=4062 b=0 R=-2; I m=663*Rs(mOhm) b=20480 R=-1; P m=10535*Rs R=-3",
+ "learned": "2026-10-13 13:06",
+ "by": "Claude Code CLI (claude -p / agent with probe.py only)",
+ "bench": "lab",
+ "functions": [
+  {
+   "sig": "static int adm1272_identify(unsigned addr)",
+   "doc": "Returns 1 if MFR_ID (0x99) is the block 'ADI' and MFR_MODEL (0x9A, read whole: count 10 + 10 bytes) starts with 'ADM1272', 0 if not, negative if the bus failed. Reads whole blocks so no bytes stay queued in the part.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int adm1272_read_word(unsigned addr, unsigned cmd, unsigned *raw)",
+   "doc": "Reads the raw little-endian PMBus word at cmd (0x88 VIN, 0x8B VOUT, 0x8C IOUT, 0x97 PIN, 0xD4 PMON_CONFIG). 0 = ok, or the i2c error.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int adm1272_read_vi(unsigned addr, unsigned long rs_uohm, long *vin_mv, long *vout_mv, long *iout_ma)",
+   "doc": "Reads VIN and VOUT in mV (0..100000) and IOUT in mA (signed). rs_uohm = sense resistor in µΩ (the bench twin uses 300). Ranges from PMON_CONFIG. 0 = ok, 1 if rs = 0, or the i2c error.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int adm1272_read_pin(unsigned addr, unsigned long rs_uohm, long *pin_mw)",
+   "doc": "Reads input power in mW. rs_uohm = sense resistor in µΩ (the bench twin uses 300). 0 = ok, 1 if rs = 0, or the i2c error.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ ],
+ "tests": [
+  {
+   "name": "voltage_current",
+   "knobs": {
+    "vin": {
+     "min": 3000,
+     "max": 60000
+    },
+    "vout": {
+     "min": 3000,
+     "max": 60000
+    },
+    "iout": {
+     "min": 1000,
+     "max": 30000
+    }
+   },
+   "params": {},
+   "text": false,
+   "expect": {
+    "vin_mv": "vin",
+    "vout_mv": "vout",
+    "iout_ma": "iout"
+   },
+   "tol": {
+    "vin_mv": 40,
+    "vout_mv": 40,
+    "iout_ma": 250
+   },
+   "expect_knobs": {},
+   "expect_range": {}
+  },
+  {
+   "name": "power",
+   "knobs": {
+    "pin": {
+     "min": 5,
+     "max": 500
+    },
+    "vin": {
+     "min": 5000,
+     "max": 60000
+    }
+   },
+   "params": {},
+   "text": false,
+   "expect": {
+    "pin_mw": "pin*1000",
+    "vin_mv": "vin"
+   },
+   "tol": {
+    "pin_mw": 1500,
+    "vin_mv": 40
+   },
+   "expect_knobs": {},
+   "expect_range": {}
+  }
+ ],
+ "test_ops": [
+  "#include \"rt.h\"\n#include \"adm1272.h\"\n\n#define ADDR 0x10\n#define RS_UOHM 300UL\n\nvoid op_main(void)\n{\n    unsigned raw;\n    long vin, vout, iout;\n    int e;\n\n    e = adm1272_identify(ADDR);\n    if (e != 1) { fail(\"not an ADM1272 at 0x10\"); return; }\n\n    if (adm1272_read_word(ADDR, ADM1272_READ_VIN, &raw)) { fail(\"vin raw read\"); return; }\n    report_int(\"vin_raw\", (long)raw);\n    if (adm1272_read_word(ADDR, ADM1272_READ_VOUT, &raw)) { fail(\"vout raw read\"); return; }\n    report_int(\"vout_raw\", (long)raw);\n    if (adm1272_read_word(ADDR, ADM1272_READ_IOUT, &raw)) { fail(\"iout raw read\"); return; }\n    report_int(\"iout_raw\", (long)raw);\n\n    e = adm1272_read_vi(ADDR, RS_UOHM, &vin, &vout, &iout);\n    if (e) { fail(\"read_vi failed\"); return; }\n    report_int(\"vin_mv\", vin);\n    report_int(\"vout_mv\", vout);\n    report_int(\"iout_ma\", iout);\n    report_fixed(\"vin_v\", vin, 3);\n    report_fixed(\"iout_a\", iout, 3);\n}\n",
+  "#include \"rt.h\"\n#include \"adm1272.h\"\n\n#define ADDR 0x10\n#define RS_UOHM 300UL\n\nvoid op_main(void)\n{\n    unsigned raw;\n    long pin, vin, vout, iout;\n    int e;\n\n    e = adm1272_identify(ADDR);\n    if (e != 1) { fail(\"not an ADM1272 at 0x10\"); return; }\n\n    if (adm1272_read_word(ADDR, ADM1272_READ_PIN, &raw)) { fail(\"pin raw read\"); return; }\n    report_int(\"pin_raw\", (long)raw);\n\n    e = adm1272_read_pin(ADDR, RS_UOHM, &pin);\n    if (e) { fail(\"read_pin failed\"); return; }\n    report_int(\"pin_mw\", pin);\n    report_fixed(\"pin_w\", pin, 3);\n\n    e = adm1272_read_vi(ADDR, RS_UOHM, &vin, &vout, &iout);\n    if (e) { fail(\"read_vi failed\"); return; }\n    report_int(\"vin_mv\", vin);\n}\n"
+ ],
+ "verification": [
+  {
+   "test": "voltage_current",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {
+      "vin": 49168,
+      "vout": 55161,
+      "iout": 6921
+     },
+     "text": null,
+     "result": {
+      "vin_raw": 1997,
+      "vout_raw": 2240,
+      "iout_raw": 2185,
+      "vin_mv": 49163,
+      "vout_mv": 55145,
+      "iout_ma": 6887,
+      "vin_v": 49.163,
+      "iout_a": 6.887
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 1200000000000000011220020900000009000000000000001001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001900060000000000001000000000000000000000001000000101000000990000000000000001000000100100040400000003414449000000000100000010000001010000009a0000000000000001000000100100080b0000000a41444d313237320100000010000001010000008800000000000000010000001001000202000000cd070000000000000100000010000001010000008b00000000000000010000001001000202000000c0080000000000000100000010000001010000008c000000000000000100000010010002020000008908000000000000010000001000000101000000d400000000000000010000001001000202000000353f0000000000000100000010000001010000008800000000000000010000001001000202000000cd070000000000000100000010000001010000008b00000000000000010000001001000202000000c0080000000000000100000010000001010000008c000000000000000100000010010002020000008908000000000000",
+      "POKE-RESULT {\"vin_raw\":1997,\"vout_raw\":2240,\"iout_raw\":2185,\"vin_mv\":49163,\"vout_mv\":55145,\"iout_ma\":6887,\"vin_v\":49.163,\"iout_a\":6.887}",
+      "POKE-END ms=4 status=ok",
+      "POKE-OFF"
+     ],
+     "effects": {
+      "v": 2,
+      "n": 18,
+      "truncated": false,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 16,
+        "w": 9,
+        "r": 9,
+        "denied": 0,
+        "regs": [],
+        "ptr": [
+         136,
+         139,
+         140,
+         153,
+         154,
+         212
+        ]
+       }
+      ],
+      "x": [
+       [
+        0,
+        "w",
+        16,
+        "99",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "03414449",
+        4,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "9a",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "0a41444d31323732",
+        11,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "88",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "cd07",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8b",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "c008",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8c",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "8908",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "d4",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "353f",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "88",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "cd07",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8b",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "c008",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8c",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "8908",
+        2,
+        0
+       ]
+      ]
+     },
+     "checks": [
+      {
+       "key": "vin_mv",
+       "want": 49168,
+       "got": 49163,
+       "ok": true
+      },
+      {
+       "key": "vout_mv",
+       "want": 55161,
+       "got": 55145,
+       "ok": true
+      },
+      {
+       "key": "iout_ma",
+       "want": 6921,
+       "got": 6887,
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {
+      "vin": 40658,
+      "vout": 44732,
+      "iout": 5553
+     },
+     "text": null,
+     "result": {
+      "vin_raw": 1651,
+      "vout_raw": 1817,
+      "iout_raw": 2157,
+      "vin_mv": 40645,
+      "vout_mv": 44732,
+      "iout_ma": 5480,
+      "vin_v": 40.645,
+      "iout_a": 5.48
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 1200000000000000011220020900000009000000000000001001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001900060000000000001000000000000000000000001000000101000000990000000000000000000000100100040400000003414449000000000100000010000001010000009a0000000000000001000000100100080b0000000a41444d31323732010000001000000101000000880000000000000001000000100100020200000073060000000000000100000010000001010000008b0000000000000001000000100100020200000019070000000000000100000010000001010000008c000000000000000100000010010002020000006d08000000000000010000001000000101000000d400000000000000010000001001000202000000353f000000000000010000001000000101000000880000000000000001000000100100020200000073060000000000000100000010000001010000008b0000000000000001000000100100020200000019070000000000000100000010000001010000008c000000000000000100000010010002020000006d08000000000000",
+      "POKE-RESULT {\"vin_raw\":1651,\"vout_raw\":1817,\"iout_raw\":2157,\"vin_mv\":40645,\"vout_mv\":44732,\"iout_ma\":5480,\"vin_v\":40.645,\"iout_a\":5.480}",
+      "POKE-END ms=3 status=ok",
+      "POKE-OFF"
+     ],
+     "effects": {
+      "v": 2,
+      "n": 18,
+      "truncated": false,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 16,
+        "w": 9,
+        "r": 9,
+        "denied": 0,
+        "regs": [],
+        "ptr": [
+         136,
+         139,
+         140,
+         153,
+         154,
+         212
+        ]
+       }
+      ],
+      "x": [
+       [
+        0,
+        "w",
+        16,
+        "99",
+        1,
+        0
+       ],
+       [
+        0,
+        "r",
+        16,
+        "03414449",
+        4,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "9a",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "0a41444d31323732",
+        11,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "88",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "7306",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8b",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "1907",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8c",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "6d08",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "d4",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "353f",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "88",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "7306",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8b",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "1907",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8c",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "6d08",
+        2,
+        0
+       ]
+      ]
+     },
+     "checks": [
+      {
+       "key": "vin_mv",
+       "want": 40658,
+       "got": 40645,
+       "ok": true
+      },
+      {
+       "key": "vout_mv",
+       "want": 44732,
+       "got": 44732,
+       "ok": true
+      },
+      {
+       "key": "iout_ma",
+       "want": 5553,
+       "got": 5480,
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  },
+  {
+   "test": "power",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {
+      "pin": 49,
+      "vin": 47673
+     },
+     "text": null,
+     "result": {
+      "pin_raw": 154,
+      "pin_mw": 48723,
+      "pin_w": 48.723,
+      "vin_mv": 47661
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 1200000000000000011220020900000009000000000000001001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001980060000000000001000000000000000000000001000000101000000990000000000000000000000100100040400000003414449000000000000000010000001010000009a0000000000000001000000100100080b0000000a41444d3132373201000000100000010100000097000000000000000100000010010002020000009a00000000000000010000001000000101000000d400000000000000010000001001000202000000353f00000000000001000000100000010100000097000000000000000100000010010002020000009a00000000000000010000001000000101000000d400000000000000010000001001000202000000353f000000000000010000001000000101000000880000000000000001000000100100020200000090070000000000000100000010000001010000008b00000000000000010000001001000202000000e7010000000000000100000010000001010000008c00000000000000010000001001000202000000ef09000000000000",
+      "POKE-RESULT {\"pin_raw\":154,\"pin_mw\":48723,\"pin_w\":48.723,\"vin_mv\":47661}",
+      "POKE-END ms=3 status=ok",
+      "POKE-OFF"
+     ],
+     "effects": {
+      "v": 2,
+      "n": 18,
+      "truncated": false,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 16,
+        "w": 9,
+        "r": 9,
+        "denied": 0,
+        "regs": [],
+        "ptr": [
+         136,
+         139,
+         140,
+         151,
+         153,
+         154,
+         212
+        ]
+       }
+      ],
+      "x": [
+       [
+        0,
+        "w",
+        16,
+        "99",
+        1,
+        0
+       ],
+       [
+        0,
+        "r",
+        16,
+        "03414449",
+        4,
+        0
+       ],
+       [
+        0,
+        "w",
+        16,
+        "9a",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "0a41444d31323732",
+        11,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "97",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "9a00",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "d4",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "353f",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "97",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "9a00",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "d4",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "353f",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "88",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "9007",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8b",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "e701",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8c",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "ef09",
+        2,
+        0
+       ]
+      ]
+     },
+     "checks": [
+      {
+       "key": "pin_mw",
+       "want": 49000,
+       "got": 48723,
+       "ok": true
+      },
+      {
+       "key": "vin_mv",
+       "want": 47673,
+       "got": 47661,
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {
+      "pin": 312,
+      "vin": 57577
+     },
+     "text": null,
+     "result": {
+      "pin_raw": 985,
+      "pin_mw": 311657,
+      "pin_w": 311.657,
+      "vin_mv": 57558
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 1200000000000000011220020900000009000000000000001001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001980060000000000001000000000000000000000001000000101000000990000000000000000000000100100040400000003414449000000000100000010000001010000009a0000000000000001000000100100080b0000000a41444d313237320100000010000001010000009700000000000000010000001001000202000000d903000000000000010000001000000101000000d400000000000000010000001001000202000000353f0000000000000100000010000001010000009700000000000000010000001001000202000000d903000000000000010000001000000101000000d400000000000000010000001001000202000000353f000000000000010000001000000101000000880000000000000001000000100100020200000022090000000000000100000010000001010000008b00000000000000010000001001000202000000e7010000000000000100000010000001010000008c00000000000000010000001001000202000000ef09000000000000",
+      "POKE-RESULT {\"pin_raw\":985,\"pin_mw\":311657,\"pin_w\":311.657,\"vin_mv\":57558}",
+      "POKE-END ms=3 status=ok",
+      "POKE-OFF"
+     ],
+     "effects": {
+      "v": 2,
+      "n": 18,
+      "truncated": false,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 16,
+        "w": 9,
+        "r": 9,
+        "denied": 0,
+        "regs": [],
+        "ptr": [
+         136,
+         139,
+         140,
+         151,
+         153,
+         154,
+         212
+        ]
+       }
+      ],
+      "x": [
+       [
+        0,
+        "w",
+        16,
+        "99",
+        1,
+        0
+       ],
+       [
+        0,
+        "r",
+        16,
+        "03414449",
+        4,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "9a",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "0a41444d31323732",
+        11,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "97",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "d903",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "d4",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "353f",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "97",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "d903",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "d4",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "353f",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "88",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "2209",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8b",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "e701",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        16,
+        "8c",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        16,
+        "ef09",
+        2,
+        0
+       ]
+      ]
+     },
+     "checks": [
+      {
+       "key": "pin_mw",
+       "want": 312000,
+       "got": 311657,
+       "ok": true
+      },
+      {
+       "key": "vin_mv",
+       "want": 57577,
+       "got": 57558,
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  },
+  {
+   "test": "identify (hub)",
+   "ok": true,
+   "draws": [
+    {
+     "fn": "adm1272_identify",
+     "at": {
+      "0x10": 1,
+      "0x48": 0,
+      "0x68": 0,
+      "0x1e": 0,
+      "0x60": 0,
+      "0x18": 0,
+      "0x24": 0
+     },
+     "error": null
+    }
+   ],
+   "problems": []
+  }
+ ],
+ "rounds": 2,
+ "twin_knobs": [
+  "iout",
+  "vin",
+  "vout",
+  "pin"
+ ],
+ "verified": true,
+ "verification_kind": "twin knobs / screen, two hub draws per test",
+ "identify": "adm1272_identify",
+ "identify_kind": "id",
+ "oracle": null,
+ "kept_on_node": "nothing — the fragment lives on the hub and joins an image only when a sentence needs it",
+ "declared_functions": [
+  {
+   "sig": "static int adm1272_identify(unsigned addr)",
+   "doc": "Returns 1 if MFR_ID (0x99) is the block 'ADI' and MFR_MODEL (0x9A, read whole: count 10 + 10 bytes) starts with 'ADM1272', 0 if not, negative if the bus failed. Reads whole blocks so no bytes stay queued in the part.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int adm1272_read_word(unsigned addr, unsigned cmd, unsigned *raw)",
+   "doc": "Reads the raw little-endian PMBus word at cmd (0x88 VIN, 0x8B VOUT, 0x8C IOUT, 0x97 PIN, 0xD4 PMON_CONFIG). 0 = ok, or the i2c error.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int adm1272_read_vi(unsigned addr, unsigned long rs_uohm, long *vin_mv, long *vout_mv, long *iout_ma)",
+   "doc": "Reads VIN and VOUT in mV (0..100000) and IOUT in mA (signed). rs_uohm = sense resistor in µΩ (the bench twin uses 300). Ranges from PMON_CONFIG. 0 = ok, 1 if rs = 0, or the i2c error.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int adm1272_read_pin(unsigned addr, unsigned long rs_uohm, long *pin_mw)",
+   "doc": "Reads input power in mW. rs_uohm = sense resistor in µΩ (the bench twin uses 300). 0 = ok, 1 if rs = 0, or the i2c error.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ ],
+ "review": [
+  {
+   "fn": "adm1272_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 4,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "adm1272_read_word",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 4,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "adm1272_read_vi",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 4,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "adm1272_read_pin",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  }
+ ],
+ "review_problems": [
+  "identify (hub): a verification run without POKE-EFFECTS — nothing seen, nothing kept"
+ ]
+}

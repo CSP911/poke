@@ -1,0 +1,9 @@
+{
+ "cap": "climate.set",
+ "v": 1,
+ "call": "int cap_climate_set(cap_t c, int on, int target_c)",
+ "returns": "0 ok, nonzero error (op should fail())",
+ "describes_ko": "에어컨을 켜고 끄며 목표 온도를 맞춘다 (16–30 °C)",
+ "safety": "changes-room",
+ "outputs": []
+}

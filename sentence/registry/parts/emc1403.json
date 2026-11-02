@@ -1,0 +1,149 @@
+{
+ "id": "emc1403",
+ "identity": "SMBus temperature sensor, internal + 2 remote diodes (SMSC/Microchip)",
+ "fragment": "emc1403.h",
+ "default_addr": "0x18",
+ "identify": "emc1403_identify",
+ "verification": {
+  "kind": "twin knobs / screen, two hub draws per test",
+  "on": "lab",
+  "rounds": 2,
+  "when": "2026-10-13 13:11"
+ },
+ "implements": [
+  {
+   "cap": "temperature.read",
+   "channels": {
+    "internal": 0,
+    "remote1": 1,
+    "remote2": 2
+   },
+   "body": "return emc1403_read(ADDR, CH, milli_c);",
+   "spec": {
+    "unit": "m°C",
+    "resolution": 125,
+    "range": [
+     0,
+     127875
+    ],
+    "basis": "fragment"
+   },
+   "fns": [
+    "emc1403_read"
+   ],
+   "access": "read",
+   "policy": "allow",
+   "measured": {
+    "when": "2026-11-02 10:50",
+    "on": "twin",
+    "channels": {
+     "internal": {
+      "points": [
+       [
+        0,
+        0
+       ],
+       [
+        12312,
+        12000
+       ],
+       [
+        25062,
+        25000
+       ],
+       [
+        38500,
+        38000
+       ],
+       [
+        70750,
+        70000
+       ],
+       [
+        100125,
+        100000
+       ]
+      ],
+      "max_abs_err_mC": 750,
+      "fraction_kept": false,
+      "claimed_resolution": 125,
+      "verdict": "loses fractions"
+     },
+     "remote1": {
+      "points": [
+       [
+        0,
+        0
+       ],
+       [
+        12312,
+        12000
+       ],
+       [
+        25062,
+        25000
+       ],
+       [
+        38500,
+        38000
+       ],
+       [
+        70750,
+        70000
+       ],
+       [
+        100125,
+        100000
+       ]
+      ],
+      "max_abs_err_mC": 750,
+      "fraction_kept": false,
+      "claimed_resolution": 125,
+      "verdict": "loses fractions"
+     },
+     "remote2": {
+      "points": [
+       [
+        0,
+        0
+       ],
+       [
+        12312,
+        12000
+       ],
+       [
+        25062,
+        25000
+       ],
+       [
+        38500,
+        38000
+       ],
+       [
+        70750,
+        70000
+       ],
+       [
+        100125,
+        100000
+       ]
+      ],
+      "max_abs_err_mC": 750,
+      "fraction_kept": false,
+      "claimed_resolution": 125,
+      "verdict": "loses fractions"
+     }
+    }
+   }
+  }
+ ],
+ "functions": {
+  "emc1403_read": {
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ },
+ "unbound": []
+}

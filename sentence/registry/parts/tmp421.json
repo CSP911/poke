@@ -1,0 +1,116 @@
+{
+ "id": "tmp421",
+ "identity": "temperature sensor with one remote channel (board temperature plus one remote sensor)",
+ "fragment": "tmp421.h",
+ "default_addr": "0x4c",
+ "identify": "tmp421_identify",
+ "verification": {
+  "kind": "twin-knobs",
+  "on": "ext",
+  "rounds": 1,
+  "when": "2026-10-11 22:02"
+ },
+ "implements": [
+  {
+   "cap": "temperature.read",
+   "channels": {
+    "local": 0,
+    "remote": 1
+   },
+   "body": "return tmp421_read_mc(ADDR, CH, milli_c);",
+   "spec": {
+    "unit": "m°C",
+    "resolution": 62.5,
+    "range": [
+     0,
+     127000
+    ],
+    "basis": "fragment"
+   },
+   "fns": [
+    "tmp421_read_mc"
+   ],
+   "access": "read",
+   "policy": "allow",
+   "measured": {
+    "when": "2026-11-02 10:50",
+    "on": "twin",
+    "channels": {
+     "local": {
+      "points": [
+       [
+        0,
+        0
+       ],
+       [
+        12312,
+        12250
+       ],
+       [
+        25062,
+        25000
+       ],
+       [
+        38500,
+        38437
+       ],
+       [
+        70750,
+        70687
+       ],
+       [
+        100125,
+        100062
+       ]
+      ],
+      "max_abs_err_mC": 63,
+      "fraction_kept": true,
+      "claimed_resolution": 62.5,
+      "verdict": "ok"
+     },
+     "remote": {
+      "points": [
+       [
+        0,
+        0
+       ],
+       [
+        12312,
+        12250
+       ],
+       [
+        25062,
+        25000
+       ],
+       [
+        38500,
+        38437
+       ],
+       [
+        70750,
+        70687
+       ],
+       [
+        100125,
+        100062
+       ]
+      ],
+      "max_abs_err_mC": 63,
+      "fraction_kept": true,
+      "claimed_resolution": 62.5,
+      "verdict": "ok"
+     }
+    }
+   }
+  }
+ ],
+ "functions": {
+  "tmp421_read_mc": {
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ },
+ "unbound": []
+}

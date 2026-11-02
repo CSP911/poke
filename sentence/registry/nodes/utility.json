@@ -1,0 +1,70 @@
+{
+ "id": "utility",
+ "place": "다용도실",
+ "arch": "aarch64-pi4",
+ "boot": "pi-eeprom-tftp",
+ "abi": "rt.h/1",
+ "buses": [
+  "i2c1"
+ ],
+ "limits": {
+  "run_budget_ms": 20000,
+  "simd": false
+ },
+ "reflex": [
+  "stop-on-budget",
+  "watchdog-15s"
+ ],
+ "link": {
+  "kind": "twin"
+ },
+ "twin": [
+  [
+   "adm1272",
+   "c5",
+   "0x10",
+   "adm1272",
+   "세탁기 플러그 전력",
+   {
+    "PARAM_RS_UOHM": 300
+   }
+  ],
+  [
+   "emc1413",
+   "c1",
+   "0x18",
+   "emc1403",
+   "보일러 배관 온도",
+   {
+    "channel_names": {
+     "internal": "다용도실 공기(칩 자체)",
+     "remote1": "보일러 공급관",
+     "remote2": "보일러 환수관"
+    }
+   }
+  ],
+  [
+   "pca9554",
+   "g1",
+   "0x20",
+   "pca9554",
+   "다용도실 릴레이·센서 보드",
+   {
+    "roles": [
+     {
+      "role": "switch",
+      "pin": 0,
+      "key": "washer_plug",
+      "name": "세탁기 플러그"
+     },
+     {
+      "role": "leak",
+      "pin": 4,
+      "key": "leak",
+      "name": "다용도실 누수 센서"
+     }
+    ]
+   }
+  ]
+ ]
+}

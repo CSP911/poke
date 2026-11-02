@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POKE 문장 부팅</title>
+<style>
+:root {
+  --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a64; --line: #e3e1da;
+  --accent: #2f5bd3; --ok: #1f8a4c; --warn: #b26a00; --bad: #c0392b; --led-off: #d9d6cc; --led-on: #ff5a36;
+  --code: #f1efe8; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a09f98; --line: #34332f;
+    --accent: #7d9cff; --ok: #4cc27f; --warn: #e0a040; --bad: #ff6b5b; --led-off: #3a3935; --led-on: #ff6a45;
+    --code: #262624; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a09f98; --line: #34332f;
+  --accent: #7d9cff; --ok: #4cc27f; --warn: #e0a040; --bad: #ff6b5b; --led-off: #3a3935; --led-on: #ff6a45;
+  --code: #262624; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+header p { margin: 4px 0 0; color: var(--muted); }
+form { display: flex; gap: 8px; margin: 18px 0 8px; flex-wrap: wrap; }
+input[type=text] { flex: 1 1 320px; font: inherit; font-size: 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); }
+button { font: inherit; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.chip { font-size: 13px; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); }
+.chip:hover { color: var(--ink); border-color: var(--muted); }
+.rail { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-bottom: 16px; }
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 64px; }
+.step b { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.step span { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; word-break: keep-all; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); flex: none; }
+.step.run .dot { background: var(--accent); animation: pulse 1s infinite; }
+.step.ok .dot { background: var(--ok); }
+.step.stop .dot { background: var(--warn); }
+.step.bad .dot { background: var(--bad); }
+@keyframes pulse { 50% { opacity: .3; } }
+.grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.panel h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 10px; }
+.big { font-size: 20px; line-height: 1.45; }
+.big div { margin: 2px 0; }
+.note { color: var(--muted); font-size: 13px; }
+.card { border: 1px solid var(--accent); border-radius: 10px; padding: 12px; margin: 10px 0; }
+.card.stop { border-color: var(--warn); }
+.card.bad { border-color: var(--bad); }
+.card .q { font-size: 17px; margin-bottom: 8px; }
+.card .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.card input { flex: 1 1 160px; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+pre { background: var(--code); border-radius: 8px; padding: 10px; overflow-x: auto; font-size: 12px; margin: 6px 0 0; }
+details { margin-top: 10px; } summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.node { display: flex; align-items: center; gap: 10px; font-size: 18px; margin-bottom: 4px; }
+.node .lamp { width: 14px; height: 14px; border-radius: 50%; background: var(--led-off); }
+.node.on .lamp { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.leds { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin: 12px 0; }
+.led { aspect-ratio: 1; border-radius: 50%; background: var(--led-off); position: relative; }
+.led.on { background: var(--led-on); box-shadow: 0 0 12px var(--led-on); }
+.led i { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; font-style: normal; color: var(--muted); }
+.led.on i { color: #fff; }
+.temp { display: flex; align-items: center; gap: 10px; }
+.temp input { flex: 1; }
+.records { font-size: 13px; max-height: 220px; overflow: auto; }
+.records div { padding: 3px 0; border-bottom: 1px dashed var(--line); display: flex; justify-content: space-between; gap: 8px; cursor: pointer; }
+.records div:hover { color: var(--accent); }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.times { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.times b { color: var(--ink); font-weight: 600; }
+.dev { border-top: 1px solid var(--line); padding: 10px 0 4px; }
+.dev .h { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.dev .h b { font-weight: 600; }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag.new { border-color: var(--warn); color: var(--warn); }
+.ctl { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 6px; }
+.ctl input[type=range] { flex: 1; min-width: 0; }
+.ctl b { min-width: 72px; text-align: right; font-weight: 600; }
+.pins { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.pin { font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--ink); }
+.pin.hi { background: var(--accent); border-color: var(--accent); color: #fff; }
+canvas.oled { width: 100%; max-width: 384px; image-rendering: pixelated; background: #05070a; border-radius: 4px; margin-top: 6px; display: block; }
+.evidence { font-size: 13px; background: var(--code); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.evidence div { margin: 2px 0; }
+.mic.on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.cardp { margin-top: 16px; }
+.cardp h3 { margin: 0 0 4px; font-size: 18px; }
+.cardp .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.cardp table { border-collapse: collapse; font-size: 13px; width: 100%; }
+.cardp td, .cardp th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.cardp th { color: var(--muted); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+.kv { display: grid; grid-template-columns: 7em 1fr; gap: 4px 10px; font-size: 14px; margin: 8px 0; }
+.kv span:nth-child(odd) { color: var(--muted); }
+button.danger { border-color: var(--bad); color: var(--bad); }
+@media (max-width: 820px) { .grid { grid-template-columns: 1fr; } .rail { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .rail { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+      <h1>문장 하나, 부팅 하나</h1>
+      <button type="button" id="demo" class="primary">데모 (5분)</button>
+    </div>
+    <div id="demobar" class="card stop" hidden style="margin-top:10px"><div class="q" id="demotext"></div><div class="note" id="demostep"></div></div>
+    <p>노드에는 운영체제가 없습니다. 말하면 허브가 그 문장만을 위한 이미지를 만들고, 노드는 부팅해 일하고 보고한 뒤 스스로 리셋합니다. (지금 노드 = QEMU 트윈)</p>
+  </header>
+
+  <form id="f">
+    <input id="s" type="text" placeholder="예: 온도 알려줘" autocomplete="off" autofocus>
+    <button type="button" id="mic" class="mic" hidden title="브라우저 음성 인식(Chrome)">말로 하기</button>
+    <button class="primary" id="go">보내기</button>
+  </form>
+  <div class="chips" id="chips"></div>
+
+  <div class="rail" id="rail"></div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>이번 요청</h2>
+      <div id="said" class="note">
+        <b style="color:var(--ink)">처음이면:</b> 위의 문장 버튼 하나를 누르거나, 직접 쓰고 <b>보내기</b>(또는 <b>말로 하기</b>).
+        그러면 위 일곱 칸이 차례로 켜집니다 —
+        <b>op 작성</b>(허브가 이 문장만을 위한 작은 C 프로그램을 씀, 이미 들은 문장이면 기억에서) →
+        <b>확인</b>(LED처럼 장치를 바꾸는 문장이면 먼저 묻기) → <b>이미지 검사</b>(위험한 명령이 없는지 부팅 전에 확인) →
+        <b>부팅</b>(운영체제 없는 노드가 그 이미지 하나로 켜짐) → <b>결과</b> → <b>노드 비움</b>(노드가 쓴 메모리를 0으로 지우고 리셋 — 허브가 실제로 읽어 확인).
+        오른쪽은 노드에 붙은 장치들(지금은 QEMU 트윈)이고, 그 아래 목록을 누르면 허브가 기억하는 문장의 카드가 열립니다.
+      </div>
+      <div id="cards"></div>
+      <div id="result" class="big"></div>
+      <div id="nodesay" class="note"></div>
+      <div class="times" id="times"></div>
+      <details id="opbox" hidden><summary>이 문장의 op (허브에서 만든 C, 부팅 뒤 노드에서 사라짐)</summary><pre id="op"></pre></details>
+      <details id="dbg" hidden><summary>자세히</summary><pre id="dbgtext"></pre></details>
+    </section>
+
+    <aside class="panel">
+      <h2 id="benchtitle">실험대 (트윈)</h2>
+      <div class="node" id="node"><span class="lamp"></span><span id="nodetext">노드 꺼짐 · 실행 중인 우리 코드 없음</span></div>
+      <div class="note" id="nodesub">제조사 부트로더만 기다립니다.</div>
+      <div class="evidence" id="evidence" hidden></div>
+      <div id="watchbox" hidden>
+        <h2 style="margin-top:10px">지켜보는 중 <button type="button" class="chip" id="w-stopall">모두 멈춤</button></h2>
+        <div id="watches" class="records"></div>
+        <div id="wevents" class="note"></div>
+      </div>
+      <div id="devices"></div>
+      <div class="note" style="margin-top:6px">값 = 다음 부팅 때 장치가 보여 줄 세상. LED·핀·화면 = 부팅이 끝난 뒤 장치에서 읽은 실제 상태(노드가 아니라 장치가 기억합니다). <button type="button" id="reset" class="chip">LED 모두 끄기</button></div>
+      <h2 style="margin-top:16px">허브가 기억하는 문장 <span class="note">(누르면 카드)</span></h2>
+      <div class="records" id="records"></div>
+      <div class="note" style="margin-top:8px"><label>카드 가져오기 <input type="file" id="importf" accept="application/json,.json"></label></div>
+    </aside>
+  </div>
+  <section class="panel cardp" id="cardpanel" hidden></section>
+</div>
+<script>
+const STAGES = [["sentence","문장"],["op","op 작성"],["confirm","확인"],["check","이미지 검사"],["boot","부팅"],["result","결과"],["empty","노드 비움"]];
+const SAMPLES = ["온도가 30도 넘으면 알려줘", "온도 알려줘","지금 몇 시야?","LED 3번 켜줘","LED 5번 켜줘","온도가 25도 넘으면 LED 0번을 켜고, 아니면 꺼줘","자기장 세기 알려줘","LED 0번부터 3번까지 0.2초 간격으로 차례로 켜줘","불 좀 켜줘","사진 찍어줘","30초 동안 10초마다 온도 알려줘"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let es = null, run = null, BENCH = null, lastCard = null;
+const STATE = {};                 // "qid prop" → value set on the page before power-on
+
+async function loadBench() {
+  try { BENCH = await (await fetch("/bench")).json(); } catch (e) { return; }
+  $("benchtitle").textContent = `실험대 (트윈 · ${BENCH.body || (BENCH.name === "ext" ? "확장: 새 장치 포함" : "기본")})`;
+  $("devices").innerHTML = BENCH.devices.map(d => `
+    <div class="dev" id="dev-${d.qid}">
+      <div class="h"><b>${esc(d.label)}</b><span><span class="tag">0x${d.addr.toString(16).padStart(2, "0")}</span>
+        ${d.frag ? `<span class="tag">조각 ${esc(d.frag)}</span>` : `<span class="tag new">아직 모름 · 인큐베이팅 전</span>`}</span></div>
+      ${d.model === "pca9552" ? `<div class="leds" id="leds"></div>` : ""}
+      ${d.model === "ssd0303" ? `<canvas class="oled" id="oled" width="96" height="16"></canvas>` : ""}
+      ${d.model === "tmp421" ? `<div class="note" id="tmp421v"></div>` : ""}
+      ${d.controls.map(c => c.kind === "switch"
+        ? `<button type="button" class="pin ${(STATE[c.key] ?? c.value) === "high" ? "hi" : ""}" data-key="${esc(c.key)}">${esc(c.label)} ${(STATE[c.key] ?? c.value) === "high" ? "켬" : "끔"}</button>`
+        : `<div class="ctl"><span>${esc(c.label)}</span><input type="range" data-key="${esc(c.key)}" data-scale="${c.scale}" data-unit="${esc(c.unit)}" min="${c.min}" max="${c.max}" step="${c.step}" value="${((STATE[c.key] ?? c.value ?? (c.min + c.max) / 2 * c.scale) / c.scale)}"><b>${((STATE[c.key] ?? c.value ?? (c.min + c.max) / 2 * c.scale) / c.scale)} ${esc(c.unit)}</b></div>`).join("")}
+      ${d.model === "pca9554" ? `<div class="pins" id="pins"></div>` : ""}
+    </div>`).join("");
+  document.querySelectorAll('#devices input[type=range]').forEach(i => {
+    const show = () => { i.nextElementSibling.textContent = `${Number(i.value)} ${i.dataset.unit}`; STATE[i.dataset.key] = Math.round(Number(i.value) * Number(i.dataset.scale)); };
+    i.oninput = show;
+    i.onchange = () => { show(); fetch("/state", {method: "POST", body: JSON.stringify({state: STATE})}); };
+  });
+  document.querySelectorAll('#devices button.pin[data-key]').forEach(b => b.onclick = () => {
+    const hi = !b.classList.contains("hi"); STATE[b.dataset.key] = hi ? "high" : "low";
+    b.classList.toggle("hi", hi); b.textContent = b.textContent.replace(/ (켬|끔)$/, hi ? " 켬" : " 끔");
+    fetch("/state", {method: "POST", body: JSON.stringify({state: STATE})});
+  });
+  try { leds((await (await fetch("/twin")).json()).leds_on); } catch (e) { leds([]); }
+}
+function oled(rows) {
+  const c = $("oled"); if (!c || !rows) return; const g = c.getContext("2d");
+  g.fillStyle = "#05070a"; g.fillRect(0, 0, 96, 16); g.fillStyle = "#8fd3ff";
+  rows.forEach((r, y) => r.forEach((b, x) => { if (b) g.fillRect(x, y, 1, 1); }));
+}
+function extTruth(t) {
+  if (!t) return;
+  if (t.tmp421_mC && $("tmp421v")) $("tmp421v").textContent = `읽힌 값: 보드 ${t.tmp421_mC[0] / 1000} °C · 원격 ${t.tmp421_mC[1] / 1000} °C`;
+  if (t.pca9554_pins && $("pins")) $("pins").innerHTML = Object.entries(t.pca9554_pins).map(([i, v]) => `<span class="pin ${v === "high" ? "hi" : ""}">핀 ${i} ${v === "high" ? "H" : "L"}</span>`).join("");
+  if (t.screen) oled(t.screen);
+}
+function evidence(e, effects) {
+  const ev = $("evidence"), rows = [];
+  const w = e.wipe_check || e.wipe;
+  if (e.wipe_check) rows.push((e.wipe_check.nonzero === 0 ? "" : "⚠ ") + `실측: 노드가 리셋된 뒤 허브가 트윈의 메모리를 읽음 — 이 부팅이 쓴 영역 0x${e.wipe_check.from.toString(16)}–0x${e.wipe_check.to.toString(16)} (${Math.round(e.wipe_check.bytes / 1024)} KB, op·런타임 데이터·스택) 중 0이 아닌 바이트 ${e.wipe_check.nonzero}`);
+  else if (e.wipe) rows.push(`리셋 전 0으로 지우는 영역 0x${e.wipe.from.toString(16)}–0x${e.wipe.to.toString(16)} (${Math.round(e.wipe.bytes / 1024)} KB) — 이미지에서 읽은 범위, 실측 없음`);
+  else if (e.powered_off) rows.push("이 이미지에는 메모리 0 채우기가 없습니다 — 리셋 후 부트로더만 대기");
+  (effects || []).forEach(l => rows.push("버스: " + l));
+  rows.push("이 문장의 op와 결과는 허브의 기록에만 남습니다.");
+  ev.innerHTML = rows.map(r => `<div>${esc(r)}</div>`).join(""); ev.hidden = false;
+}
+
+function rail() {
+  $("rail").innerHTML = STAGES.map(([k, n]) => `<div class="step" id="st-${k}"><b><i class="dot"></i>${n}</b><span id="sd-${k}"></span></div>`).join("");
+}
+function step(k, cls, text) {
+  const el = $("st-" + k); if (!el) return;
+  el.className = "step " + (cls || ""); if (text !== undefined) $("sd-" + k).textContent = text;
+}
+function leds(on) {
+  if (!$("leds")) return;
+  $("leds").innerHTML = Array.from({length: 16}, (_, i) => `<div class="led ${on && on.includes(i) ? "on" : ""}"><i>${i}</i></div>`).join("");
+}
+function node(state, text) {
+  const n = $("node");
+  if (state === "on") { n.className = "node on"; $("nodetext").textContent = "노드 부팅 중 · 이 문장의 이미지"; $("nodesub").textContent = "op가 실행되는 동안만 존재합니다."; }
+  else { n.className = "node"; $("nodetext").textContent = "노드 꺼짐 · 실행 중인 우리 코드 없음"; $("nodesub").textContent = text || "제조사 부트로더만 기다립니다."; }
+}
+async function records() {
+  try {
+    const rs = await (await fetch("/records")).json();
+    $("records").innerHTML = rs.length ? rs.map(r => `<div data-s="${esc(r.sentence)}" data-id="${esc(r.id)}"><span>${esc(r.sentence)}</span><span class="note">${r.kind === "op" ? (r.templated ? "숫자 바꿔 재사용" : "op") : ({need: "되물음", long: "예약 실행", cannot: "불가"})[r.kind] || r.kind}${r.approved ? " · 승인" : ""}${r.imported ? " · 가져옴" : ""}</span></div>`).join("") : '<span class="note">아직 없음</span>';
+    $("records").querySelectorAll("div[data-s]").forEach(d => d.onclick = () => loadCard(d.dataset.id));
+  } catch (e) {}
+}
+const KIND = {op: "op", need: "되물음", cannot: "불가", long: "예약 실행"};
+async function loadCard(id) {
+  lastCard = id;
+  let r; try { r = await (await fetch("/card?id=" + encodeURIComponent(id))).json(); } catch (e) { return; }
+  if (r.error) { $("cardpanel").hidden = true; return; }
+  const c = r.colophon || {}, b = c.body || {}, m = r.manifest || {}, o = r.origin || {};
+  const fb = (o.from_body || {}).label;
+  const uses = (m.uses || []).map(u => u.fn).join(", ");
+  const traces = (r.traces || []).slice().reverse();
+  const lineage = (r.lineage || []).map(e => `${esc(((e.colophon || {}).body || {}).label || fb || "몸 미상")} ${esc(String((e.colophon || {}).date || "").slice(0, 16))}`);
+  $("cardpanel").innerHTML = `
+    <h2>문장 카드 (더늠)</h2>
+    <h3>「${esc(r.sentences[0])}」 <span class="tag">${KIND[r.kind] || r.kind}</span></h3>
+    ${r.sentences.length > 1 ? `<div class="note">들은 말: ${r.sentences.slice(1).map(esc).join(" · ")}</div>` : ""}
+    <div class="kv">
+      ${r.kind === "op" ? `<span>하는 일</span><span>${esc(m.summary_ko || "")}</span><span>장치</span><span>${esc(uses)}</span>` : `<span>답</span><span>${esc(typeof r.text === "string" ? r.text : JSON.stringify(r.text))}</span>`}
+      ${(r.params || []).length ? `<span>숫자</span><span>${r.params.map(p => esc(`${p.ko || p.name} ${p.min}–${p.max}`)).join(", ")}</span>` : ""}
+      <span>승인</span><span>${r.approval ? "항상 (" + esc(String(r.approval.at).slice(0, 16)) + ")" : (r.kind === "op" ? "쓰기가 있으면 매번 확인" : "—")}</span>
+      <span>출처</span><span>${esc(c.model || "?")} · ${esc(String(c.date || "").slice(0, 16))} · 카탈로그 ${esc(c.catalog || "?")}</span>
+      <span>발음한 몸</span><span>${esc(b.label || "(기록 전)")}${r.kind === "op" ? (r.fits ? ` — 지금 몸(${esc(r.body_now)})에 맞음` : ` — <b style="color:var(--warn)">지금 몸(${esc(r.body_now)})에 안 맞음: ${esc((r.fits_why || []).join("; "))} → 실행하면 다시 발음</b>`) : ""}</span>
+      ${(c.trace_check || c.kept_over) ? `<span>흔적 대조</span><span>${esc({match: "일치 — 새 발음을 씀", partial: "다르게 발음됨 — 새 발음을 쓰되 차이를 남김", mismatch: "불일치", unknown: "대조할 흔적 없음"}[(c.trace_check || c.kept_over).verdict] || "")}${c.kept_over ? " — 새 발음을 채택하지 않고 이전 발음 유지" : ""}${((c.trace_check || c.kept_over).reasons || []).map(x => "<br><span class=note>· " + esc(x) + "</span>").join("")}</span>` : ""}
+      ${o.imported ? `<span>가져옴</span><span>${esc(String(o.imported).slice(0, 16))}${fb ? " · 원래 몸 " + esc(fb) : ""}</span>` : ""}
+      ${lineage.length ? `<span>계보</span><span>${lineage.join(" → ")} → 지금</span>` : ""}
+    </div>
+    <div class="row">
+      <button class="primary" id="c-run">이 문장 실행</button>
+      ${r.approval ? `<button id="c-unapprove">'항상' 승인 취소</button>` : ""}
+      <a href="/export?id=${encodeURIComponent(r.id)}"><button type="button">카드 내보내기 (JSON)</button></a>
+      <button class="danger" id="c-forget">잊어줘</button><span id="c-confirm"></span>
+    </div>
+    ${traces.length ? `<div class="tablewrap"><table><tr><th>언제</th><th></th><th>몸</th><th>말</th><th>결과</th></tr>
+      ${traces.map(t => `<tr><td>${esc(String(t.at || "").slice(5, 16))}</td><td>${t.ok ? "✓" : "✗"}</td><td>${esc(t.body_label || "(기록 전)")}</td><td>${esc(t.sentence || "")}</td><td class="mono">${esc(JSON.stringify(t.result))}</td></tr>`).join("")}
+    </table></div>` : `<div class="note">아직 결과 흔적이 없습니다.</div>`}
+    ${r.op ? `<details><summary>지금의 발음 (op)</summary><pre>${esc(r.op)}</pre></details>` : ""}`;
+  $("cardpanel").hidden = false;
+  $("c-run").onclick = () => { $("s").value = r.sentences[0]; start(r.sentences[0]); window.scrollTo({top: 0, behavior: "smooth"}); };
+  if ($("c-unapprove")) $("c-unapprove").onclick = async () => { await fetch("/unapprove", {method: "POST", body: JSON.stringify({id: r.id})}); loadCard(r.id); records(); };
+  $("c-forget").onclick = () => {
+    $("c-confirm").innerHTML = `정말 잊을까요? 결과 흔적과 계보도 지워집니다. <button class="danger" id="c-yes">예, 잊어줘</button> <button id="c-no">아니오</button>`;
+    $("c-yes").onclick = async () => { await fetch("/forget", {method: "POST", body: JSON.stringify({id: r.id})}); $("cardpanel").hidden = true; records(); };
+    $("c-no").onclick = () => { $("c-confirm").innerHTML = ""; };
+  };
+  $("cardpanel").scrollIntoView({behavior: "smooth", block: "start"});
+}
+$("importf") && ($("importf").onchange = async ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  let card; try { card = JSON.parse(await f.text()); } catch (e) { $("said").textContent = "카드 파일을 읽지 못했습니다."; return; }
+  let res = await (await fetch("/import", {method: "POST", body: JSON.stringify({card})})).json();
+  if (res.message && res.message.startsWith("이미")) res = await (await fetch("/import", {method: "POST", body: JSON.stringify({card, replace: true})})).json();
+  $("said").textContent = res.error ? "카드를 가져오지 못했습니다: " + res.error : "카드를 가져왔습니다.";
+  records(); if (res.id) loadCard(res.id); ev.target.value = "";
+});
+const WSTATE = {armed: "지켜보는 중", resting: "오늘 상한 — 쉼", stopped: "멈춤", expired: "만료", done: "알리고 끝"};
+let seenEvents = new Set();
+async function loadWatches() {
+  let d; try { d = await (await fetch("/watches")).json(); } catch (e) { return; }
+  const ws = d.watches || [], evs = d.events || [];
+  $("watchbox").hidden = !ws.length && !evs.length;
+  $("watches").innerHTML = ws.slice().reverse().map(w => `<div title="${esc(w.summary || "")}"><span>${esc(w.sentence)}<br><span class="note">${WSTATE[w.state] || w.state} · ${w.every_s}초마다 · 오늘 ${w.count_today}/${w.day_cap}${w.last ? " · " + esc(w.last.at) + " " + esc((w.last.lines || []).join(" · ")) : ""}${w.stop_reason ? " · " + esc(w.stop_reason) : ""}</span></span>
+    ${["armed", "resting"].includes(w.state) ? `<button type="button" class="chip" data-stop="${esc(w.id)}">멈춤</button>` : ""}</div>`).join("");
+  $("watches").querySelectorAll("[data-stop]").forEach(b => b.onclick = async ev => { ev.stopPropagation(); await fetch("/watch_stop", {method: "POST", body: JSON.stringify({id: b.dataset.stop})}); loadWatches(); });
+  $("wevents").innerHTML = evs.slice(-5).reverse().map(e => `<div>${esc(e.at.slice(11))} ${esc(e.text)}${e.kind === "pending_action" ? ` <button type="button" class="chip" data-act="${esc(e.action)}">확인하고 실행</button>` : ""}</div>`).join("");
+  $("wevents").querySelectorAll("[data-act]").forEach(b => b.onclick = () => { $("s").value = b.dataset.act; start(b.dataset.act, true); window.scrollTo({top: 0, behavior: "smooth"}); });
+  for (const e of evs) {                       // a hit that arrived while the page is open: say it
+    const k = e.at + e.watch + e.kind;
+    if (!seenEvents.has(k)) { seenEvents.add(k); if (e.kind === "hit" && loadWatches.ready) card(`<div class="q">알림: ${esc(e.text)}</div>`, "stop"); }
+  }
+  loadWatches.ready = true;
+}
+const DEMO_STEPS = [
+  ["say", "온도 알려줘", "1/8 · 문장 하나로 시작합니다. 허브가 이 문장만을 위한 이미지를 만들고, 운영체제 없는 노드가 그것으로 부팅해 읽고, 보고하고, 쓴 메모리를 0으로 지운 뒤 리셋합니다 — 오른쪽 증거 상자의 '실측'을 보세요."],
+  ["say", "지금 몇 도야?", "2/8 · 같은 뜻의 다른 말은 허브가 알아보고 기억한 카드를 다시 씁니다 — 모델 호출 0."],
+  ["say", "LED 3번 켜줘", "3/8 · 장치를 바꾸는 문장은 먼저 묻습니다(데모는 자동으로 '예'). 버스에 무엇이 닿았는지는 런타임이 기록합니다 — 'LED(0x60)'."],
+  ["say", "LED 7번 켜줘", "4/8 · 숫자만 바뀐 말은 기억한 op에 숫자만 바꿔 넣습니다 — 모델 0. LED 3은 켜진 채 남습니다(노드가 아니라 장치가 기억)."],
+  ["card", "온도 알려줘", "5/8 · 허브가 기억하는 것은 프로그램이 아니라 문장 카드입니다: 들은 말, 결과 흔적, 출처, 계보."],
+  ["body", "온도 알려줘", "6/8 · 몸을 바꿉니다: 온도 센서를 0x48에서 0x4a로 옮긴 몸. 옛 op는 이 몸에 맞지 않아, 허브가 문장을 다시 발음하고(Claude Code 몇 초) 그 결과를 카드의 흔적과 대조합니다."],
+  ["card", "온도 알려줘", "7/8 · 카드의 계보에 이전 몸과 새 몸이 남고, 흔적 대조 판정이 붙습니다."],
+  ["say", "온도가 30도 넘으면 알려줘", "8/8 · '30도 넘으면 알려줘' 같은 상시 의도는 허브가 지켜봅니다 — 읽기만 하는 부팅을 60초마다. 데모에서는 계획만 보여 주고 시작하지 않습니다."],
+];
+async function runDemo() {
+  if (DEMO_ON) return;
+  DEMO_ON = true; $("demo").disabled = true; $("demobar").hidden = false;
+  try {
+    await fetch("/demo/start", {method: "POST", body: "{}"}); await loadBench(); records();
+    for (const [kind, arg, text] of DEMO_STEPS) {
+      $("demotext").textContent = text; $("demostep").textContent = kind === "card" ? "카드를 엽니다" : `“${arg}”`;
+      await new Promise(r => setTimeout(r, 1200));
+      if (kind === "card") {
+        const rs = await (await fetch("/records")).json(); const r = rs.find(x => x.sentence === arg);
+        if (r) await loadCard(r.id); await new Promise(r => setTimeout(r, 3500));
+      } else {
+        if (kind === "body") { await fetch("/demo/body", {method: "POST", body: "{}"}); await loadBench(); }
+        $("s").value = arg; window.scrollTo({top: 0, behavior: "smooth"}); await start(arg);
+        await new Promise(r => setTimeout(r, 2500));
+      }
+    }
+    $("demotext").textContent = "끝 · 노드에는 처음부터 끝까지 우리 코드가 남지 않았고, 허브에는 문장 카드만 남습니다. (데모는 기록 사본으로 돌았고, 소유자의 기록과 몸은 원래대로 돌아왔습니다.)";
+    $("demostep").textContent = "";
+  } finally {
+    await fetch("/demo/stop", {method: "POST", body: "{}"}); DEMO_ON = false; $("demo").disabled = false; loadBench(); records();
+    document.body.dataset.demo = "done";
+  }
+}
+$("demo").onclick = runDemo;
+$("w-stopall").onclick = async () => { await fetch("/watch_stop", {method: "POST", body: JSON.stringify({id: "all"})}); loadWatches(); };
+setInterval(loadWatches, 3000);
+const LEARN_STAGES = [["discover", "버스 훑기"], ["identify", "식별"], ["fragment", "조각 쓰기"], ["verify", "트윈 검증"], ["review", "안전 심사"], ["register", "등록"]];
+function askLearn(c, addr, waiting) {
+  c.querySelector(".row").innerHTML = `<span class="q" style="font-size:15px">${esc(addr)}의 부품을 배울까요? 끝날 때까지 몇 분 걸리고, 그동안 다른 문장은 그대로 쓸 수 있습니다.</span>
+    <button class="primary">예, 배워줘</button><button>아니오</button>`;
+  const [y, n] = c.querySelectorAll(".row button");
+  n.onclick = () => c.remove();
+  y.onclick = () => startLearn(c, addr, waiting);
+}
+async function startLearn(c, addr, waiting) {
+  const r = await (await fetch("/learn/start", {method: "POST", body: JSON.stringify({addr})})).json();
+  if (r.error) { c.querySelector(".row").innerHTML = `<span class="note">시작하지 못했습니다: ${esc(r.error)}</span>`; return; }
+  const jid = r.id; let since = 0; const seen = {};
+  c.querySelector(".row").innerHTML = `<div style="width:100%"><div class="rail" style="grid-template-columns:repeat(6,minmax(0,1fr));margin:6px 0">${LEARN_STAGES.map(([k, n]) =>
+    `<div class="step" id="ls-${k}"><b><i class="dot"></i>${n}</b><span id="lsd-${k}"></span></div>`).join("")}</div><div class="note" id="ls-msg">시작했습니다…</div></div>`;
+  const mark = (k, cls, t) => { const el = c.querySelector("#ls-" + k); if (el) { el.className = "step " + cls; if (t !== undefined) c.querySelector("#lsd-" + k).textContent = t; } };
+  const tick = async () => {
+    let d; try { d = await (await fetch(`/learn/status?id=${encodeURIComponent(jid)}&since=${since}`)).json(); } catch (e) { return setTimeout(tick, 3000); }
+    for (const ev of d.events || []) {
+      since++;
+      const k = ev.stage, st = ev.state || "";
+      LEARN_STAGES.forEach(([kk]) => { if (kk === k) mark(kk, st === "fail" ? "bad" : (st === "done" || st === "pass" || st === "written") ? "ok" : "run", [ev.part, ev.confidence ? "신뢰도 " + ev.confidence : "", ev.round ? ev.round + "회째" : ""].filter(Boolean).join(" ")); });
+      seen[k] = true;
+    }
+    const st = d.status || {};
+    c.querySelector("#ls-msg").textContent = `${st.stage_ko || "준비"} · ${st.seconds || 0}초`;
+    if (st.state === "done" || st.state === "failed") {
+      const res = st.result || {};
+      if (st.state === "done" && res.learned) {
+        c.querySelector("#ls-msg").innerHTML = `배웠습니다: ${esc(JSON.stringify(res.registered))}. ` + (waiting ? `기다리던 문장 “${esc(waiting)}”을 다시 실행합니다.` : "");
+        LEARN_STAGES.forEach(([k]) => mark(k, "ok"));
+        loadBench(); records();
+        if (waiting) setTimeout(() => { $("s").value = waiting; start(waiting); }, 1500);
+      } else {
+        c.querySelector("#ls-msg").innerHTML = `배우지 못했습니다${res.why ? ": " + esc(res.why) : ""}${st.log_tail ? "" : ""}. 허브는 이 주소를 '모름'으로 기억하고, 다음에 같은 척하지 않습니다.`;
+      }
+      return;
+    }
+    setTimeout(tick, 2000);
+  };
+  tick();
+}
+function card(html, cls) { const d = document.createElement("div"); d.className = "card " + (cls || ""); d.innerHTML = html; $("cards").appendChild(d); return d; }
+async function answer(text) { await fetch("/answer", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id: run, text})}); }
+
+let DEMO_ON = false, endResolve = null;
+function start(sentence, fromWatch) {
+  return new Promise(res => { endResolve = res; _start(sentence, fromWatch); });
+}
+function _start(sentence, fromWatch) {
+  if (es) es.close();
+  rail(); $("cards").innerHTML = ""; $("result").innerHTML = ""; $("nodesay").textContent = ""; $("times").innerHTML = "";
+  $("opbox").hidden = true; $("dbg").hidden = true; $("said").textContent = "“" + sentence + "”";
+  $("go").disabled = true;
+  es = new EventSource(`/say?sentence=${encodeURIComponent(sentence)}&state=${encodeURIComponent(JSON.stringify(STATE))}${fromWatch ? "&from_watch=1" : ""}`);
+  let schedRows = [], lastEffects = [];
+  $("evidence").hidden = true;
+  es.onmessage = m => {
+    const e = JSON.parse(m.data);
+    switch (e.stage) {
+      case "run": run = e.run; break;
+      case "sentence": step("sentence", "ok", "받음"); step("op", "run", "기억을 찾는 중"); break;
+      case "op":
+        if (e.state === "ready") {
+          if (e.matched) step("op", "ok", `“${e.matched.base}”와 같은 뜻 (${e.matched.how === "rule" ? "규칙, 모델 0회" : "모델 판정 " + e.gen_s + "초"})`); else
+          step("op", "ok", e.cached ? "기억에서 (모델 0회)" + (e.params && Object.keys(e.params).length ? " · " + Object.entries(e.params).map(([k, v]) => k.replace(/^P_/, "") + "=" + v).join(", ") : "") : `Claude Code가 ${e.gen_s}초에 작성`);
+          if (e.src) { $("op").textContent = e.src; $("opbox").hidden = false; }
+          step("confirm", "run", "");
+        } else if (e.state === "reply") step("op", "ok", e.cached ? "기억에서" : `Claude Code ${e.gen_s ?? ""}초`);
+        break;
+      case "ask":
+        if (DEMO_ON) { setTimeout(() => answer(e.kind === "confirm" ? "y" : "2번"), 1800); }
+        if (e.kind === "confirm") {
+          step("confirm", "run", "승인 기다림");
+          const c = card(`<div class="q">${esc(e.question)}</div><div class="note">장치 상태를 바꾸는 요청입니다. 한 번 승인하면 이 문장은 다시 묻지 않습니다.</div><div class="row" style="margin-top:8px"><button class="primary">실행</button><button>취소</button></div>`);
+          const [y, n] = c.querySelectorAll("button");
+          y.onclick = () => { answer("y"); c.remove(); }; n.onclick = () => { answer("n"); c.remove(); };
+        } else {
+          step("op", "stop", "되물음");
+          const c = card(`<div class="q">${esc(e.question)}</div><div class="row"><input placeholder="답"><button class="primary">답하기</button></div>`);
+          const i = c.querySelector("input"), b = c.querySelector("button");
+          const send = () => { if (i.value.trim()) { answer(i.value.trim()); c.remove(); } };
+          b.onclick = send; i.onkeydown = ev => { if (ev.key === "Enter") send(); }; i.focus();
+        }
+        break;
+      case "answer": $("said").textContent += "  → " + e.text; rail(); step("sentence", "ok", "답 붙임"); break;
+      case "confirm":
+        if (e.state === "ok") step("confirm", "ok", e.how === "기록에 저장된 승인" ? "이미 승인됨" : "승인 (" + e.how + ")");
+        else if (e.state === "not_needed") step("confirm", "ok", "읽기만 — 확인 불필요");
+        if (e.summary) $("said").innerHTML = `“${esc($("said").textContent.replace(/^“|”$/g, ""))}”<br><span class="note">허브의 이해: ${esc(e.summary)}</span>`;
+        step("check", "run", "");
+        break;
+      case "check": step("check", e.ok ? "ok" : "bad", e.ok ? `통과 · op ${e.op_bytes} B` : "거부 — 부팅 안 함"); if (e.ok) step("boot", "run", "켜는 중"); break;
+      case "boot":
+        if (e.state === "on") { node("on"); step("boot", "run", "켜짐"); }
+        else { step("boot", e.state === "off" ? "ok" : "bad", `켜짐→꺼짐 ${e.boot_to_off_ms} ms`); $("nodesay").innerHTML = (e.say || []).filter(s => /[가-힣]/.test(s)).map(s => "노드: " + esc(s)).join("<br>"); }
+        break;
+      case "result":
+        step("result", e.ok ? "ok" : "bad", e.ok ? "보고 받음" : "문제 있음");
+        $("result").innerHTML = (e.lines || []).map(l => `<div>${esc(l)}</div>`).join("") + (e.problem ? `<div class="note" style="color:var(--bad)">${esc(e.problem)}</div>` : "");
+        if (e.truth && e.truth.leds_on) leds(e.truth.leds_on);
+        if (e.truth && e.truth.ext) extTruth(e.truth.ext);
+        lastEffects = e.effects || [];
+        break;
+      case "empty":
+        evidence(e, lastEffects);
+        node("off", e.text); step("empty", e.powered_off ? "ok" : "bad", e.powered_off ? (e.wipe_check ? (e.wipe_check.nonzero === 0 ? `실측 ${Math.round(e.wipe_check.bytes / 1024)} KB 모두 0` : `⚠ ${e.wipe_check.nonzero} B 남음`) : (e.zeroed ? "0 채우기 (실측 없음)" : "꺼짐")) : "강제로 끔");
+        $("times").innerHTML = `<span>말부터 비움까지 <b>${e.total_s} s</b></span>`;
+        break;
+      case "schedule":
+        if (e.state === "plan") { card(`<div class="q">${esc(e.text)}</div><div id="sched" class="mono"></div>`); step("op", "ok", `예약 ${e.boots}회`); }
+        else if (e.state === "waiting") { node("off"); step("boot", "run", `다음 부팅까지 ${e.wait_s}s · 노드 꺼짐`); }
+        else if (e.state === "boot") { schedRows.push(`#${e.i + 1} +${e.at_s}s  ${(e.lines || []).join(" · ")}`); const s = $("sched"); if (s) s.textContent = schedRows.join("\n"); step("boot", "ok", `${e.i + 1}번째 부팅 끝`); }
+        break;
+      case "stop":
+        STAGES.forEach(([k]) => { const el = $("st-" + k); if (el && el.className.includes("run")) step(k, "stop", "멈춤"); });
+        card(`<div class="q">${esc(e.text)}</div>${e.hint ? `<div class="note">${esc(e.hint)}</div>` : ""}`, e.kind === "error" || e.kind === "refused" ? "bad" : "stop");
+        node("off");
+        break;
+      case "watch":
+        if (e.state === "plan") { card(`<div class="q">${esc(e.text)}</div>`); step("op", "ok", "지켜보기 요청"); }
+        else if (e.state === "armed") { step("confirm", "ok", "시작함"); }
+        else if (e.state === "first") { const l = e.last || {}; step("boot", "ok", "첫 확인 " + (l.at || "")); step("result", l.verdict === "ok" ? "ok" : "bad", (l.lines || []).slice(-1)[0] || "");
+          $("result").innerHTML = (l.lines || []).map(x => `<div>${esc(x)}</div>`).join("") + `<div class="note">지켜보는 중입니다 — 오른쪽 목록에서 멈출 수 있습니다. 화면이 떠 있는 동안 ${e.watch ? e.watch.every_s : 60}초마다 확인합니다.</div>`; loadWatches(); }
+        break;
+      case "body": {
+        const addr = (e.kind === "new" && (String(e.text).match(/0x[0-9a-fA-F]{2}/) || [])[0]) || null;
+        const c = card(`<div class="q">몸이 바뀌었습니다: ${esc(String(e.text).split(" — ")[0])}</div>${e.rerun ? '<div class="note">배선을 고쳐 문장을 한 번 더 처리합니다.</div>' : ""}
+          ${addr && !DEMO_ON ? `<div class="row"><button class="primary">배워줘</button><span class="note">허브가 이 부품을 식별하고 드라이버 조각을 써서 트윈에서 검증하고, 안전 심사를 거쳐 등록합니다(몇 분, Claude Code 여러 번).</span></div>` : ""}`, "stop");
+        if (e.rerun) { rail(); step("sentence", "ok", "다시"); }
+        const btn = c.querySelector("button");
+        if (btn) { const waiting = $("s").value; btn.onclick = () => askLearn(c, addr, waiting); }
+        loadBench(); break; }
+      case "error_detail": $("dbgtext").textContent = e.text; $("dbg").hidden = false; break;
+      case "end": if (endResolve) { const r = endResolve; endResolve = null; setTimeout(r, 400); }
+        es.close(); es = null; $("go").disabled = false; records(); if (!$("cardpanel").hidden && lastCard) loadCard(lastCard); break;
+    }
+  };
+  es.onerror = () => { if (es) { es.close(); es = null; } $("go").disabled = false; if (endResolve) { const r = endResolve; endResolve = null; r(); } };
+}
+$("f").onsubmit = ev => { ev.preventDefault(); const s = $("s").value.trim(); if (s) start(s); };
+$("chips").innerHTML = SAMPLES.map(s => `<button class="chip" type="button">${esc(s)}</button>`).join("");
+$("chips").querySelectorAll(".chip").forEach(b => b.onclick = () => { $("s").value = b.textContent; start(b.textContent); });
+// voice: the browser's own speech recognition (Chrome); hidden where there is none
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SR) {
+  const rec = new SR(); rec.lang = "ko-KR"; rec.interimResults = true; rec.maxAlternatives = 1;
+  let listening = false;
+  $("mic").hidden = false;
+  $("mic").onclick = () => { if (listening) { rec.stop(); return; } try { rec.start(); } catch (e) {} };
+  rec.onstart = () => { listening = true; $("mic").classList.add("on"); $("mic").textContent = "듣는 중… (누르면 멈춤)"; };
+  rec.onend = () => { listening = false; $("mic").classList.remove("on"); $("mic").textContent = "말로 하기"; };
+  rec.onerror = ev => { $("said").textContent = ev.error === "not-allowed" ? "마이크 권한이 없습니다." : "음성 인식이 안 됐습니다 (" + ev.error + ")."; };
+  rec.onresult = ev => {
+    const r = ev.results[ev.results.length - 1], t = r[0].transcript.trim();
+    $("s").value = t;
+    if (r.isFinal && t) start(t);
+  };
+}
+$("reset").onclick = async () => { await fetch("/reset", {method: "POST"}); leds([]); };
+rail(); records(); loadBench(); loadWatches();
+if (location.hash === "#demo") runDemo();
+else if (location.hash.startsWith("#card=")) loadCard(decodeURIComponent(location.hash.slice(6)));
+else if (location.hash.length > 1) { const s = decodeURIComponent(location.hash.slice(1)); $("s").value = s; start(s); }   // http://127.0.0.1:8765/#온도 알려줘
+</script>
+</body>
+</html>

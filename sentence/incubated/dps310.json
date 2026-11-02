@@ -1,0 +1,663 @@
+{
+ "name": "dps310",
+ "addr": "0x77",
+ "part": "DPS310",
+ "identity": "Barometric pressure + temperature sensor (Infineon DPS3xx family)",
+ "fragment_part": null,
+ "confidence": 0.8,
+ "evidence": "0xD0 reads 0xFF and 0x80-0xFF all read 0xFF, ruling out BMP280/BME280/BMP180. Map 0x00-0x28 matches DPS310 exactly: 24-bit PSR_B2..B0 = fe 2f ee, TMP_B2..B0 = 02 69 a6, PRS_CFG=00, TMP_CFG=80 (external temp sensor), MEAS_CFG=F0 (COEF_RDY|SENSOR_RDY|TMP_RDY|PRS_RDY), CFG_REG=00, 18-byte coefficient block at 0x10-0x21, COEF_SRCE 0x28=0x90. Auto-increment wraps from 0xFF to 0x00. Product ID 0x0D reads 0xFF (not 0x10), so DPS310 vs DPS368 is unconfirmed. Soft reset (w 0C 09) acks and status stays F0.",
+ "registers": "0x00-02 PSR 24-bit signed raw; 0x03-05 TMP 24-bit signed raw; 0x06 PRS_CFG (rate/oversampling); 0x07 TMP_CFG (bit7 external sensor, rate/oversampling); 0x08 MEAS_CFG (status bits 7-4, mode bits 2-0); 0x09 CFG_REG; 0x0C RESET (write 0x09 = soft reset); 0x0D product ID (reads 0xFF here); 0x10-0x21 coefficients c0(12) c1(12) c00(20) c10(20) c01 c11 c20 c21 c30 (16-bit signed) = 225, -291, 81061, -57006, -1594, 1233, -9401, 91, -1222; 0x28 COEF_SRCE=0x90. Auto-increment on reads. Compensation at 1x oversampling: kT=kP=524288; T=c0/2+c1*Tsc; P=c00+Psc*(c10+Psc*(c20+Psc*c30))+Tsc*c01+Tsc*Psc*(c11+Psc*c21).",
+ "learned": "2026-10-11 22:29",
+ "by": "Claude Code CLI (claude -p / agent with probe.py only)",
+ "bench": "ext",
+ "functions": [
+  {
+   "sig": "static int dps310_read(unsigned addr, long *temp_mc, long *press_pa)",
+   "doc": "compensated temperature in milli-degC (-40000..85000) and pressure in Pa (30000..120000); triggers a 1x measurement if none is ready; 0 = ok",
+   "access": "read",
+   "write_regs": [
+    6,
+    7,
+    8
+   ],
+   "max_write": 2,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int dps310_read_raw(unsigned addr, long *temp_raw, long *press_raw)",
+   "doc": "raw 24-bit signed TMP (0x03..05) and PSR (0x00..02) at 1x oversampling, scale 524288; measures first if needed; 0 = ok",
+   "access": "read",
+   "write_regs": [
+    6,
+    7,
+    8
+   ],
+   "max_write": 2,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int dps310_compensate(unsigned addr, long temp_raw, long press_raw, long *temp_mc, long *press_pa)",
+   "doc": "reads the chip's coefficients 0x10..0x21 and turns 24-bit raw values into milli-degC and Pa; 0 = ok",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 0,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int dps310_identify(unsigned addr)",
+   "doc": "1 if product ID 0x0D reads 0x10 (DPS310/DPS368 share it); 0 if 0x0D has another non-0xFF value, 0xD0 has a Bosch-style ID (not 0xFF) or reserved MEAS_CFG bit 3 is set; -1 if a read fails or 0x0D reads 0xFF and nothing rules it out (the bench part reads 0xFF, so it gives -1 here)",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ ],
+ "tests": [
+  {
+   "name": "read_temp_pressure",
+   "knobs": {},
+   "params": {},
+   "text": false,
+   "expect": {},
+   "tol": {},
+   "expect_knobs": {},
+   "expect_range": {
+    "temp_mc": [
+     -40000,
+     85000
+    ],
+    "press_pa": [
+     30000,
+     120000
+    ],
+    "temp_raw": [
+     -8388608,
+     8388607
+    ],
+    "press_raw": [
+     -8388608,
+     8388607
+    ]
+   }
+  }
+ ],
+ "test_ops": [
+  "#include \"rt.h\"\n#include \"dps310.h\"\n\n#define DPS_ADDR 0x77\n\nvoid op_main(void)\n{\n    long tr, pr, tmc, ppa, tmc2, ppa2, dt, dp;\n    int e;\n\n    e = dps310_read_raw(DPS_ADDR, &tr, &pr);\n    if (e) { fail(\"dps310 raw read failed\"); return; }\n    e = dps310_compensate(DPS_ADDR, tr, pr, &tmc, &ppa);\n    if (e) { fail(\"dps310 coefficient read failed\"); return; }\n\n    report_int(\"temp_raw\", tr);\n    report_int(\"press_raw\", pr);\n    report_int(\"temp_mc\", tmc);\n    report_int(\"press_pa\", ppa);\n\n    /* the one-call path a sentence op uses must agree with the explicit path */\n    e = dps310_read(DPS_ADDR, &tmc2, &ppa2);\n    if (e) { fail(\"dps310_read failed\"); return; }\n    dt = tmc2 - tmc; if (dt < 0) dt = -dt;\n    dp = ppa2 - ppa; if (dp < 0) dp = -dp;\n    if (dt > 2000 || dp > 300) { fail(\"dps310_read disagrees with raw+compensate\"); return; }\n\n    if (tmc < -40000 || tmc > 85000) { fail(\"temperature out of sensor range\"); return; }\n    if (ppa < 30000 || ppa > 120000) { fail(\"pressure out of sensor range\"); return; }\n\n    report_fixed(\"temp_c\", tmc, 3);\n    report_fixed(\"press_hpa\", ppa, 2);\n    say(\"dps310 ok\");\n}\n"
+ ],
+ "verification": [
+  {
+   "test": "read_temp_pressure",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {},
+     "text": null,
+     "result": {
+      "temp_raw": 158118,
+      "press_raw": -118802,
+      "temp_mc": 24738,
+      "press_pa": 92946,
+      "temp_c": 24.738,
+      "press_hpa": 929.46
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-SAY dps310 ok",
+      "POKE-EFFECTS2 1800000000000000011820020c0000000c0000000000000077010000000000000000000000000000000000000000000000000000000000000000490101000000000000000000000000000000000000000000000000000000000000000000000077000001010000000800000000000000000000007701000101000000f00000000000000001000000770000010100000006000000000000000100000077010003030000000080f0000000000001000000770000010100000003000000000000000100000077010003030000000269a600000000000100000077000001010000000000000000000000010000007701000303000000fe2fee00000000000100000077000001010000000800000000000000010000007701000101000000f00000000000000001000000770000010100000010000000000000000100000077010008120000000e1edd13ca5f21520100000077000001010000000800000000000000010000007701000101000000f00000000000000001000000770000010100000006000000000000000100000077010003030000000080f0000000000001000000770000010100000003000000000000000100000077010003030000000269a600000000000100000077000001010000000000000000000000010000007701000303000000fe2fee00000000000100000077000001010000000800000000000000010000007701000101000000f00000000000000001000000770000010100000010000000000000000100000077010008120000000e1edd13ca5f2152",
+      "POKE-RESULT {\"temp_raw\":158118,\"press_raw\":-118802,\"temp_mc\":24738,\"press_pa\":92946,\"temp_c\":24.738,\"press_hpa\":929.46}",
+      "POKE-END ms=5 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "temp_mc",
+       "range": [
+        -40000,
+        85000
+       ],
+       "got": 24738,
+       "ok": true
+      },
+      {
+       "key": "press_pa",
+       "range": [
+        30000,
+        120000
+       ],
+       "got": 92946,
+       "ok": true
+      },
+      {
+       "key": "temp_raw",
+       "range": [
+        -8388608,
+        8388607
+       ],
+       "got": 158118,
+       "ok": true
+      },
+      {
+       "key": "press_raw",
+       "range": [
+        -8388608,
+        8388607
+       ],
+       "got": -118802,
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {},
+     "text": null,
+     "result": {
+      "temp_raw": 158118,
+      "press_raw": -118802,
+      "temp_mc": 24738,
+      "press_pa": 92946,
+      "temp_c": 24.738,
+      "press_hpa": 929.46
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-SAY dps310 ok",
+      "POKE-EFFECTS2 1800000000000000011820020c0000000c0000000000000077010000000000000000000000000000000000000000000000000000000000000000490101000000000000000000000000000000000000000000000000000000000000000000000077000001010000000800000000000000000000007701000101000000f00000000000000001000000770000010100000006000000000000000100000077010003030000000080f0000000000001000000770000010100000003000000000000000100000077010003030000000269a600000000000100000077000001010000000000000000000000010000007701000303000000fe2fee00000000000100000077000001010000000800000000000000010000007701000101000000f00000000000000001000000770000010100000010000000000000000100000077010008120000000e1edd13ca5f21520100000077000001010000000800000000000000010000007701000101000000f00000000000000001000000770000010100000006000000000000000100000077010003030000000080f0000000000001000000770000010100000003000000000000000100000077010003030000000269a600000000000100000077000001010000000000000000000000010000007701000303000000fe2fee00000000000100000077000001010000000800000000000000010000007701000101000000f00000000000000001000000770000010100000010000000000000000100000077010008120000000e1edd13ca5f2152",
+      "POKE-RESULT {\"temp_raw\":158118,\"press_raw\":-118802,\"temp_mc\":24738,\"press_pa\":92946,\"temp_c\":24.738,\"press_hpa\":929.46}",
+      "POKE-END ms=5 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "temp_mc",
+       "range": [
+        -40000,
+        85000
+       ],
+       "got": 24738,
+       "ok": true
+      },
+      {
+       "key": "press_pa",
+       "range": [
+        30000,
+        120000
+       ],
+       "got": 92946,
+       "ok": true
+      },
+      {
+       "key": "temp_raw",
+       "range": [
+        -8388608,
+        8388607
+       ],
+       "got": 158118,
+       "ok": true
+      },
+      {
+       "key": "press_raw",
+       "range": [
+        -8388608,
+        8388607
+       ],
+       "got": -118802,
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  },
+  {
+   "test": "read_temp_pressure",
+   "note": "cold start (hub): configuration cleared before the recorded op",
+   "ok": false,
+   "draws": [
+    {
+     "draw": {
+      "cold": true
+     },
+     "result": {
+      "error": "dps310 raw read failed"
+     },
+     "effects": {
+      "v": 2,
+      "n": 6011,
+      "truncated": true,
+      "other_devices": 0,
+      "dev": [
+       {
+        "a": 119,
+        "w": 3008,
+        "r": 3003,
+        "denied": 0,
+        "regs": [
+         6,
+         7,
+         8
+        ],
+        "ptr": [
+         6,
+         8,
+         40
+        ]
+       }
+      ],
+      "x": [
+       [
+        0,
+        "w",
+        119,
+        "0600",
+        2,
+        0
+       ],
+       [
+        0,
+        "w",
+        119,
+        "0700",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08c0",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "c0",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "06",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "0000c0",
+        3,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "28",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "90",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "0780",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "0802",
+        2,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ],
+       [
+        1,
+        "r",
+        119,
+        "02",
+        1,
+        0
+       ],
+       [
+        1,
+        "w",
+        119,
+        "08",
+        1,
+        0
+       ]
+      ]
+     },
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS2 7b1700000000000001202002c00b0000bb0b0000000000007701c001000000000000000000000000000000000000000000000000000000000000400100000001000000000000000000000000000000000000000000000000000000000000000077000002020000000600000000000000000000007700000202000000070000000000000001000000770000020200000008c00000000000000100000077000001010000000800000000000000010000007701000101000000c00000000000000001000000770000010100000006000000000000000100000077010003030000000000c000000000000100000077000001010000002800000000000000010000007701000101000000900000000000000001000000770000020200000007800000000000000100000077000002020000000802000000000000010000007700000101000000080000000000000001000000770100010100000002000000000000000100000077000001010000000800000000000000010000007701000101000000020000000000000001000000770000010100000008000000000000000100000077010001010000000200000000000000010000007700000101000000080000000000000001000000770100010100000002000000000000000100000077000001010000000800000000000000010000007701000101000000020000000000000001000000770000010100000008000000000000000100000077010001010000000200000000000000010000007700000101000000080000000000000001000000770100010100000002000000000000000100000077000001010000000800000000000000010000007701000101000000020000000000000001000000770000010100000008000000000000000100000077010001010000000200000000000000010000007700000101000000080000000000000001000000770100010100000002000000000000000100000077000001010000000800000000000000",
+      "POKE-RESULT {\"error\":\"dps310 raw read failed\"}",
+      "POKE-END ms=38 status=failed",
+      "POKE-OFF"
+     ]
+    }
+   ]
+  }
+ ],
+ "rounds": 1,
+ "twin_knobs": [],
+ "verified": true,
+ "verification_kind": "plausible ranges + independent reading",
+ "oracle": {
+  "compare": [
+   {
+    "key": "press_hpa",
+    "fragment": 929.46,
+    "independent": 929.463,
+    "ok": true
+   },
+   {
+    "key": "press_pa",
+    "fragment": 92946,
+    "independent": 92946.3,
+    "ok": true
+   },
+   {
+    "key": "temp_c",
+    "fragment": 24.738,
+    "independent": 24.738,
+    "ok": true
+   },
+   {
+    "key": "temp_mc",
+    "fragment": 24738,
+    "independent": 24738,
+    "ok": true
+   }
+  ],
+  "dump": "fe 2f ee 02 69 a6 00 80 f0 00 ff ff ff ff ff ff 0e 1e dd 13 ca 5f 21 52 f9 c6 04 d1 db 47 00 5b fb 3a ff ff ff ff ff ff 90 ff ff ff ff ff ff ff ff ff 02 ff ff ff ff ff ff ff ff ff ff ff ff ff",
+  "oracle_tail": "I worked this out from the register dump and the DPS310 datasheet formulas.\n\n**Configuration read from the dump**\n- PRS_CFG (0x06) is 0x00, so pressure uses 1x oversampling and kP = 524288.\n- TMP_CFG (0x07) is 0x80. That selects the external temperature sensor, with 1x oversampling and kT = 524288.\n- MEAS_CFG (0x08) is 0xF0, so the coefficients, sensor, temperature and pressure flags are all ready. No new measurement is needed.\n- CFG_REG (0x09) is 0x00, so no result shift is applied.\n\n**Raw readings**\n- PSR = 0xFE2FEE, which is −118802 as a signed number. Scaled: Praw_sc = −118802 / 524288 = −0.2265968\n- TMP = 0x0269A6, which is 158118. Scaled: Traw_sc = 158118 / 524288 = 0.3015862\n\n**Coefficients from 0x10..0x21** (`0e 1e dd 13 ca 5f 21 52 f9 c6 04 d1 db 47 00 5b fb 3a`)\n- c0 = 225, c1 = −291\n- c00 = 81061, c10 = −57006\n- c01 = −1594, c11 = 1233\n- c20 = −9401, c21 = 91, c30 = −1222\n\n**Temperature**\nT = c0/2 + c1·Traw_sc = 112.5 − 87.7616 = **24.7384 °C**\n\n**Pressure**\nP = c00 + Praw_sc·(c10 + Praw_sc·(c20 + Praw_sc·c30)) + Traw_sc·c01 + Traw_sc·Praw_sc·(c11 + Praw_sc·c21)\n\nThe terms work out as:\n- Pressure polynomial: Praw_sc·(…) = +12448.891\n- Temperature term: Traw_sc·c01 = −480.728\n- Cross term: Traw_sc·Praw_sc·(…) = −82.852\n\nP = 81061 + 12448.891 − 480.728 − 82.852 = **92946.31 Pa**, or about 929.46 hPa. Both values are inside the driver's stated ranges.\n\n```json\n{\"press_hpa\": 929.463, \"press_pa\": 92946.3, \"temp_c\": 24.738, \"temp_mc\": 24738}\n```"
+ },
+ "kept_on_node": "nothing — the fragment lives on the hub and joins an image only when a sentence needs it",
+ "identify": null,
+ "identify_kind": "none",
+ "identify_test": {
+  "fn": "dps310_identify",
+  "at": {
+   "0x77": -1,
+   "0x48": 0,
+   "0x68": 0,
+   "0x1e": 0,
+   "0x60": -1,
+   "0x4c": 0,
+   "0x20": 0,
+   "0x3c": 0
+  },
+  "error": null
+ },
+ "amended": "2026-10-11 22:50",
+ "amend_rounds": 1,
+ "review_pending": null,
+ "review": [
+  {
+   "fn": "dps310_read",
+   "access": "read",
+   "declared": [
+    6,
+    7,
+    8
+   ],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    2,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "never seen writing [6, 7, 8]"
+   ]
+  },
+  {
+   "fn": "dps310_read_raw",
+   "access": "read",
+   "declared": [
+    6,
+    7,
+    8
+   ],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    2,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "never seen writing [6, 7, 8]"
+   ]
+  },
+  {
+   "fn": "dps310_compensate",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    0,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "dps310_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 0,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "no verification run calls it"
+   ]
+  }
+ ],
+ "review_problems": [],
+ "review_applied": {
+  "at": "2026-10-12 08:37",
+  "by": "verify team (chair's decision: no unreviewed write access)",
+  "result": "write_regs [] for dps310_read / dps310_read_raw — the configuration writes 0x06–0x08 were never seen in a completed verification run"
+ },
+ "real_chip_todo": "실칩에서는 차가운 상태 시험(설정 레지스터를 지운 뒤 기록된 시험 op) 후 설정 쓰기(0x06–0x08) 재심사 필요 — 지금 권한으로는 전원 직후 설정이 필요한 실제 칩의 첫 읽기가 kind=i2c로 거절됨(안전한 실패)"
+}

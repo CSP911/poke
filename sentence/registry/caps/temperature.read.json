@@ -1,0 +1,11 @@
+{
+ "cap": "temperature.read",
+ "v": 1,
+ "call": "int cap_temperature_read(cap_t c, long *milli_c)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "온도를 한 번 읽는다 (m°C)",
+ "safety": "inert",
+ "outputs": [
+  "milli_c"
+ ]
+}

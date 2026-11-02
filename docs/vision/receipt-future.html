@@ -1,0 +1,128 @@
+<title>영수증을 남기는 휘발</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#EEF0EC; --surface:#F8F9F6; --ink:#151815; --muted:#5B625A; --line:#D2D6CE;
+  --accent:#1F6B4E; --accent-soft:#DCEDE4; --amber:#8E6400; --amber-soft:#F3E9CC; --red:#A63A2B; --red-soft:#F5DFDA; --blue:#2D5A8C; --blue-soft:#DDE7F2;
+  --display:"IBM Plex Sans KR","Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#111412; --surface:#181C19; --ink:#E6EAE5; --muted:#99A197; --line:#2A302B;
+    --accent:#6FCB9E; --accent-soft:#16301F; --amber:#E2B54C; --amber-soft:#352A10; --red:#F08C7C; --red-soft:#3A1C17; --blue:#8DB7E8; --blue-soft:#172535;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#111412; --surface:#181C19; --ink:#E6EAE5; --muted:#99A197; --line:#2A302B;
+  --accent:#6FCB9E; --accent-soft:#16301F; --amber:#E2B54C; --amber-soft:#352A10; --red:#F08C7C; --red-soft:#3A1C17; --blue:#8DB7E8; --blue-soft:#172535;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.72;padding-inline:20px;padding-block:0}
+.page{max-width:940px;margin:0 auto;padding-block:44px 90px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(32px,5vw,48px);line-height:1.2;margin:8px 0 14px;text-wrap:balance}
+.thesis{font-family:var(--display);font-size:clamp(19px,2.4vw,23px);font-weight:500;line-height:1.5;border-left:4px solid var(--accent);padding:6px 0 6px 18px;margin:20px 0;max-width:40em}
+section{padding-top:42px}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(21px,2.6vw,26px);margin:0 0 12px;text-wrap:balance}
+h3{font-family:var(--display);font-weight:700;font-size:17px;margin:0 0 4px}
+p,li{max-width:70ch}
+.teams{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.team{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:14.5px}
+.team .who{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.06em}
+.team p{margin:6px 0 0}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;min-width:620px;font-size:14.5px}
+th,td{text-align:left;vertical-align:top;padding:9px 11px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+.pill{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 8px;border-radius:99px;white-space:nowrap}
+.ok{background:var(--accent-soft);color:var(--accent)} .cond{background:var(--amber-soft);color:var(--amber)} .no{background:var(--red-soft);color:var(--red)} .now{background:var(--blue-soft);color:var(--blue)}
+.layers{display:grid;gap:8px;margin:14px 0}
+.layers div{display:grid;grid-template-columns:9em 1fr;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-size:14.5px}
+.layers b{font-family:var(--display)}
+.ask{background:var(--amber-soft);border-left:3px solid var(--amber);border-radius:0 10px 10px 0;padding:14px 18px}
+.ask ul{margin:6px 0 0;padding-left:20px}
+code{font-family:var(--mono);font-size:.88em;background:var(--accent-soft);padding:1px 6px;border-radius:4px}
+footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+@media (max-width:520px){.layers div{grid-template-columns:1fr}}
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">POKE · 미래 회의 · 2026-10-12 · 비전가 · 현장·사업가 · 기술 철학자 · 반대 변호인 · 2라운드</div>
+  <h1>영수증을 남기는 휘발</h1>
+  <p>주제: 필요할 때 부팅시키고, 바이너리를 주입하고, 휘발시키는 사이클로 어떤 미래를 만들 수 있는가.</p>
+  <div class="thesis">AI가 물리 세계에 손댈 때마다, 의도 하나만큼의 권한과 허브를 믿지 않아도 되는 영수증. 휘발은 그 영수증을 완전하게 만드는 수단이다. 남는 상태가 없으니, 이번 실행이 한 일은 기록된 일이 전부다.</div>
+  <p>네 팀이 서로 다른 곳에서 출발해 이 명제로 모였다. 반대 변호인은 이 명제를 가장 세게 공격한 뒤에도 남는 유일한 핵으로 판정했다. 단, 실기기 실험 두 개를 통과하기 전까지는 "잘 정리된 허브 로그"일 뿐이라는 조건을 붙였다.</p>
+</header>
+
+<section>
+  <h2>각 팀이 가져온 것</h2>
+  <div class="teams">
+    <div class="team"><div class="who">비전가</div><h3>증명된 부재 → 남을 곳 없는 몸과 몸 밖 증인</h3><p>깨어날 때마다 영수증을 남기는 기계. 공격을 받고 "비었는지 봤다"에서 "남을 곳이 없다 + 버스의 제3 증인 + 허브 이미지의 추가 전용 로그"로 바꿨다.</p></div>
+    <div class="team"><div class="who">기술 철학자</div><h3>새 단위는 카드</h3><p>코드는 사건이 되고, 신뢰는 출처가 아니라 행동에서 온다. 허브도 모델도 op도 믿지 않는 설계: 신뢰는 고정된 9.7 KB 런타임과 정책표, 허브 밖 검증자에만.</p></div>
+    <div class="team"><div class="who">현장·사업가</div><h3>출구와 영수증</h3><p>CISA 등 8개국 'AI in OT' 원칙과 EU AI Act가 AI 행위 기록을 요구한다. 지금 도구는 "누가 접속했나"만 기록한다. 첫 매출은 문장 시험대, 정체성은 "AI가 현장 기기에 손대는 출구와 영수증".</p></div>
+    <div class="team"><div class="who">반대 변호인</div><h3>남는 핵 하나</h3><p>요청마다 부팅하는 것 자체는 PXE·Jitsu·Firecracker가 이미 한다. 새로운 것은 자연어 의도 = 실행·권한 단위, 물리 버스 권한을 의도마다 이미지에 박기, 위조 불가 행동 기록을 의도와 대조하기. 이 셋의 닫힌 고리.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>판정</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>안</th><th>판정</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td>AI 행위 영수증 (수렴 명제)</td><td><span class="pill cond">조건부</span></td><td>허브 불신 영수증과 실기기 망각을 증명해야 참이 된다.</td></tr>
+      <tr><td>카드 · 흔적 동치</td><td><span class="pill ok">살아남음</span></td><td>코드가 아니라 행동으로 같은지 판정한다. 모델이 바뀌어도 카드가 남는다.</td></tr>
+      <tr><td>문장 시험대 (첫 매출)</td><td><span class="pill ok">살아남음</span></td><td>행동 기록이 곧 시험 성적서. 실험실은 허브 신뢰를 자기 안에서 해결한다.</td></tr>
+      <tr><td>문장 상속</td><td><span class="pill cond">조건부</span></td><td>카드의 정본을 문장이 아니라 "말 + 통과해야 할 행동 시험"으로 옮겨야 한다. 모델 세대 간 재현 90% 증명 전.</td></tr>
+      <tr><td>레거시 공장 감시 노드</td><td><span class="pill cond">조건부</span></td><td>감염될 수 없는 노드 대신 감염될 수 있는 허브가 생긴다. 허브 불신 설계가 먼저.</td></tr>
+      <tr><td>설치 없는 지구</td><td><span class="pill no">기각</span></td><td>패치가 사라지지 않고 허브와 모델로 옮겨 갈 뿐이다. 남는 것은 "장비 수명과 SW 수명의 분리"뿐.</td></tr>
+      <tr><td>규제 기기 (CRA · 524B)</td><td><span class="pill no">지금은 기각</span></td><td>생성 코드를 인증받을 경로가 없다. 규제가 원하는 것은 SBOM과 패치 체계다.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>분업: POKE는 행위 층</h2>
+  <p>모든 팀이 받아들인 한계: 20 ms 제어 루프처럼 끊기면 안 되는 일은 부팅 단위로 자를 수 없다. 그래서 층을 나눈다.</p>
+  <div class="layers">
+    <div><b>연속 제어</b><span>인증받은 결정적 PLC · MCU. 손대지 않는다.</span></div>
+    <div><b>POKE 노드</b><span>그 옆에서 진단 포트나 설정 레지스터에만 닿는다. 밸브 개폐, 설정 변경, 문 해제 같은 위험한 개별 행위 하나를 하고 비워진다.</span></div>
+    <div><b>POKE 허브</b><span>허용 목록 정책, 사람 승인, 카드. 영수증을 만들지 않고 전달만 한다.</span></div>
+    <div><b>허브 밖 검증자</b><span>노드 출력을 독립 경로로 받고, 영수증을 해시 사슬로 묶어 추가 전용 로그에 서명한다. 버스의 수동 증인과 대조한다.</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>명제를 참으로 만드는 실험</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>실험</th><th>합격 기준</th><th>필요한 것</th></tr></thead>
+    <tbody>
+      <tr><td><b>1. 허브 불신</b> — 악의적 허브가 영수증을 위조·바꿔치기</td><td>허브 밖 검증자가 100% 잡아냄</td><td><span class="pill now">트윈에서 지금 가능</span> 검증자를 별도 프로세스로. 실기기는 UART 탭, 서명 부팅은 CM4</td></tr>
+      <tr><td><b>2. 실기기 망각</b> — 비밀 표식을 심은 op 실행 후 리셋, 다음 부팅의 고정 해시 검사 이미지가 영역을 훑어 보고</td><td>1,000회 표식 0, 콜드·웜 리셋 모두. VideoCore 영역은 범위 밖이라고 영수증에 명시</td><td><span class="pill now">트윈에서 방식 먼저</span> 이후 Pi 4</td></tr>
+      <tr><td><b>3. 영수증 대 증인</b> — I2C 버스에 수동 증인 MCU를 따로 붙이고 정상 20 + 허용 밖 시도 10</td><td>행동 기록과 증인 기록 30/30 일치, 허용 밖 시도 10/10 거부되고 버스 접근 없음</td><td>Pi 4 + ESP32(JARVIS 쪽 재사용) 또는 로직 분석기</td></tr>
+      <tr><td><b>4. 모델 세대 재현</b> — 카드 20장을 다른 모델로 다시 발음하고 기준 흔적과 대조</td><td>재현 90% 이상, 어긋난 카드는 동결</td><td><span class="pill now">트윈에서 지금 가능</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>소유자 결정이 필요한 것</h2>
+  <div class="ask">
+    <ul>
+      <li><b>휘발의 위치.</b> 회의는 휘발을 목적이 아니라 증거를 완전하게 만드는 수단으로 재정의했다. "미래에는 OS가 필요 없다"는 POKE의 출발점과 어떻게 맞출지는 소유자의 판단이다. 회의의 답은 "노드에서는 여전히 OS가 필요 없다. 그 이유가 미학에서 증거로 바뀐다"였다.</li>
+      <li><b>먼저 할 실험.</b> 트윈에서 지금 할 수 있는 1번(허브 불신 영수증)과 4번(모델 세대 재현)부터 할지, Pi와 증인 MCU를 연결해 2·3번으로 갈지.</li>
+      <li><b>접는 조건.</b> 사업가 제안: 실기기 파일럿 고객 5곳 중 누구도 영수증에 값을 매기지 않으면 공증 계층 서사를 접고 시험대 사업으로 좁힌다.</li>
+      <li><b>상용 의존.</b> 허브 LLM이 Claude Code 구독 로그인에 묶여 있다. 제품이 되려면 상용 API 계약과 오프라인 모드가 필요하다.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  근거 자료: CISA 외 8개국 'Principles for the Secure Integration of AI in OT'(2025-12), EU AI Act 12조 기록 의무, IETF RATS · TCG DICE, Jitsu(NSDI 2015) · Firecracker. 내부: <code>sentence/teams/verify/AUDIT.md</code>, 메모리 더늠·소모성 컴퓨팅·프롬프트 가전 기록.
+</footer>
+</div>

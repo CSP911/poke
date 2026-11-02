@@ -1,0 +1,49 @@
+{
+ "id": "ssd0303",
+ "identity": "monochrome OLED dot-matrix display controller, write-only (the bench display)",
+ "fragment": "ssd0303.h",
+ "default_addr": "0x3c",
+ "identify": null,
+ "verification": {
+  "kind": "?",
+  "on": "ext",
+  "rounds": 2,
+  "when": "2026-10-11 22:16"
+ },
+ "implements": [
+  {
+   "cap": "display.text",
+   "channels": {
+    "": 0
+   },
+   "body": "int r_ = ssd0303_on(ADDR); return r_ ? r_ : ssd0303_text(ADDR, line, 0, s);",
+   "fns": [
+    "ssd0303_on",
+    "ssd0303_text"
+   ],
+   "access": "write",
+   "policy": "deny"
+  }
+ ],
+ "functions": {
+  "ssd0303_on": {
+   "access": "write",
+   "write_regs": [
+    64,
+    128
+   ],
+   "max_write": 34,
+   "policy": "deny"
+  },
+  "ssd0303_text": {
+   "access": "write",
+   "write_regs": [
+    64,
+    128
+   ],
+   "max_write": 7,
+   "policy": "deny"
+  }
+ },
+ "unbound": []
+}

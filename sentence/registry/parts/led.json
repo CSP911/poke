@@ -1,0 +1,88 @@
+{
+ "id": "led",
+ "identity": "i2c-led-61",
+ "fragment": "led.h",
+ "default_addr": "0x60",
+ "identify": null,
+ "verification": {
+  "kind": "library driver (earlier incubation)"
+ },
+ "implements": [
+  {
+   "cap": "switch.set",
+   "channels": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "11": 11,
+    "12": 12,
+    "13": 13,
+    "14": 14,
+    "15": 15
+   },
+   "body": "return led_set(ADDR, CH, on ? 0 : 1);",
+   "what": "LED",
+   "fns": [
+    "led_set"
+   ],
+   "access": "write",
+   "policy": "confirm"
+  },
+  {
+   "cap": "switch.read",
+   "channels": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "11": 11,
+    "12": 12,
+    "13": 13,
+    "14": 14,
+    "15": 15
+   },
+   "body": "unsigned p_; int r_ = led_inputs(ADDR, &p_); if (!r_) *on = !((p_ >> CH) & 1); return r_;",
+   "what": "LED",
+   "fns": [
+    "led_inputs"
+   ],
+   "access": "read",
+   "policy": "allow"
+  }
+ ],
+ "functions": {
+  "led_inputs": {
+   "access": "read",
+   "write_regs": [],
+   "max_write": null,
+   "policy": "allow"
+  },
+  "led_set": {
+   "access": "write",
+   "write_regs": [
+    6,
+    7,
+    8,
+    9
+   ],
+   "max_write": 2,
+   "policy": "confirm"
+  }
+ },
+ "unbound": []
+}

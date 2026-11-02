@@ -67,7 +67,11 @@ def main():
         print("no identified devices (run incubate.py first)"); return
     twin = pokeedge.Twin(extra=VIRTUAL, monitor=True) if HOST == "twin" else None
     host = twin.__enter__() if twin else HOST
-    client = anthropic.Anthropic()
+    if "--cli" in sys.argv or os.environ.get("POKE_LLM") == "cli":
+        import claude_cli
+        client = claude_cli.Client(); print("[생성기] Claude Code CLI (claude -p)")
+    else:
+        client = anthropic.Anthropic()
     try:
         link = pokeedge.connect(host)
         results = []

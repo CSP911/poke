@@ -1,0 +1,13 @@
+{
+ "cap": "power.measure",
+ "v": 1,
+ "call": "int cap_power_measure(cap_t c, long *vin_mv, long *iout_ma, long *pin_mw)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "입력 전압(mV)·전류(mA)·전력(mW)을 잰다",
+ "safety": "inert",
+ "outputs": [
+  "vin_mv",
+  "iout_ma",
+  "pin_mw"
+ ]
+}

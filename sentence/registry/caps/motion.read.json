@@ -1,0 +1,11 @@
+{
+ "cap": "motion.read",
+ "v": 1,
+ "call": "int cap_motion_read(cap_t c, int *present)",
+ "returns": "0 ok, nonzero error (op should fail())",
+ "describes_ko": "움직임(사람)이 있는지 읽는다 (1 있음)",
+ "safety": "inert",
+ "outputs": [
+  "present"
+ ]
+}

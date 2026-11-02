@@ -1,0 +1,11 @@
+{
+ "cap": "switch.read",
+ "v": 1,
+ "call": "int cap_switch_read(cap_t c, int *on)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "켜짐/꺼짐(또는 핀 높음/낮음)을 읽는다",
+ "safety": "inert",
+ "outputs": [
+  "on"
+ ]
+}

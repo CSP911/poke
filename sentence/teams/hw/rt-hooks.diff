@@ -1,0 +1,77 @@
+--- edge/sentence/rt.c	2026-10-11 21:41:35
++++ edge/sentence/rt.c	2026-10-11 21:41:35
+@@ -4,6 +4,7 @@
+  * This file is fixed and audited once; the op is whatever the model wrote. */
+ #include "rt.h"
+ #include "pt.h"
++#include "rt_power.h"                          /* 실기기팀: watchdog, RCFG, power-off */
+ typedef unsigned int u32; typedef unsigned long u64;
+ 
+ #define R(a) (*(volatile u32 *)(a))
+@@ -29,7 +30,7 @@
+ static void i2c_pins(void) {
+     u32 f = R(GPIO + 0x00); f &= ~((7u << 6) | (7u << 9)); f |= (4u << 6) | (4u << 9); R(GPIO + 0x00) = f;
+     u32 p = R(GPIO + 0xE4); p &= ~((3u << 4) | (3u << 6)); p |= (1u << 4) | (1u << 6); R(GPIO + 0xE4) = p;
+-    R(BSC1 + 0x14) = 1500;                          /* CDIV: 100 kHz from a 150 MHz core clock */
++    R(BSC1 + 0x14) = rtp_cdiv();                    /* CDIV for 100 kHz from this target's core clock (RCFG) */
+ }
+ static void uart_init(void) {
+     R(UART + 0x30) = 0;
+@@ -68,10 +69,7 @@
+ /* power off: the PM watchdog performs a full reset (twin: a guest reset is a shutdown) */
+ __attribute__((noreturn)) static void power_off(void) {
+     puts_("POKE-OFF\n");
+-    for (u32 t = 1000000; (R(UART + 0x18) & (1u << 3)) && --t; ) {}   /* drain the FIFO before the reset (real Pi cut the last line) */
+-    R(PM + 0x24) = PM_PASS | 10;
+-    R(PM + 0x1c) = PM_PASS | (R(PM + 0x1c) & ~0x30u) | 0x20;
+-    for (;;) __asm__ volatile("wfe");
++    rtp_power_off();                                /* drain, zero this boot's memory, partition, reset */
+ }
+ __attribute__((noreturn)) static void finish(void) {
+     __asm__ volatile("msr cntp_ctl_el0, xzr; isb");
+@@ -159,19 +157,18 @@
+ /* D1 (real Pi only, hub builds with -DPOKE_WDOG): the PM watchdog is armed at boot and re-armed on
+  * every runtime call, ~15 s each (its maximum is ~16 s). EL1-only page: the op cannot touch it.
+  * Not for the twin — QEMU resets the moment the watchdog is armed. Untested on hardware. */
+-#ifdef POKE_WDOG
+-static void wdog_kick(void) { R(PM + 0x24) = PM_PASS | (15u << 16); R(PM + 0x1c) = PM_PASS | (R(PM + 0x1c) & ~0x30u) | 0x20; }
+-#else
+-static void wdog_kick(void) {}
+-#endif
+ 
+-__attribute__((noreturn)) static void timeout(void) { puts_("POKE-FAULT kind=timeout\n"); k_fail("op ran past its time budget"); finish(); }
++__attribute__((noreturn)) static void timeout(void) {
++    const char *quiet = rtp_timeout_reason(cnt(), deadline);
++    puts_("POKE-FAULT kind=timeout\n"); k_fail(quiet ? quiet : "op ran past its time budget"); finish();
++}
+ 
+ /* svc #nr from the op (ustub.S) */
+ u64 sentence_svc(u64 a0, u64 a1, u64 a2, u64 a3, u64 nr) {
+     char k[64], s[200]; int m = rn;
+     if (cnt() >= deadline) timeout();
+-    wdog_kick();
++    rtp_kick();
++    __asm__ volatile("msr cntp_cval_el0, %0; isb" :: "r"(rtp_compare(cnt(), frq, deadline)));
+     switch (nr) {
+     case 0: finish();                                                   /* op_main returned */
+     case 1: ustr(a0, s, sizeof s); puts_("POKE-SAY "); puts_(s); puts_("\n"); return 0;
+@@ -235,8 +232,8 @@
+     u32 pr = R(GICD + 0x400 + 28); pr = (pr & ~(0xffu << 16)) | (0xa0u << 16); R(GICD + 0x400 + 28) = pr;
+     R(GICD + 0x000) = 1;
+     R(GICC + 0x004) = 0xf0; R(GICC + 0x008) = 0; R(GICC + 0x000) = 1;
+-    deadline = cnt() + (u64)OP_BUDGET_MS * frq / 1000;
+-    __asm__ volatile("msr cntp_cval_el0, %0" :: "r"(deadline));
++    deadline = cnt() + (u64)rtp_budget_ms() * frq / 1000;
++    __asm__ volatile("msr cntp_cval_el0, %0" :: "r"(rtp_compare(cnt(), frq, deadline)));
+     __asm__ volatile("msr cntp_ctl_el0, %0; isb" :: "r"(1UL));             /* enabled, unmasked */
+ }
+ 
+@@ -249,7 +246,7 @@
+     t0 = cnt();
+     uart_init();
+     rcap = RES_OP_CAP;
+-    wdog_kick();
++    rtp_boot();
+     puts_("POKE-BOOT\n");
+     i2c_pins();
+     mmu_on();

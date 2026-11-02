@@ -1,0 +1,20 @@
+--- edge/sentence/rt.c	2026-10-11 20:59:19
++++ edge/sentence/rt.c	2026-10-11 20:59:19
+@@ -58,6 +58,17 @@
+  * for the hub's next image — either way none of this code exists any more. */
+ static void power_off(void) {
+     puts_("POKE-OFF\n");
++    /* The watchdog below fires after 10 ticks (~150 us); one character at 115200 takes 87 us.
++     * Without this drain the UART FIFO (POKE-END's tail and all of POKE-OFF) dies with the
++     * reset on a real Pi — the twin's UART is instantaneous and never shows it. */
++    for (u32 t = 4000000; (R(UART + 0x18) & (1u << 3)) && --t; ) {}   /* FR.BUSY */
++    /* PM_RSTS partition bits (0x555 mask) survive the reset and are read by the bootloader:
++     * 0 = boot normally (back to netboot); 63 = halt (POWER_OFF_ON_HALT=1, WAKE_ON_GPIO=0 → PMIC off). */
++    u32 rsts = R(PM + 0x20) & ~0x555u;
++#ifdef POKE_HALT
++    rsts |= 0x555u;
++#endif
++    R(PM + 0x20) = PM_PASS | rsts;
+     R(PM + 0x24) = PM_PASS | 10;
+     R(PM + 0x1c) = PM_PASS | (R(PM + 0x1c) & ~0x30u) | 0x20;
+     for (;;) __asm__ volatile("wfe");

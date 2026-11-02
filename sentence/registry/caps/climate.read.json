@@ -1,0 +1,12 @@
+{
+ "cap": "climate.read",
+ "v": 1,
+ "call": "int cap_climate_read(cap_t c, int *on, int *target_c)",
+ "returns": "0 ok, nonzero error (op should fail())",
+ "describes_ko": "에어컨이 켜져 있는지와 목표 온도를 읽는다",
+ "safety": "inert",
+ "outputs": [
+  "on",
+  "target_c"
+ ]
+}

@@ -1,0 +1,420 @@
+{
+ "name": "pca9554",
+ "addr": "0x20",
+ "part": "PCA9554 / TCA9554 type (or the same-map PCA9534)",
+ "identity": "8-bit I2C GPIO expander (4 registers: input, output, invert, direction)",
+ "confidence": 0.85,
+ "evidence": "0x04 reads the same as 0x00 and 0x07 the same as 0x03 (only low 2 bits of register number used); register 2=0x00, register 3=0xF0; writing 0x0A to register 1 made register 0 read 0xFA; writing 0xFF to register 2 made it read 0x05; setting register 3=0x00 and register 1=0x00 with inversion on read 0xFF; not a PCF8574 (writing 0x00 did not change the pins)",
+ "registers": "0 input (read-only), 1 output, 2 invert (1 = inverted), 3 direction (1 = input); only the low 2 bits of the register number count, so it repeats every 4 registers; reading many bytes repeats the same register",
+ "learned": "2026-10-11 22:03",
+ "by": "Claude Code CLI (claude -p / agent with probe.py only)",
+ "bench": "ext",
+ "functions": [
+  {
+   "sig": "static int pca9554_read(unsigned addr, unsigned *levels)",
+   "doc": "true level of P0..P7 as a bit mask (bit n = Pn, 1 = high, 0..255), invert register undone; 0 = ok",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int pca9554_set_pin(unsigned addr, unsigned pin, unsigned level)",
+   "doc": "make pin 0..7 an output and drive it high (level != 0) or low (level 0), other pins unchanged; 1 = bad pin, 0 = ok",
+   "access": "write",
+   "write_regs": [
+    1,
+    3
+   ],
+   "max_write": 2,
+   "policy": "confirm"
+  },
+  {
+   "sig": "static int pca9554_identify(unsigned addr)",
+   "doc": "Reads only. Returns 1 if each of registers 0..3 gives the same byte twice in a 2-byte read, registers 4..7 read the same as 0..3, and the four are not all one value. Returns 0 if any check fails (a part that reads the same value everywhere, such as 0xFF, is not taken as this part). Returns a negative bus error if a read fails. The part has no ID register.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ ],
+ "tests": [
+  {
+   "name": "read_input_pins",
+   "knobs": {
+    "pin4": {
+     "choices": [
+      "high",
+      "low"
+     ]
+    },
+    "pin5": {
+     "choices": [
+      "high",
+      "low"
+     ]
+    },
+    "pin6": {
+     "choices": [
+      "high",
+      "low"
+     ]
+    },
+    "pin7": {
+     "choices": [
+      "high",
+      "low"
+     ]
+    }
+   },
+   "params": {},
+   "text": false,
+   "expect": {
+    "p4": "pin4",
+    "p5": "pin5",
+    "p6": "pin6",
+    "p7": "pin7",
+    "hi_nibble": "(1 if pin4 == 'high' else 0) + (2 if pin5 == 'high' else 0) + (4 if pin6 == 'high' else 0) + (8 if pin7 == 'high' else 0)"
+   },
+   "tol": {
+    "hi_nibble": 0
+   },
+   "expect_knobs": {}
+  },
+  {
+   "name": "set_one_pin",
+   "knobs": {},
+   "params": {
+    "P_PIN": {
+     "min": 0,
+     "max": 7
+    },
+    "P_LEVEL": {
+     "min": 0,
+     "max": 1
+    }
+   },
+   "text": false,
+   "expect": {
+    "level": "P_LEVEL",
+    "others_changed": "0"
+   },
+   "tol": {
+    "level": 0,
+    "others_changed": 0
+   },
+   "expect_knobs": {
+    "pin{P_PIN}": "'high' if P_LEVEL else 'low'"
+   }
+  }
+ ],
+ "test_ops": [
+  "#include \"rt.h\"\n#include \"pca9554.h\"\n\n/* Test read_input_pins: P4..P7 are inputs at power-on and the hub drives them\n   through the knobs. Reports each level and the high nibble. */\nvoid op_main(void)\n{\n    unsigned lv = 0;\n    unsigned n;\n    static const char *const keys[4] = {\"p4\", \"p5\", \"p6\", \"p7\"};\n\n    if (pca9554_read(0x20, &lv)) {\n        fail(\"pca9554_read failed\");\n        return;\n    }\n    for (n = 0; n < 4u; n++) {\n        report_str(keys[n], ((lv >> (4u + n)) & 1u) ? \"high\" : \"low\");\n    }\n    report_int(\"hi_nibble\", (long)((lv >> 4) & 0x0Fu));\n}\n",
+  "#include \"rt.h\"\n#include \"pca9554.h\"\n\n/* Test set_one_pin: drives P_PIN to P_LEVEL, reads it back and checks that\n   no other pin moved. The hub also checks the pin's knob after the run. */\nvoid op_main(void)\n{\n    unsigned before = 0, after = 0;\n    unsigned mask = 1u << P_PIN;\n    unsigned diff, cnt = 0, n;\n\n    if (pca9554_read(0x20, &before)) {\n        fail(\"pca9554_read (before) failed\");\n        return;\n    }\n    if (pca9554_set_pin(0x20, P_PIN, P_LEVEL)) {\n        fail(\"pca9554_set_pin failed\");\n        return;\n    }\n    if (pca9554_read(0x20, &after)) {\n        fail(\"pca9554_read (after) failed\");\n        return;\n    }\n\n    report_int(\"level\", (long)((after & mask) ? 1 : 0));\n\n    diff = (before ^ after) & ~mask & 0xFFu;\n    for (n = 0; n < 8u; n++) {\n        if ((diff >> n) & 1u) cnt++;\n    }\n    report_int(\"others_changed\", (long)cnt);\n}\n"
+ ],
+ "verification": [
+  {
+   "test": "read_input_pins",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {
+      "pin4": "high",
+      "pin5": "low",
+      "pin6": "high",
+      "pin7": "low"
+     },
+     "text": null,
+     "result": {
+      "p4": "high",
+      "p5": "low",
+      "p6": "high",
+      "p7": "low",
+      "hi_nibble": 5
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS {\"v\":1,\"n\":4,\"truncated\":false,\"dev\":[{\"a\":32,\"w\":2,\"r\":2,\"regs\":[],\"ptr\":[0,2],\"denied\":0}],\"x\":[[0,\"w\",32,\"00\",1,0],[1,\"r\",32,\"55\",1,0],[1,\"w\",32,\"02\",1,0],[1,\"r\",32,\"00\",1,0]]}",
+      "POKE-RESULT {\"p4\":\"high\",\"p5\":\"low\",\"p6\":\"high\",\"p7\":\"low\",\"hi_nibble\":5}",
+      "POKE-END ms=2 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "p4",
+       "want": "high",
+       "got": "high",
+       "ok": true
+      },
+      {
+       "key": "p5",
+       "want": "low",
+       "got": "low",
+       "ok": true
+      },
+      {
+       "key": "p6",
+       "want": "high",
+       "got": "high",
+       "ok": true
+      },
+      {
+       "key": "p7",
+       "want": "low",
+       "got": "low",
+       "ok": true
+      },
+      {
+       "key": "hi_nibble",
+       "want": 5,
+       "got": 5,
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {
+      "pin4": "high",
+      "pin5": "high",
+      "pin6": "high",
+      "pin7": "low"
+     },
+     "text": null,
+     "result": {
+      "p4": "high",
+      "p5": "high",
+      "p6": "high",
+      "p7": "low",
+      "hi_nibble": 7
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS {\"v\":1,\"n\":4,\"truncated\":false,\"dev\":[{\"a\":32,\"w\":2,\"r\":2,\"regs\":[],\"ptr\":[0,2],\"denied\":0}],\"x\":[[1,\"w\",32,\"00\",1,0],[1,\"r\",32,\"75\",1,0],[1,\"w\",32,\"02\",1,0],[1,\"r\",32,\"00\",1,0]]}",
+      "POKE-RESULT {\"p4\":\"high\",\"p5\":\"high\",\"p6\":\"high\",\"p7\":\"low\",\"hi_nibble\":7}",
+      "POKE-END ms=3 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "p4",
+       "want": "high",
+       "got": "high",
+       "ok": true
+      },
+      {
+       "key": "p5",
+       "want": "high",
+       "got": "high",
+       "ok": true
+      },
+      {
+       "key": "p6",
+       "want": "high",
+       "got": "high",
+       "ok": true
+      },
+      {
+       "key": "p7",
+       "want": "low",
+       "got": "low",
+       "ok": true
+      },
+      {
+       "key": "hi_nibble",
+       "want": 7,
+       "got": 7,
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  },
+  {
+   "test": "set_one_pin",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {
+      "P_PIN": 2,
+      "P_LEVEL": 1
+     },
+     "text": null,
+     "result": {
+      "level": 1,
+      "others_changed": 0
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS {\"v\":1,\"n\":13,\"truncated\":false,\"dev\":[{\"a\":32,\"w\":7,\"r\":6,\"regs\":[1],\"ptr\":[0,1,2,3],\"denied\":0}],\"x\":[[0,\"w\",32,\"00\",1,0],[1,\"r\",32,\"f5\",1,0],[1,\"w\",32,\"02\",1,0],[1,\"r\",32,\"00\",1,0],[1,\"w\",32,\"01\",1,0],[1,\"r\",32,\"f5\",1,0],[1,\"w\",32,\"03\",1,0],[1,\"r\",32,\"f0\",1,0],[1,\"w\",32,\"01f5\",2,0],[1,\"w\",32,\"00\",1,0],[1,\"r\",32,\"f5\",1,0],[1,\"w\",32,\"02\",1,0],[1,\"r\",32,\"00\",1,0]]}",
+      "POKE-RESULT {\"level\":1,\"others_changed\":0}",
+      "POKE-END ms=2 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "level",
+       "want": 1,
+       "got": 1,
+       "ok": true
+      },
+      {
+       "key": "others_changed",
+       "want": 0,
+       "got": 0,
+       "ok": true
+      },
+      {
+       "knob": "pin2",
+       "want": "high",
+       "got": "high",
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {
+      "P_PIN": 5,
+      "P_LEVEL": 1
+     },
+     "text": null,
+     "result": {
+      "level": 1,
+      "others_changed": 0
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS {\"v\":1,\"n\":14,\"truncated\":false,\"dev\":[{\"a\":32,\"w\":8,\"r\":6,\"regs\":[1,3],\"ptr\":[0,1,2,3],\"denied\":0}],\"x\":[[0,\"w\",32,\"00\",1,0],[1,\"r\",32,\"f5\",1,0],[1,\"w\",32,\"02\",1,0],[1,\"r\",32,\"00\",1,0],[1,\"w\",32,\"01\",1,0],[1,\"r\",32,\"f5\",1,0],[1,\"w\",32,\"03\",1,0],[1,\"r\",32,\"f0\",1,0],[1,\"w\",32,\"01f5\",2,0],[1,\"w\",32,\"03d0\",2,0],[1,\"w\",32,\"00\",1,0],[1,\"r\",32,\"f5\",1,0],[1,\"w\",32,\"02\",1,0],[1,\"r\",32,\"00\",1,0]]}",
+      "POKE-RESULT {\"level\":1,\"others_changed\":0}",
+      "POKE-END ms=3 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "level",
+       "want": 1,
+       "got": 1,
+       "ok": true
+      },
+      {
+       "key": "others_changed",
+       "want": 0,
+       "got": 0,
+       "ok": true
+      },
+      {
+       "knob": "pin5",
+       "want": "high",
+       "got": "high",
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  }
+ ],
+ "rounds": 1,
+ "twin_knobs": [
+  "pin5",
+  "pin2",
+  "pin7",
+  "pin4",
+  "pin1",
+  "pin6",
+  "pin3",
+  "pin0"
+ ],
+ "verified": true,
+ "kept_on_node": "nothing — the fragment lives on the hub and joins an image only when a sentence needs it",
+ "identify": "pca9554_identify",
+ "identify_kind": "id",
+ "identify_test": {
+  "fn": "pca9554_identify",
+  "at": {
+   "0x20": 1,
+   "0x48": 0,
+   "0x68": 0,
+   "0x1e": 0,
+   "0x60": 0,
+   "0x4c": 0,
+   "0x3c": 0,
+   "0x77": 0
+  },
+  "error": null
+ },
+ "amended": "2026-10-11 22:53",
+ "amend_rounds": 3,
+ "review": [
+  {
+   "fn": "pca9554_read",
+   "access": "read",
+   "declared": [],
+   "seen": [
+    1,
+    3
+   ],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 4,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "pca9554_set_pin",
+   "access": "write",
+   "declared": [
+    1,
+    3
+   ],
+   "seen": [
+    1,
+    3
+   ],
+   "kept": [
+    1,
+    3
+   ],
+   "max_write": [
+    2,
+    2
+   ],
+   "runs": 2,
+   "policy": [
+    "confirm",
+    "confirm"
+   ],
+   "why": []
+  },
+  {
+   "fn": "pca9554_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 0,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "no verification run calls it"
+   ]
+  }
+ ],
+ "review_problems": []
+}

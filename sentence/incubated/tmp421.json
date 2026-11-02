@@ -1,0 +1,343 @@
+{
+ "name": "tmp421",
+ "addr": "0x4c",
+ "part": "TI TMP421",
+ "identity": "temperature sensor with one remote channel (board temperature plus one remote sensor)",
+ "confidence": 0.95,
+ "evidence": "reg 0xFE=0x55 (TI manufacturer ID), reg 0xFF=0x21 (TMP421 device ID); 2-byte read of 0x00=18 70 and 0x01=24 30 match the fraction bytes in 0x10=0x70 and 0x11=0x30; power-on values 0x08=00, 0x09=00, 0x0A=1C, 0x0B=07 match the datasheet",
+ "registers": "00 local temp whole °C, 10 local fraction (bits 7:4 x 0.0625 °C), 01 remote temp whole °C, 11 remote fraction; 2-byte read returns whole byte then fraction byte, no pointer auto-increment; 08 status, 09 config1 (0 = standard range 0-127 °C, running), 0A config2 (0x1C = local and remote channels on), 0B conversion rate (07 = 8 per second), 21 reads 0x30 (N-factor correction expected per datasheet, not verified), FE manufacturer ID, FF device ID",
+ "learned": "2026-10-11 22:02",
+ "by": "Claude Code CLI (claude -p / agent with probe.py only)",
+ "bench": "ext",
+ "functions": [
+  {
+   "sig": "static int tmp421_read_mc(unsigned addr, unsigned channel, long *mc)",
+   "doc": "channel 0 = local (board), 1 = remote; *mc = temperature in milli-°C (0.0625 °C steps, 0..127000 standard range, -64000..191000 extended range); 0 = ok, 1 = bad channel, else i2c error",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int tmp421_read_both(unsigned addr, long *local_mc, long *remote_mc)",
+   "doc": "board and remote temperatures in milli-°C (0.0625 °C steps); 0 = ok, else i2c error",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  {
+   "sig": "static int tmp421_identify(unsigned addr)",
+   "doc": "Reads the manufacturer ID (0xFE) and device ID (0xFF). Returns 1 if they are 0x55 (TI) and 0x21 (TMP421), 0 for any other part (TMP422 and TMP423 report 0x22 and 0x23), and a negative value if the bus read fails.",
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ ],
+ "tests": [
+  {
+   "name": "local_and_remote_temperature",
+   "knobs": {
+    "temperature0": {
+     "min": 0,
+     "max": 126000
+    },
+    "temperature1": {
+     "min": 0,
+     "max": 126000
+    }
+   },
+   "params": {},
+   "text": false,
+   "expect": {
+    "local_mc": "temperature0",
+    "remote_mc": "temperature1"
+   },
+   "tol": {
+    "local_mc": 70,
+    "remote_mc": 70
+   },
+   "expect_knobs": {}
+  },
+  {
+   "name": "single_channel_reads",
+   "knobs": {
+    "temperature0": {
+     "min": 1000,
+     "max": 60000
+    },
+    "temperature1": {
+     "min": 65000,
+     "max": 126000
+    }
+   },
+   "params": {},
+   "text": false,
+   "expect": {
+    "ch0_mc": "temperature0",
+    "ch1_mc": "temperature1",
+    "remote_minus_local": "temperature1 - temperature0"
+   },
+   "tol": {
+    "ch0_mc": 70,
+    "ch1_mc": 70,
+    "remote_minus_local": 140
+   },
+   "expect_knobs": {}
+  }
+ ],
+ "test_ops": [
+  "#include \"rt.h\"\n#include \"tmp421.h\"\n\nvoid op_main(void)\n{\n    long local_mc = 0, remote_mc = 0;\n    int rc = tmp421_read_both(0x4c, &local_mc, &remote_mc);\n    if (rc) {\n        fail(\"tmp421 read failed\");\n        return;\n    }\n    report_int(\"local_mc\", local_mc);\n    report_int(\"remote_mc\", remote_mc);\n    report_fixed(\"local_c\", local_mc, 3);\n    report_fixed(\"remote_c\", remote_mc, 3);\n}\n",
+  "#include \"rt.h\"\n#include \"tmp421.h\"\n\nvoid op_main(void)\n{\n    long ch0 = 0, ch1 = 0;\n    int rc;\n\n    rc = tmp421_read_mc(0x4c, 1, &ch1);\n    if (rc) {\n        fail(\"tmp421 remote read failed\");\n        return;\n    }\n    rc = tmp421_read_mc(0x4c, 0, &ch0);\n    if (rc) {\n        fail(\"tmp421 local read failed\");\n        return;\n    }\n    if (tmp421_read_mc(0x4c, 2, &ch0) != 1) {\n        fail(\"tmp421 accepted a bad channel\");\n        return;\n    }\n    report_int(\"ch0_mc\", ch0);\n    report_int(\"ch1_mc\", ch1);\n    report_int(\"remote_minus_local\", ch1 - ch0);\n}\n"
+ ],
+ "verification": [
+  {
+   "test": "local_and_remote_temperature",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {
+      "temperature0": 8249,
+      "temperature1": 61329
+     },
+     "text": null,
+     "result": {
+      "local_mc": 8187,
+      "remote_mc": 61312,
+      "local_c": 8.187,
+      "remote_c": 61.312
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS {\"v\":1,\"n\":12,\"truncated\":false,\"dev\":[{\"a\":76,\"w\":6,\"r\":6,\"regs\":[],\"ptr\":[0,1,9,16,17],\"denied\":0}],\"x\":[[1,\"w\",76,\"09\",1,0],[7,\"r\",76,\"00\",1,0],[7,\"w\",76,\"00\",1,0],[7,\"r\",76,\"08\",1,0],[7,\"w\",76,\"10\",1,0],[7,\"r\",76,\"30\",1,0],[7,\"w\",76,\"09\",1,0],[7,\"r\",76,\"00\",1,0],[7,\"w\",76,\"01\",1,0],[7,\"r\",76,\"3d\",1,0],[7,\"w\",76,\"11\",1,0],[7,\"r\",76,\"50\",1,0]]}",
+      "POKE-RESULT {\"local_mc\":8187,\"remote_mc\":61312,\"local_c\":8.187,\"remote_c\":61.312}",
+      "POKE-END ms=9 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "local_mc",
+       "want": 8249,
+       "got": 8187,
+       "ok": true
+      },
+      {
+       "key": "remote_mc",
+       "want": 61329,
+       "got": 61312,
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {
+      "temperature0": 21726,
+      "temperature1": 70082
+     },
+     "text": null,
+     "result": {
+      "local_mc": 21687,
+      "remote_mc": 70062,
+      "local_c": 21.687,
+      "remote_c": 70.062
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS {\"v\":1,\"n\":12,\"truncated\":false,\"dev\":[{\"a\":76,\"w\":6,\"r\":6,\"regs\":[],\"ptr\":[0,1,9,16,17],\"denied\":0}],\"x\":[[0,\"w\",76,\"09\",1,0],[1,\"r\",76,\"00\",1,0],[1,\"w\",76,\"00\",1,0],[1,\"r\",76,\"15\",1,0],[1,\"w\",76,\"10\",1,0],[1,\"r\",76,\"b0\",1,0],[1,\"w\",76,\"09\",1,0],[1,\"r\",76,\"00\",1,0],[1,\"w\",76,\"01\",1,0],[1,\"r\",76,\"46\",1,0],[1,\"w\",76,\"11\",1,0],[1,\"r\",76,\"10\",1,0]]}",
+      "POKE-RESULT {\"local_mc\":21687,\"remote_mc\":70062,\"local_c\":21.687,\"remote_c\":70.062}",
+      "POKE-END ms=5 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "local_mc",
+       "want": 21726,
+       "got": 21687,
+       "ok": true
+      },
+      {
+       "key": "remote_mc",
+       "want": 70082,
+       "got": 70062,
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  },
+  {
+   "test": "single_channel_reads",
+   "ok": true,
+   "draws": [
+    {
+     "draw": {
+      "temperature0": 52504,
+      "temperature1": 75500
+     },
+     "text": null,
+     "result": {
+      "ch0_mc": 52500,
+      "ch1_mc": 75437,
+      "remote_minus_local": 22937
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS {\"v\":1,\"n\":12,\"truncated\":false,\"dev\":[{\"a\":76,\"w\":6,\"r\":6,\"regs\":[],\"ptr\":[0,1,9,16,17],\"denied\":0}],\"x\":[[0,\"w\",76,\"09\",1,0],[1,\"r\",76,\"00\",1,0],[1,\"w\",76,\"01\",1,0],[1,\"r\",76,\"4b\",1,0],[1,\"w\",76,\"11\",1,0],[1,\"r\",76,\"70\",1,0],[1,\"w\",76,\"09\",1,0],[1,\"r\",76,\"00\",1,0],[1,\"w\",76,\"00\",1,0],[1,\"r\",76,\"34\",1,0],[1,\"w\",76,\"10\",1,0],[1,\"r\",76,\"80\",1,0]]}",
+      "POKE-RESULT {\"ch0_mc\":52500,\"ch1_mc\":75437,\"remote_minus_local\":22937}",
+      "POKE-END ms=4 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "ch0_mc",
+       "want": 52504,
+       "got": 52500,
+       "ok": true
+      },
+      {
+       "key": "ch1_mc",
+       "want": 75500,
+       "got": 75437,
+       "ok": true
+      },
+      {
+       "key": "remote_minus_local",
+       "want": 22996,
+       "got": 22937,
+       "ok": true
+      }
+     ]
+    },
+    {
+     "draw": {
+      "temperature0": 27652,
+      "temperature1": 112315
+     },
+     "text": null,
+     "result": {
+      "ch0_mc": 27625,
+      "ch1_mc": 112312,
+      "remote_minus_local": 84687
+     },
+     "powered_off": true,
+     "lines": [
+      "POKE-BOOT",
+      "POKE-EFFECTS {\"v\":1,\"n\":12,\"truncated\":false,\"dev\":[{\"a\":76,\"w\":6,\"r\":6,\"regs\":[],\"ptr\":[0,1,9,16,17],\"denied\":0}],\"x\":[[0,\"w\",76,\"09\",1,0],[1,\"r\",76,\"00\",1,0],[1,\"w\",76,\"01\",1,0],[1,\"r\",76,\"70\",1,0],[1,\"w\",76,\"11\",1,0],[1,\"r\",76,\"50\",1,0],[1,\"w\",76,\"09\",1,0],[1,\"r\",76,\"00\",1,0],[1,\"w\",76,\"00\",1,0],[1,\"r\",76,\"1b\",1,0],[1,\"w\",76,\"10\",1,0],[1,\"r\",76,\"a0\",1,0]]}",
+      "POKE-RESULT {\"ch0_mc\":27625,\"ch1_mc\":112312,\"remote_minus_local\":84687}",
+      "POKE-END ms=3 status=ok",
+      "POKE-OFF"
+     ],
+     "checks": [
+      {
+       "key": "ch0_mc",
+       "want": 27652,
+       "got": 27625,
+       "ok": true
+      },
+      {
+       "key": "ch1_mc",
+       "want": 112315,
+       "got": 112312,
+       "ok": true
+      },
+      {
+       "key": "remote_minus_local",
+       "want": 84663,
+       "got": 84687,
+       "ok": true
+      }
+     ]
+    }
+   ],
+   "problems": []
+  }
+ ],
+ "rounds": 1,
+ "twin_knobs": [
+  "temperature1",
+  "temperature2",
+  "temperature0",
+  "temperature3"
+ ],
+ "verified": true,
+ "kept_on_node": "nothing — the fragment lives on the hub and joins an image only when a sentence needs it",
+ "identify": "tmp421_identify",
+ "identify_kind": "id",
+ "identify_test": {
+  "fn": "tmp421_identify",
+  "at": {
+   "0x4c": 1,
+   "0x48": 0,
+   "0x68": 0,
+   "0x1e": 0,
+   "0x60": 0,
+   "0x20": 0,
+   "0x3c": 0,
+   "0x77": 0
+  },
+  "error": null
+ },
+ "amended": "2026-10-11 22:50",
+ "amend_rounds": 1,
+ "review": [
+  {
+   "fn": "tmp421_read_mc",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "tmp421_read_both",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "fn": "tmp421_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 0,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "no verification run calls it"
+   ]
+  }
+ ],
+ "review_problems": []
+}

@@ -1,0 +1,114 @@
+<title>문장 부팅 밤샘 작업</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#EEF0EC; --surface:#F8F9F6; --ink:#151815; --muted:#5B625A; --line:#D2D6CE;
+  --accent:#1F6B4E; --accent-soft:#DCEDE4; --amber:#8E6400; --amber-soft:#F3E9CC; --red:#A63A2B; --red-soft:#F5DFDA;
+  --display:"IBM Plex Sans KR","Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#111412; --surface:#181C19; --ink:#E6EAE5; --muted:#99A197; --line:#2A302B;
+    --accent:#6FCB9E; --accent-soft:#16301F; --amber:#E2B54C; --amber-soft:#352A10; --red:#F08C7C; --red-soft:#3A1C17;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#111412; --surface:#181C19; --ink:#E6EAE5; --muted:#99A197; --line:#2A302B;
+  --accent:#6FCB9E; --accent-soft:#16301F; --amber:#E2B54C; --amber-soft:#352A10; --red:#F08C7C; --red-soft:#3A1C17;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.72;padding-inline:20px;padding-block:0}
+.page{max-width:960px;margin:0 auto;padding-block:44px 90px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(32px,5vw,48px);line-height:1.2;margin:8px 0 14px;text-wrap:balance}
+.lede{font-size:18px;max-width:42em;margin:0}
+section{padding-top:44px}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(21px,2.6vw,26px);margin:0 0 12px;text-wrap:balance}
+p,li{max-width:70ch}
+.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:18px 0}
+.big div{border-left:3px solid var(--accent);padding:4px 0 4px 14px}
+.big b{display:block;font-family:var(--display);font-size:28px;line-height:1.15;font-variant-numeric:tabular-nums}
+.big span{font-size:14px;color:var(--muted)}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;vertical-align:top;padding:9px 11px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+.term{background:#0E1210;color:#D7E3DA;border-radius:12px;padding:16px 20px;font-family:var(--mono);font-size:13.5px;line-height:1.65;overflow-x:auto;white-space:pre;margin:14px 0}
+.note{background:var(--amber-soft);border-left:3px solid var(--amber);border-radius:0 10px 10px 0;padding:14px 18px;margin:14px 0}
+.note ul{margin:6px 0 0;padding-left:20px}
+code{font-family:var(--mono);font-size:.88em;background:var(--accent-soft);padding:1px 6px;border-radius:4px}
+footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+footer ul{margin:6px 0 0;padding-left:18px}
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">POKE · 밤샘 작업 보고 · 2026-10-11 21:30 → 10-12 09:00</div>
+  <h1>문장 부팅 밤샘 작업</h1>
+  <p class="lede">네 팀이 다섯 물결로 일했다. 모델이 쓴 op는 이제 격리된 채로 돌고, 허락된 장치·레지스터·값만 건드릴 수 있으며, 노드가 실제로 한 일과 메모리를 비운 사실을 허브가 증거로 확인한다. 허브는 문장을 카드로 기억하고, 몸이 바뀌면 알아채고, 처음 보는 장치를 스스로 배운다. 모든 결과는 QEMU 트윈에서 나왔고 실제 Pi는 아직이다.</p>
+</header>
+
+<section>
+  <h2>숫자</h2>
+  <div class="big">
+    <div><b>163 / 163</b><span>최종 전체 회귀(28개 묶음), 소유자 기록 불변</span></div>
+    <div><b>13,075 / 13,078</b><span>1시간 지구력 중 정답·꺼짐 (실패 3건은 고부하 QMP 연결 끊김)</span></div>
+    <div><b>0 B</b><span>리셋 뒤 허브가 직접 읽은 메모리 76–80 KB 중 0이 아닌 바이트, 13,075회 모두</span></div>
+    <div><b>38 / 38</b><span>처음 듣는 문장의 분류(읽기·쓰기·되물음·불가·금지·예약), 실험대 대조 29/29</span></div>
+    <div><b>11 / 11</b><span>격리 사본에서 장치를 처음부터 배우게 한 횟수, 평균 1.5라운드</span></div>
+    <div><b>16.4 KB</b><span>문장 이미지 하나. 런타임 9.7 KB, 상주 0</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>바뀐 것</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>영역</th><th>지금</th></tr></thead>
+    <tbody>
+      <tr><td>격리</td><td>op는 MMU 아래 사용자 권한에서 돈다. 하드웨어 창 0개. I2C도 런타임 호출로만, 허용 목록(장치·레지스터·길이·값 범위·쓰기 횟수)이 이미지에 박힌다. 거부된 이미지는 부팅하지 않는다.</td></tr>
+      <tr><td>증거</td><td>런타임이 모든 버스 전송을 기록(op가 위조 불가)하고, 허브가 선언과 대조한다. 리셋 뒤 메모리를 허브가 직접 읽어 비움을 확인한다.</td></tr>
+      <tr><td>기억</td><td>문장 카드: 같은 뜻 다른 말·숫자만 다른 문장은 모델 0회. 카드를 내보내 다른 몸에서 다시 발음하고, 다시 쓴 op가 같은 일을 했는지 버스 행동과 값으로 대조한다.</td></tr>
+      <tr><td>사람과의 대화</td><td>한국어 출력, 쓰기 문장은 확인, 모호하면 되물음, 금지·범위 밖은 0.04초에 부팅 없이 거절, 20초 넘는 요청은 예약 부팅, "30도 넘으면 알려줘"는 상한 있는 감시.</td></tr>
+      <tr><td>몸</td><td>카탈로그 = 지금 몸에 실제로 있는 부품. 부품을 옮기면 배선을 고쳐 재실행, 빼면 사실대로 알림, 새로 붙이면 "배워줘". TMP421·PCA9554·SSD0303·DPS310을 무인으로 배웠고, 배운 결과는 안전 심사를 거친다.</td></tr>
+      <tr><td>화면</td><td>데모 화면에 음성 입력, 카드, 지켜보기 목록, 배워줘 진행 표시, 5분 자동 데모(소유자 기록 사본으로 진행).</td></tr>
+      <tr><td>실기기 준비</td><td>보관형 TFTP 서버, 실제 부트로더 요청 순서, 부팅 시 워치독, 출력 버퍼 비우기, Pi용 I2C 클록, 사전 점검. 하드웨어만 연결하면 된다.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>아침에 해볼 것</h2>
+  <div class="term">cd ~/poke/sentence && ../sim/body/.venv/bin/python ui/server.py
+# 브라우저에서 http://127.0.0.1:8765 → 오른쪽 위 '데모 (5분)' 또는 문장 버튼</div>
+  <p>자세한 순서와 써볼 문장은 <code>sentence/teams/product/MORNING.md</code>에 있다.</p>
+</section>
+
+<section>
+  <h2>정직하게 남은 것</h2>
+  <div class="note">
+    <ul>
+      <li><b>실기기 미검증.</b> 타이머 인터럽트, 워치독, 캐시 끈 MMU의 실제 속도, I2C 클록, 넷부팅 시간은 Pi에서만 확인된다.</li>
+      <li><b>OLED 화면 쓰기는 막혀 있다.</b> 쓰기 전용 장치라 식별 신뢰도를 0.8 위로 올릴 방법이 없어 안전 심사가 거부했다. "HELLO 띄워줘"는 막힌 예로 보인다.</li>
+      <li><b>기압 센서의 설정 쓰기도 막혀 있다.</b> 트윈 칩은 이미 설정돼 있어 읽기는 된다. 실제 칩에서는 차가운 상태 시험 뒤 다시 심사해야 한다.</li>
+      <li><b>값 범위는 정책 표에 채워야 효과가 있다.</b> 지금 LED에는 범위가 없다. 서보·히터가 오기 전에 채워야 한다.</li>
+      <li><b>밤사이 중단.</b> 23시경 사용 한도로 네 팀이 동시에 끊겨 07:33까지 멈췄다. 반쯤 고친 파일은 없었다.</li>
+      <li><b>커밋 안 함.</b> 모든 변경이 작업 트리에 있다. 되돌리기용 묶음은 세 시점(시작 전, 중간, 마지막)으로 보관했다.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  자세한 기록
+  <ul>
+    <li>계획·회의 결정: <code>sentence/teams/PLAN-8h.md</code>, 진행 기록: <code>sentence/teams/STATUS.md</code></li>
+    <li>안전 결론: <code>sentence/teams/verify/AUDIT.md</code></li>
+    <li>평가: <code>sentence/teams/test/EVAL.md</code>, 인큐베이팅 신뢰도: <code>sentence/teams/hw/RELIABILITY.md</code></li>
+    <li>사용법: <code>sentence/README.md</code>, <code>sentence/teams/product/MORNING.md</code></li>
+  </ul>
+</footer>
+</div>

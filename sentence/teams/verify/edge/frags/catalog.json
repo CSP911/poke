@@ -1,0 +1,52 @@
+{
+  "tmp105": {
+    "name": "tmp105",
+    "use_when": "reading the room temperature from a TMP105/TMP75 on I2C · checking whether the sensor at 0x4a (or 0x48-0x4f) answers · getting temperature in milli-degrees C for a threshold or overheating check · converting the 12-bit temperature register into mC",
+    "functions": [
+      "static int tmp105_read_mC(unsigned addr, long *mC)  /* temperature in milli-degrees C; 0 = ok, else the i2c error code */"
+    ],
+    "header": "tmp105.h",
+    "default_addr": "0x48",
+    "from_driver": "i2c-temp-4a",
+    "builds": true,
+    "build_error": ""
+  },
+  "rtc": {
+    "name": "rtc",
+    "use_when": "need to read the time from the hardware clock · want the current date on the device · timestamping a log entry or sensor reading · setting the hardware clock to a known date and time · found something answering at I2C address 0x68 and want to know what it is",
+    "functions": [
+      "static int rtc_read(unsigned addr, int *year, int *month, int *day, int *hour, int *min, int *sec)  /* 24-hour, year as 4 digits; 0 = ok */",
+      "static int rtc_set(unsigned addr, int year, int month, int day, int hour, int min, int sec)  /* 0 = ok */"
+    ],
+    "header": "rtc.h",
+    "default_addr": "0x68",
+    "from_driver": "i2c-rtc-68",
+    "builds": true,
+    "build_error": ""
+  },
+  "mag": {
+    "name": "mag",
+    "use_when": "reading the magnetometer's raw X/Y/Z counts · getting a compass heading or checking which way the device faces · sensing a nearby magnet or a change in the magnetic field · driving an HMC5883L-compatible or LSM303DLHC magnetometer at I2C 0x1e",
+    "functions": [
+      "static int mag_read(unsigned addr, int *x, int *y, int *z)  /* raw signed counts; puts the part into measurement mode if needed; 0 = ok */"
+    ],
+    "header": "mag.h",
+    "default_addr": "0x1e",
+    "from_driver": "i2c-mag-1e",
+    "builds": true,
+    "build_error": ""
+  },
+  "led": {
+    "name": "led",
+    "use_when": "turn an LED on the PCA9552 expander on or off · make an LED blink at PWM0 or PWM1 rate · read which of the 16 expander pins are high or low right now · check a button wired to a PCA9552 pin",
+    "functions": [
+      "static int led_set(unsigned addr, int led, int mode)  /* led 0..15; mode 0 = on, 1 = off, 2 = blink rate 0 (PWM0), 3 = blink rate 1 (PWM1); 0 = ok */",
+      "static int led_inputs(unsigned addr, unsigned *pins)  /* 16 pin levels, bit i = pin i (an LED that is on reads 0); 0 = ok */"
+    ],
+    "header": "led.h",
+    "default_addr": "0x60",
+    "from_driver": "i2c-led-61",
+    "builds": true,
+    "build_error": ""
+  }
+}

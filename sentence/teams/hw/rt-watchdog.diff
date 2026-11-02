@@ -1,0 +1,87 @@
+--- edge/sentence/rt.c	2026-10-11 20:59:19
++++ edge/sentence/rt.c	2026-10-11 21:07:00
+@@ -33,9 +33,34 @@
+ 
+ static u64 t0, frq;
+ static u64 cnt(void) { u64 v; __asm__ volatile("isb; mrs %0, cntpct_el0" : "=r"(v)); return v; }
+-unsigned long ms(void) { return (unsigned long)((cnt() - t0) * 1000 / frq); }
+-void delay_ms(unsigned long n) { if (n > 10000) n = 10000; u64 end = cnt() + n * frq / 1000; while (cnt() < end) {} }
++static unsigned long ms_(void) { return (unsigned long)((cnt() - t0) * 1000 / frq); }
+ 
++/* Per-target settings the hub patches into the image (find RCFG, write the next two words):
++ * the code bytes are the same on the twin and on a Pi. Twin: wdog=0 (QEMU resets the moment
++ * the watchdog is armed; the hub's QEMU time budget is the twin's watchdog). Pi: wdog=1. */
++static const volatile struct { u32 magic, wdog, budget_ms; } rtcfg
++    __attribute__((section(".rodata.rtcfg"), used, aligned(16))) = { 0x47464352u /* "RCFG" */, 0, 20000 };
++
++/* PM watchdog: 20-bit counter at 65536 Hz, so at most ~16 s. Armed at boot, fed only here
++ * (the op cannot: PM is outside every op window and this is not in rt.h), and only while the
++ * op is inside its budget. An op that loops without calling the runtime is reset ≤ 15 s after
++ * its last call; one that keeps calling is stopped gracefully at the budget below. */
++#define WDOG_TICKS 0xF0000u                       /* 15 s */
++static void wdog_feed(void) {
++    if (!rtcfg.wdog || ms_() >= rtcfg.budget_ms) return;
++    R(PM + 0x24) = PM_PASS | WDOG_TICKS;
++    R(PM + 0x1c) = PM_PASS | (R(PM + 0x1c) & ~0x30u) | 0x20;
++}
++static void finish(void);
++static int over_budget(void) { return ms_() >= rtcfg.budget_ms; }
++static void budget_stop(void);
++unsigned long ms(void) { wdog_feed(); if (over_budget()) budget_stop(); return ms_(); }
++void delay_ms(unsigned long n) {
++    if (n > 10000) n = 10000;
++    u64 end = cnt() + n * frq / 1000, next = cnt();
++    while (cnt() < end) { if (cnt() >= next) { wdog_feed(); if (over_budget()) budget_stop(); next = cnt() + frq; } }
++}
++
+ /* result line: POKE-RESULT {"k": v, ...} — built as the op reports */
+ static char res[1024]; static int rn; static int failed; static char why[128];
+ static void rc(char c) { if (rn < (int)sizeof res - 2) res[rn++] = c; }
+@@ -43,8 +68,8 @@
+ static void rkey(const char *k) { rc(rn ? ',' : '{'); rc('"'); rs(k); rc('"'); rc(':'); }
+ static void rdec(long v) { char t[24]; int n = 0; unsigned long u = v < 0 ? (unsigned long)(-v) : (unsigned long)v; if (v < 0) rc('-'); if (!u) t[n++] = '0'; while (u) { t[n++] = (char)('0' + u % 10); u /= 10; } while (n) rc(t[--n]); }
+ 
+-void say(const char *s) { puts_("POKE-SAY "); puts_(s); puts_("\n"); }
+-void report_int(const char *k, long v) { rkey(k); rdec(v); }
++void say(const char *s) { wdog_feed(); puts_("POKE-SAY "); puts_(s); puts_("\n"); }
++void report_int(const char *k, long v) { wdog_feed(); rkey(k); rdec(v); }
+ void report_fixed(const char *k, long v, int d) {
+     long p = 1; for (int i = 0; i < d; i++) p *= 10;
+     rkey(k); if (v < 0) { rc('-'); v = -v; } rdec(v / p);
+@@ -58,6 +83,17 @@
+  * for the hub's next image — either way none of this code exists any more. */
+ static void power_off(void) {
+     puts_("POKE-OFF\n");
++    /* The watchdog below fires after 10 ticks (~150 us); one character at 115200 takes 87 us.
++     * Without this drain the UART FIFO (POKE-END's tail and all of POKE-OFF) dies with the
++     * reset on a real Pi — the twin's UART is instantaneous and never shows it. */
++    for (u32 t = 4000000; (R(UART + 0x18) & (1u << 3)) && --t; ) {}   /* FR.BUSY */
++    /* PM_RSTS partition bits (0x555 mask) survive the reset and are read by the bootloader:
++     * 0 = boot normally (back to netboot); 63 = halt (POWER_OFF_ON_HALT=1, WAKE_ON_GPIO=0 → PMIC off). */
++    u32 rsts = R(PM + 0x20) & ~0x555u;
++#ifdef POKE_HALT
++    rsts |= 0x555u;
++#endif
++    R(PM + 0x20) = PM_PASS | rsts;
+     R(PM + 0x24) = PM_PASS | 10;
+     R(PM + 0x1c) = PM_PASS | (R(PM + 0x1c) & ~0x30u) | 0x20;
+     for (;;) __asm__ volatile("wfe");
+@@ -68,14 +104,17 @@
+     if (!rn) rc('{');
+     rc('}'); res[rn] = 0;
+     puts_("POKE-RESULT "); puts_(res); puts_("\n");
+-    puts_("POKE-END ms="); putdec((long)ms()); puts_(failed ? " status=failed\n" : " status=ok\n");
++    puts_("POKE-END ms="); putdec((long)ms_()); puts_(failed ? " status=failed\n" : " status=ok\n");
+     power_off();
+ }
+ 
++static void budget_stop(void) { fail("time budget exceeded"); finish(); }
++
+ void sentence_boot(void) {
+     __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(frq));
+     if (!frq) frq = 54000000;
+     t0 = cnt();
++    wdog_feed();                                    /* armed before anything else can hang */
+     uart_init();
+     puts_("POKE-BOOT\n");
+     op_main();

@@ -1,0 +1,16 @@
+# Sentence boot (netboot): the firmware loads the sentence image the hub serves.
+arm_64bit=1
+kernel=sentence.img
+kernel_address=0x80000
+enable_uart=1
+init_uart_clock=48000000
+disable_splash=1
+boot_delay=0
+# Cut-down VideoCore firmware: the bootloader then fetches start4cd.elf (852 KB) +
+# fixup4cd.dat (a matched pair, both from the Raspberry Pi OS 2026-06-18 image)
+# instead of start4.elf (2.3 MB). Only gpu_mem=16 selects it; start_file= cannot.
+gpu_mem=16
+# Pin the VideoCore core clock (Pi 4: 500 MHz, but it may drop to 200 MHz when idle). I2C bus 1
+# runs from it: the image's RCFG cdiv for the Pi target (sentence/rtcfg.py) is 500 MHz / 100 kHz.
+core_freq=500
+core_freq_min=500

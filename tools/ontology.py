@@ -263,6 +263,71 @@ add("devices", "qemu-models", "QEMU device model quirks", "lesson",
     """, parent="devices")
 edge("qemu-models", "LEARNED_FROM", "twin")
 
+# ── parts the sentence hub can use (sentence boot: edge/sentence/frags + sentence/incubated) ──────────
+# One node per fragment the hub can put into a sentence's image. Its use_when line is the fragment's own
+# (what sentences need it) so a hub can route a sentence to the parts it needs instead of reading the whole
+# catalog. The text says how sure the hub is: verified against the twin's knobs, checked only by an
+# independent reading, or with writes denied by the safety review. What a fragment may write is NOT taken
+# from here — permissions stay in incubated/fn.json (safety-reviewed); this map only explains and routes.
+SENT = os.path.join(ROOT, "sentence")
+FRAGS = os.path.join(ROOT, "edge", "sentence", "frags")
+try:
+    _cat = json.load(open(os.path.join(FRAGS, "catalog.json")))
+except (OSError, ValueError):
+    _cat = {}
+try:
+    _fn = json.load(open(os.path.join(SENT, "incubated", "fn.json")))
+except (OSError, ValueError):
+    _fn = {}
+for name, e in sorted(_cat.items()):
+    rec_path = os.path.join(SENT, "incubated", f"{name}.json")
+    rec = json.load(open(rec_path)) if os.path.exists(rec_path) else None
+    addr = e.get("default_addr")
+    addr_s = addr if isinstance(addr, str) else (f"0x{addr:02x}" if isinstance(addr, int) else "?")
+    fns = e.get("functions", [])
+    fn_names = [re.search(r"(\w+)\s*\(", f).group(1) for f in fns if re.search(r"(\w+)\s*\(", f)]
+    writes = [f for f in fn_names if (_fn.get(f) or {}).get("access") == "write"]
+    denied = [f for f in fn_names if (_fn.get(f) or {}).get("policy") == "deny"]
+    if rec:
+        vk = rec.get("verification_kind") or ("twin knobs" if rec.get("twin_knobs") else "?")
+        status = ("VERIFIED against the twin's controls" if rec.get("twin_knobs") and rec.get("verified") else
+                  f"checked only by {vk}" if rec.get("verified") else "NOT verified")
+        if denied: status += f"; writes DENIED by the safety review ({', '.join(denied)})"
+        how = (f"Learned by {rec.get('by', 'an incubation')} on {rec.get('learned', '?')} in {rec.get('rounds', '?')} round(s) "
+               f"on the {rec.get('bench', 'twin')} bench.")
+        ident = rec.get("identity", e.get("from_driver", name))
+        idline = (f"`{rec['identify']}(addr)` returns 1 at this part and not at the bench's other parts ({rec.get('identify_kind', '')})"
+                  if rec.get("identify") else "no identify() — the part has nothing to read back that names it")
+        extra = (f"\n**Identification evidence:** {rec.get('evidence', '')}\n\n**Registers:** {rec.get('registers', '')}\n"
+                 f"\n**Identify:** {idline}\n" + (f"\n**Still to do on a real chip:** {rec['real_chip_todo']}\n" if rec.get("real_chip_todo") else ""))
+    else:
+        status, how, ident = "VERIFIED (an earlier incubation's library driver, re-cut as a fragment)", f"From the incubated driver {e.get('from_driver', '')}.", e.get("from_driver", name)
+        extra = ""
+    nid = f"part-{slug(name)}"
+    body = "\n".join([f"# {name} — {ident}", f"**Status:** {status}.", how, "",
+                      f"**Default address:** {addr_s} (a body's wiring may move it; the hub fills POKE_ADDR_{name.upper()})", "",
+                      f"**Use when:** {e.get('use_when', '')}", "", f"**Fragment** `{name}.h` — functions:",
+                      *[f"- `{f}`" for f in fns], "",
+                      f"**May write:** {', '.join(writes) or 'nothing (read only)'} — the exact registers, value ranges and counts are "
+                      "the hub's safety-reviewed policy (incubated/fn.json), not this text."]) + extra
+    add("devices", nid, f"{name}: {str(ident)[:60]}", "device", f"{name} at {addr_s}: {str(ident)[:90]} — {status}",
+        body, parent="devices", use_when=e.get("use_when") or None)
+    edge(nid, "FOUND_ON", bus_nodes.get("i2c", "i2c"))
+for f in sorted(glob.glob(os.path.join(SENT, "incubated", "failed", "*.json"))):
+    try:
+        d = json.load(open(f))
+    except (OSError, ValueError):
+        continue
+    a = os.path.splitext(os.path.basename(f))[0]
+    add("devices", f"unlearned-{slug(a)}", f"I2C {a}: not learned", "lesson",
+        f"At {a}: an incubation could not verify a driver — OPEN QUESTION, do not inherit its guess",
+        f"""
+        # I2C {a} — not learned
+        **Status: not identified / not verified.** {d.get('why', '')}
+
+        **Its guess (unconfirmed):** {d.get('identity', d.get('guess', '—'))}
+        """, parent="devices")
+
 # ── SKILLS ─────────────────────────────────────────────────────────────
 add("skills", "skills", "Motion skills", "topic",
     "Generated movement programs: the ABI they speak, the safety they run under, and the ones that worked",

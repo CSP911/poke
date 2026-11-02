@@ -1,0 +1,181 @@
+<title>문장 부팅 점검 회의</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#EEF0EC; --surface:#F8F9F6; --ink:#151815; --muted:#5B625A; --line:#D2D6CE;
+  --accent:#1F6B4E; --accent-soft:#DCEDE4;
+  --red:#A63A2B; --red-soft:#F5DFDA; --amber:#8E6400; --amber-soft:#F3E9CC; --blue:#2D5A8C; --blue-soft:#DDE7F2;
+  --display:"IBM Plex Sans KR","Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#111412; --surface:#181C19; --ink:#E6EAE5; --muted:#99A197; --line:#2A302B;
+    --accent:#6FCB9E; --accent-soft:#16301F;
+    --red:#F08C7C; --red-soft:#3A1C17; --amber:#E2B54C; --amber-soft:#352A10; --blue:#8DB7E8; --blue-soft:#172535;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#111412; --surface:#181C19; --ink:#E6EAE5; --muted:#99A197; --line:#2A302B;
+  --accent:#6FCB9E; --accent-soft:#16301F;
+  --red:#F08C7C; --red-soft:#3A1C17; --amber:#E2B54C; --amber-soft:#352A10; --blue:#8DB7E8; --blue-soft:#172535;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.72;padding-inline:20px;padding-block:0}
+.page{max-width:960px;margin:0 auto;padding-block:44px 90px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(32px,5vw,48px);line-height:1.2;margin:8px 0 14px;text-wrap:balance}
+.lede{font-size:18px;max-width:40em;margin:0}
+section{padding-top:44px}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(21px,2.6vw,26px);margin:0 0 12px;text-wrap:balance}
+h3{font-family:var(--display);font-weight:700;font-size:17px;margin:0 0 4px}
+p,li{max-width:70ch}
+.teams{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.team{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:14.5px}
+.team .who{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.06em}
+.team p{margin:4px 0 0}
+.tbl{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;min-width:680px;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;vertical-align:top;padding:9px 11px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+td.m{font-family:var(--mono);font-size:13px;white-space:nowrap}
+.pill{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 8px;border-radius:99px;white-space:nowrap}
+.hi{background:var(--red-soft);color:var(--red)}
+.mid{background:var(--amber-soft);color:var(--amber)}
+.lo{background:var(--blue-soft);color:var(--blue)}
+.done{background:var(--accent-soft);color:var(--accent)}
+.decisions{list-style:none;padding:0;margin:0;display:grid;gap:12px;counter-reset:d}
+.decisions li{counter-increment:d;display:grid;grid-template-columns:2.2em 1fr;gap:4px 10px;max-width:none}
+.decisions li::before{content:counter(d);font-family:var(--display);font-weight:700;font-size:22px;color:var(--accent);line-height:1.2}
+.decisions .owner{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.debate{display:grid;gap:12px}
+.debate div{border-left:3px solid var(--line);padding:2px 0 2px 14px}
+.debate b{font-family:var(--display)}
+.ask{background:var(--amber-soft);border-left:3px solid var(--amber);border-radius:0 10px 10px 0;padding:14px 18px}
+.ask ul{margin:6px 0 0;padding-left:20px}
+.ask li{margin:4px 0}
+code{font-family:var(--mono);font-size:.88em;background:var(--accent-soft);padding:1px 6px;border-radius:4px}
+footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+footer ul{margin:6px 0 0;padding-left:18px}
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">POKE · 회의록 · 2026-10-11 · "문장 하나, 부팅 하나" 점검</div>
+  <h1>문장 부팅 점검 회의</h1>
+  <p class="lede">네 팀이 각자 시험하고 조사한 뒤, 서로의 보고를 놓고 한 차례 회의했다. 트윈에서는 시스템이 단단했지만 허브 한 곳과 실기기 경로 두 곳에 확정 결함이 나왔다. 검사기팀의 격리 프로토타입(v1)은 트윈에서 그 대부분을 막았고 비용은 1 ms 이하였다.</p>
+</header>
+
+<section>
+  <h2>팀</h2>
+  <div class="teams">
+    <div class="team"><div class="who">시험팀</div><h3>트윈에서 지금 가능한 시험</h3><p>반복 60회, 장치 부재 7건, 장애 경로, 새 문장 6개, 넷부팅 연속 10회. 이어서 v1 부팅 시험 10건.</p></div>
+    <div class="team"><div class="who">검사기팀</div><h3>op 격리 설계 v1</h3><p>세 안 비교 후 MMU를 켜고 op를 사용자 권한(EL0)에서 실행하는 안을 프로토타입으로 구현.</p></div>
+    <div class="team"><div class="who">실기기팀</div><h3>실제 Pi 넷부팅 준비도</h3><p>공식 문서와 부트로더 동작을 tftpd·런타임과 대조. 넷부팅 시간 추정, 워치독 설계.</p></div>
+    <div class="team"><div class="who">제품팀</div><h3>제품 완성도</h3><p>사용자 여정, 비전 대비 격차, not-linux 규칙 준수, 5분 데모 최소 요건.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>시험이 보여 준 것</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>시험</th><th>결과</th></tr></thead>
+    <tbody>
+      <tr><td>캐시된 문장 반복 부팅 (온도 30회, LED 순차 30회)</td><td>60/60 정답, 모두 꺼짐. 읽기 중앙 30 ms, LED 615 ms</td></tr>
+      <tr><td>장치를 빼거나 옮긴 실험대 7건</td><td>7/7 이유를 보고하고 꺼짐</td></tr>
+      <tr><td>처음 듣는 문장 6개 (영어 혼용, 조합, 모호, 없는 LED)</td><td>6/6 정답, 모두 첫 시도, op 작성 6–16 s</td></tr>
+      <tr><td>넷부팅 경로 연속 10회 (장애·무한 루프 포함)</td><td>무한 루프 1건만 허브 예산에서 끊김, 다음 문장은 정상</td></tr>
+      <tr><td>지금까지 만든 op 12개를 v1 격리 런타임으로</td><td>소스 수정 없이 링크, 11/12 결과 동일 (1건은 측정 시간 1 ms 잡음)</td></tr>
+      <tr><td>v1 부팅 시험 10건</td><td>9/10. 남은 1건은 시험 기대값 오류 (센서 해상도)</td></tr>
+      <tr><td>v1 시간 예산 (타이머 인터럽트)</td><td>트윈에서 동작. 2 s 예산 op가 2003–2005 ms에 끝나고 꺼짐</td></tr>
+      <tr><td>v1 부팅 비용</td><td>0–1 ms 증가, 이미지 약 8 KB → 16.5 KB</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>결함과 상태</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>결함</th><th>찾은 팀</th><th>심각도</th><th>상태</th></tr></thead>
+    <tbody>
+      <tr><td>허브가 검사 결과를 출력만 하고, 거부된 이미지도 부팅함. 캐시된 op와 세 번 거부된 op 모두 해당 (<code>say.py</code> 실행 함수)</td><td>제품</td><td><span class="pill hi">높음</span></td><td>의장 확인. 허브 수정 필요</td></tr>
+      <tr><td>전원을 끄기 전에 UART 출력 버퍼를 비우지 않음. 실기기에서 마지막 결과 줄과 POKE-OFF가 잘릴 수 있음</td><td>실기기</td><td><span class="pill hi">높음</span></td><td>의장 확인. 수정안 있음, v1에 반영</td></tr>
+      <tr><td>부팅 때 워치독이 켜지지 않음. 실기기에서 멈춘 op는 영원히 켜져 있음</td><td>시험</td><td><span class="pill hi">높음</span></td><td>트윈은 v1 타이머로 해결. 실기기 워치독 수정안 있음</td></tr>
+      <tr><td>결과가 1 KB를 넘으면 JSON이 깨지고 허브가 죽음</td><td>시험</td><td><span class="pill hi">높음</span></td><td><span class="pill done">v1에서 해결</span></td></tr>
+      <tr><td>op가 보고 문장에 줄바꿈을 넣으면 허브가 결과·종료를 오판</td><td>시험</td><td><span class="pill mid">중</span></td><td><span class="pill done">v1에서 해결</span></td></tr>
+      <tr><td>무한 재귀가 스택을 넘어 런타임을 덮어씀</td><td>시험</td><td><span class="pill mid">중</span></td><td><span class="pill done">v1에서 해결</span></td></tr>
+      <tr><td>실행 중 계산되는 주소는 v0 검사가 보지 못함 (문서화된 한계)</td><td>시험</td><td><span class="pill mid">중</span></td><td><span class="pill done">v1에서 해결</span> (MMU가 강제)</td></tr>
+      <tr><td>v0 검사 오탐: 음수 상수·0xFFFFFFFF 표를 주변장치 주소로 오인</td><td>시험</td><td><span class="pill mid">중</span></td><td>v1 도입 후 경고로 강등 예정</td></tr>
+      <tr><td>I2C 분주값이 150 MHz 클록을 전제. 실기기 코어 클록과 다름</td><td>실기기</td><td><span class="pill mid">중</span></td><td>실기기 전 수정 필요</td></tr>
+      <tr><td>무응답이면 부트로더가 최대 30 s 기다렸다 재시작. 문장 지연이 길어질 수 있음</td><td>실기기</td><td><span class="pill mid">중</span></td><td>요청을 보관했다 즉시 답하는 tftpd 수정본 있음</td></tr>
+      <tr><td>장치 설정 실패 시 트윈 QEMU가 남음</td><td>시험</td><td><span class="pill mid">중</span></td><td>허브 수정 필요</td></tr>
+      <tr><td>캐시가 문장을 글자 그대로만 맞춤. "LED 3번"과 "LED 4번"이 별도 op</td><td>제품</td><td><span class="pill mid">중</span></td><td>문장 기록으로 재설계</td></tr>
+      <tr><td>실패 시 파이썬 traceback 노출, 설명 문장이 영어</td><td>제품</td><td><span class="pill mid">중</span></td><td>허브 수정 필요</td></tr>
+      <tr><td>delay_ms 10 s 상한이 조용히 잘림. RTC가 UTC로 답함. 온도 0.5 °C 내림</td><td>시험</td><td><span class="pill lo">낮음</span></td><td>결정안 있음 (아래)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>결정</h2>
+  <ol class="decisions">
+    <li><div><h3>거부된 이미지는 부팅하지 않는다</h3>검사를 부팅 직전, 캐시 경로까지 포함해 강제한다. 네 팀 모두 첫 작업으로 꼽았다.<div class="owner">허브 · 즉시</div></div></li>
+    <li><div><h3>트윈과 허브의 기본 런타임을 v1 격리로 바꾼다</h3>op는 MMU 아래 사용자 권한에서 돌고, 허용된 I2C·GPIO 창 밖은 하드웨어가 막는다. v0 검사는 LLM에 빨리 알려 주는 린트로 역할을 낮춘다. 그러면 오탐이 재시도를 일으키지 않는다.<div class="owner">검사기 → 허브 · 다음 세션</div></div></li>
+    <li><div><h3>실기기 첫 부팅은 최소 런타임으로 먼저 한다</h3>첫 시도에는 UART 버퍼 비우기와 부팅 시 워치독만 넣는다. MMU 격리는 POKE-BOOT 한 줄을 실기기에서 본 뒤 두 번째 단계로 올린다. 고장 원인을 가를 수 있어야 하기 때문이다.<div class="owner">실기기 · 하드웨어 연결 후</div></div></li>
+    <li><div><h3>워치독은 런타임만 갱신한다</h3>부팅 첫 줄에서 15 s로 무장하고, op 예산을 넘으면 더 갱신하지 않는다. 최악의 경우도 예산 + 15 s 안에 노드가 리셋된다. 트윈에서는 이미지의 설정 블록으로 끈다.<div class="owner">실기기 · 런타임</div></div></li>
+    <li><div><h3>"전원 종료"를 "비움 · 부트로더 대기"로 고쳐 부른다</h3>워치독 리셋은 전원 차단이 아니다. 리셋 전에 op 영역과 스택을 0으로 지운다. 진짜 halt는 허브가 깨울 선이 생긴 뒤 별도 모드로 둔다.<div class="owner">제품 · 문서와 출력</div></div></li>
+    <li><div><h3>op 캐시를 문장 기록으로 바꾼다</h3>정규화된 문장, 파라미터, 결과 흔적, 승인, 모델과 날짜를 한 레코드에 담는다. 더늠 카드 v0이 된다.<div class="owner">제품 → 허브</div></div></li>
+    <li><div><h3>장치를 움직이는 문장은 먼저 확인받는다</h3>읽기만 하는 문장은 바로 실행한다. 쓰기가 있으면 한국어 한 줄로 승인받고, 쓰기 대상이 모호하면 부팅 없이 되묻는다. 허용 장치는 허브의 정책 표로 정하고, 검사기가 op에 링크된 조각이 그 범위 안인지 확인한다.<div class="owner">제품 · 검사기</div></div></li>
+    <li><div><h3>기다림은 허브에 둔다</h3>20 s를 넘는 요청은 허브가 예약한 반복 부팅으로 나눈다. delay_ms 상한은 조용히 자르지 않고 실패로 알린다. 노드는 UTC를 유지하고 허브가 현지 시각으로 바꾼다.<div class="owner">제품 · 허브</div></div></li>
+  </ol>
+</section>
+
+<section>
+  <h2>쟁점과 정리</h2>
+  <div class="debate">
+    <div><b>MMU 격리를 실기기 첫 부팅에 넣을까.</b> 시험·검사기·제품 팀은 v1을 바로 기본으로 하자고 했다. 실기기팀은 페이지 테이블, 캐시, 인터럽트 컨트롤러, 권한 전환이 모두 실기기 미검증이라 첫 시도에 넣으면 고장을 가를 수 없다고 반대했다. 트윈은 v1으로 가고 실기기는 두 단계로 나눈다(결정 3).</div>
+    <div><b>halt인가 리셋인가.</b> 진짜 전원 차단은 매 문장을 콜드 부팅으로 만들고 깨울 선이 필요하다. 넷부팅에서는 리셋이 맞다는 데 세 팀이 동의했다. 제품팀은 halt를 빈 몸 증명용 별도 모드로 남기자고 했다(결정 5).</div>
+    <div><b>외부에 어떤 숫자를 앞세울까.</b> 제품팀은 트윈의 20–30 ms를 앞세우지 말자고 했다. 실기기 넷부팅은 대기 중 1.5–3 s, 콜드 4–7 s로 추정되고 아직 실측 전이다.</div>
+    <div><b>격리로 막지 못하는 것.</b> 메모리 격리는 허용된 장치 안에서의 의도 밖 행동(시계를 잘못 쓰기, LED를 켜 둔 채 두기)을 막지 못한다. 그래서 결정 7의 장치 정책이 따로 필요하다. 다음 단계는 I2C 전송 자체를 런타임 호출로 받아 주소를 거르는 것이다.</div>
+  </div>
+</section>
+
+<section>
+  <h2>소유자 결정이 필요한 것</h2>
+  <div class="ask">
+    <ul>
+      <li><b>하드웨어 준비.</b> 3.3 V USB-시리얼 어댑터와 Mac용 유선 이더넷이 필요하다. 지금은 둘 다 연결돼 있지 않다. 정답 대조용 로직 분석기(약 10달러)는 선택이다.</li>
+      <li><b>본선 반영 승인.</b> 결정 1(검사 강제)과 결정 2(v1 통합)는 <code>say.py</code>와 <code>edge/sentence/</code>를 고친다. 팀들은 지금까지 <code>sentence/teams/</code> 안에서만 작업했다.</li>
+      <li><b>커밋.</b> 문장 부팅 시스템과 팀 산출물은 모두 커밋 전이다.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>다음 세션 첫 작업</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>팀</th><th>첫 작업</th></tr></thead>
+    <tbody>
+      <tr><td>허브 (의장)</td><td>부팅 직전 검사 강제. 거부되면 부팅하지 않고 이유를 사람 말로 보여 준다</td></tr>
+      <tr><td>검사기</td><td>v1을 허브 기본 경로에 통합하고, v0 주소 규칙을 경고로 낮춘다</td></tr>
+      <tr><td>시험</td><td>모든 시험을 v1 대상으로 돌리는 단일 회귀 러너. 시간 필드를 빼고 실험대 진실로 판정</td></tr>
+      <tr><td>실기기</td><td>어댑터와 이더넷 연결, 부트로더 로그를 켠 채 펌웨어만 넷부팅해 요청 순서와 시간을 기록</td></tr>
+      <tr><td>제품</td><td>문장 기록과 쓰기 확인 한 줄을 설계해 허브에 넘긴다</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>
+  팀 산출물은 <code>sentence/teams/</code>에 있다.
+  <ul>
+    <li>시험: <code>test/</code> 시험 스크립트와 결과</li>
+    <li>검사기: <code>verify/edge/</code> v1 런타임, 페이지 테이블 시험, 부팅 시험</li>
+    <li>실기기: <code>hw/</code> 보관형 tftpd, 런타임 수정안 두 개, config·EEPROM 설정</li>
+    <li>제품: <code>product/</code> 사용자 여정 기록과 2라운드 결정안</li>
+  </ul>
+</footer>
+</div>

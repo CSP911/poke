@@ -1,0 +1,86 @@
+{
+ "id": "living",
+ "place": "거실",
+ "arch": "aarch64-pi4",
+ "boot": "pi-eeprom-tftp",
+ "abi": "rt.h/1",
+ "buses": [
+  "i2c1"
+ ],
+ "limits": {
+  "run_budget_ms": 20000,
+  "simd": false
+ },
+ "reflex": [
+  "stop-on-budget",
+  "watchdog-15s"
+ ],
+ "link": {
+  "kind": "twin"
+ },
+ "twin": [
+  [
+   "tmp105",
+   "t1",
+   "0x48",
+   "tmp105",
+   "거실 온도"
+  ],
+  [
+   "pca9554",
+   "g1",
+   "0x20",
+   "pca9554",
+   "거실 릴레이·센서 보드",
+   {
+    "roles": [
+     {
+      "role": "switch",
+      "pin": 0,
+      "key": "ceiling_light",
+      "name": "거실 천장등"
+     },
+     {
+      "role": "switch",
+      "pin": 1,
+      "key": "mood_light",
+      "name": "거실 간접등"
+     },
+     {
+      "role": "cover",
+      "open": 2,
+      "close": 3,
+      "key": "curtain",
+      "name": "거실 커튼",
+      "closed": 5
+     },
+     {
+      "role": "motion",
+      "pin": 4,
+      "key": "motion",
+      "name": "거실 움직임 센서"
+     }
+    ]
+   }
+  ],
+  [
+   "pca9554",
+   "a1",
+   "0x21",
+   "pca9554",
+   "거실 에어컨 제어",
+   {
+    "roles": [
+     {
+      "role": "climate",
+      "power": 0,
+      "base": 1,
+      "bits": 5,
+      "key": "aircon",
+      "name": "거실 에어컨 (트윈: IR 대신 핀 6개로 명령 표시 — P0 전원, P1–P5 목표 온도)"
+     }
+    ]
+   }
+  ]
+ ]
+}

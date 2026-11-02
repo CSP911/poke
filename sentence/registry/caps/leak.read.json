@@ -1,0 +1,11 @@
+{
+ "cap": "leak.read",
+ "v": 1,
+ "call": "int cap_leak_read(cap_t c, int *wet)",
+ "returns": "0 ok, nonzero error (op should fail())",
+ "describes_ko": "물이 새는지 읽는다 (1 젖음)",
+ "safety": "inert",
+ "outputs": [
+  "wet"
+ ]
+}

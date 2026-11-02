@@ -1,0 +1,57 @@
+{
+ "id": "rtc",
+ "identity": "i2c-rtc-68",
+ "fragment": "rtc.h",
+ "default_addr": "0x68",
+ "identify": null,
+ "verification": {
+  "kind": "library driver (earlier incubation)"
+ },
+ "implements": [
+  {
+   "cap": "time.read",
+   "channels": {
+    "": 0
+   },
+   "body": "return rtc_read(ADDR, year, month, day, hour, min, sec);",
+   "spec": {
+    "unit": "24-hour local",
+    "basis": "fragment"
+   },
+   "fns": [
+    "rtc_read"
+   ],
+   "access": "read",
+   "policy": "allow"
+  },
+  {
+   "cap": "time.set",
+   "channels": {
+    "": 0
+   },
+   "body": "return rtc_set(ADDR, year, month, day, hour, min, sec);",
+   "fns": [
+    "rtc_set"
+   ],
+   "access": "write",
+   "policy": "deny"
+  }
+ ],
+ "functions": {
+  "rtc_read": {
+   "access": "read",
+   "write_regs": [],
+   "max_write": null,
+   "policy": "allow"
+  },
+  "rtc_set": {
+   "access": "write",
+   "write_regs": [
+    0
+   ],
+   "max_write": 8,
+   "policy": "deny"
+  }
+ },
+ "unbound": []
+}

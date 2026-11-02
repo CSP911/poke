@@ -1,0 +1,168 @@
+<title>POKE 도메인 지도</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F1F0EB; --surface:#FAF9F5; --ink:#17181A; --muted:#5E6064; --line:#D8D6CE;
+  --accent:#24548F; --accent-soft:#DFE8F3; --star:#B5651D; --star-soft:#F6E6D4; --no:#8A3B2E;
+  --display:"IBM Plex Sans KR","Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#121315; --surface:#1A1B1E; --ink:#E7E8EA; --muted:#9A9DA3; --line:#2C2E33;
+    --accent:#8FB4E6; --accent-soft:#18243A; --star:#E9A766; --star-soft:#36261A; --no:#E89283;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#121315; --surface:#1A1B1E; --ink:#E7E8EA; --muted:#9A9DA3; --line:#2C2E33;
+  --accent:#8FB4E6; --accent-soft:#18243A; --star:#E9A766; --star-soft:#36261A; --no:#E89283;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.7;padding-inline:20px;padding-block:0}
+.page{max-width:980px;margin:0 auto;padding-block:44px 90px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(32px,5vw,48px);line-height:1.2;margin:8px 0 14px;text-wrap:balance}
+.lede{font-size:18px;max-width:42em;margin:0}
+.thread{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:22px 0 0;max-width:46em}
+.thread b{font-family:var(--display)}
+section{padding-top:40px}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(20px,2.4vw,24px);margin:0 0 14px;display:flex;gap:10px;align-items:baseline}
+h2 .k{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);letter-spacing:.08em}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.card.top{border-color:var(--star);box-shadow:inset 4px 0 0 var(--star)}
+.say{font-family:var(--display);font-weight:700;font-size:18px;line-height:1.35}
+.say em{font-style:normal;color:var(--accent)}
+.card.top .say em{color:var(--star)}
+.badge{align-self:flex-start;font-family:var(--mono);font-size:11px;padding:1px 8px;border-radius:99px;background:var(--star-soft);color:var(--star)}
+.card p{margin:0;font-size:14.5px}
+.lab{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:1px}
+.scale{font-size:14px;color:var(--muted)}
+.picks{counter-reset:p;list-style:none;padding:0;margin:0;display:grid;gap:14px}
+.picks li{counter-increment:p;display:grid;grid-template-columns:2em 1fr;gap:4px 12px;max-width:none}
+.picks li::before{content:counter(p);font-family:var(--display);font-weight:700;font-size:24px;color:var(--star);line-height:1.2}
+.picks b{font-family:var(--display)}
+.not{columns:2 280px;column-gap:28px;padding-left:18px;margin:0}
+.not li{break-inside:avoid;margin-bottom:6px;font-size:14.5px}
+footer{margin-top:52px;padding-top:16px;border-top:1px solid var(--line);font-size:13.5px;color:var(--muted)}
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">POKE · 도메인 회의 · 2026-10-12 · 탐색팀 4개</div>
+  <h1>POKE 도메인 지도</h1>
+  <p class="lede">필요할 때만 생겨나 일하고 비워지는 기계. 이 사이클을 어느 큰 사업에 적용해 볼 수 있는지, 네 팀이 영역을 나눠 찾았다. 기술보다 산업과 사람의 구조가 바뀌는 곳을 먼저 골랐다.</p>
+  <div class="thread"><b>12개 도메인의 공통점.</b> 지금은 모두 "기계 안에 소프트웨어가 머물러 있다"는 전제에 묶여 있다. 그 전제가 지원 종료로 멀쩡한 기계를 버리게 하고, 제조사 종속을 만들고, 늘 켜진 감시를 만들고, 데이터를 한곳에 쌓게 한다. POKE는 이 전제를 뺀다.</div>
+</header>
+
+<section>
+  <h2>삶 · 돌봄 · 의료 <span class="k">탐색팀 1</span></h2>
+  <div class="grid">
+    <div class="card top"><span class="badge">이 묶음의 1순위</span>
+      <div class="say"><em>보조기기·복지용구</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>사람의 몸은 매일 바뀌는데 기기는 품목마다 기능이 고정돼 있다. 루게릭 환자의 스위치가 어제는 손가락, 오늘은 눈 깜빡임으로 다시 만들어진다. 기기는 공용 자산이 되고, 사람은 "나에게 필요한 일" 카드를 가진다.</p>
+      <p class="scale">정부 지원 연 738만 건 · 4,932억 원(2023), 65세 이상 21.2%</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>혼자 사는 노년 돌봄</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>안전을 얻으려면 카메라가 늘 켜져 있어야 했다. 이제는 딸이 "엄마 일어나셨어?"라고 물을 때만 그 질문 하나가 깨어나 답하고 사라진다. 방문 요양 기록은 위조할 수 없다.</p>
+      <p class="scale">70세 이상 1인 가구 221만, 4년 새 26% 증가</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>학교 교구·에듀테크</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>정책이 바뀌면 플랫폼과 기계가 함께 좌초된다. 교실 기기가 수업 한 시간만 그 도구가 되고, 아이에 대해 남는 것이 없다.</p>
+      <p class="scale">AI 디지털교과서 3년 1.4조 원, 도입 학교 4,095 → 1,686곳</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>산업 · 에너지 · 도시 <span class="k">탐색팀 2</span></h2>
+  <div class="grid">
+    <div class="card top"><span class="badge">이 묶음의 1순위</span>
+      <div class="say"><em>설비 사후 지원·장수명 설비</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>기계는 30년 가는데 소프트웨어 지원은 10–15년에서 끝난다. 기계 안에 돌볼 소프트웨어가 없으면 "지원 종료"라는 말이 사라지고, 설비 수명이 다시 쇠의 수명이 된다.</p>
+      <p class="scale">제조사의 68%가 단종 제어기 운영, EU 사이버복원력법 2027-12 시행</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>태양광·배터리·충전기 에너지</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>인버터에 말할 수 있는 사람은 펌웨어를 만든 제조사였다. 제조사가 상주시킨 통로를 없애고, 계통 운영자가 카드로 명령한다. 설비의 주인이 전력망 쪽으로 돌아온다.</p>
+      <p class="scale">유럽 인버터 70% 중국산, 2026년 미국 외국산 인버터 금지</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>작은 정수장·건물 관리</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>IT 담당자 없는 시설에 늘 열려 있던 원격 접속이 사라지고, 필요한 순간에만 일이 생긴다.</p>
+      <p class="scale">미국 소규모 수도 시설 81%, 점검에서 70% 이상 기본 요건 위반</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>공공 · 안전 · 데이터 <span class="k">탐색팀 3</span></h2>
+  <div class="grid">
+    <div class="card top"><span class="badge">이 묶음의 1순위</span>
+      <div class="say"><em>공공 CCTV·도시 감시</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>지금 카메라는 "무엇이든 볼 수 있는 눈"이다. 카메라가 공개된 질문 하나만 할 수 있는 상태로 깨어나면, 감시의 범위가 공개된 문장의 합이 된다. 감시권이 기관의 설정에서 의회와 시민이 감사하는 문장 목록으로 옮겨 간다.</p>
+      <p class="scale">전국 약 800만 대(2017 추정, 지금은 더 많음), 서울 지능형 전환 57%</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>공공 데이터 분석·마이데이터</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>데이터를 쓰려면 모아야 했고, 모으면 털렸다. 질문만 병원과 기관을 돌고 숫자 하나만 돌아온다. 데이터는 국경을 넘지 않는다.</p>
+      <p class="scale">2025 SKT 2,324만 · 쿠팡 3,370만 유출</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>재난 행정·공공 서비스 연속성</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>행정은 특정 건물의 서버에 머문다고 여겨졌다. 대피소의 아무 단말이 "지원금 1건" 카드로 그 일을 하고 비워진다.</p>
+      <p class="scale">2025 국정자원 화재로 시스템 647개 중단</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>지구 · 농업 · 자원 <span class="k">탐색팀 4</span></h2>
+  <div class="grid">
+    <div class="card top"><span class="badge">이 묶음의 1순위</span>
+      <div class="say"><em>농산물 원산지·환경 인증</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>증명하려면 비싼 인증 장비와 감사인을 믿어야 해서 소농이 공급망에서 밀려났다. 값싼 수분계와 양수기가 "이 필지에서 이렇게 했다"는 위조할 수 없는 기록을 남긴다. 증명 비용이 장비 값에서 문장 한 장 값으로 내려간다.</p>
+      <p class="scale">가족농 6억 800만, EU 산림파괴규정 2026-12 시행, 배터리 여권 2027-02</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>농기계 수리</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>고장은 제조사 소프트웨어로만 풀려서 수리를 딜러가 독점했다. 동네 정비사가 말로 진단하고, 기계 안에 잠글 소프트웨어가 없다.</p>
+      <p class="scale">존디어 수리권 합의(2026, 9,900만 달러 + FTC 10년 감독)</p>
+    </div>
+    <div class="card">
+      <div class="say"><em>전자폐기물 재사용</em> 사업에 적용해볼 수 있어요</div>
+      <p><span class="lab">바뀌는 것</span>칩은 살아 있어도 지원이 끊기면 버려졌다. 수거된 보드를 허브가 배워 마을 센서 같은 새 일을 맡긴다.</p>
+      <p class="scale">연 6,200만 톤, 회수율 22.3%, 미회수 자원 가치 620억 달러</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>의장 추천: 먼저 잡을 큰 도메인 셋</h2>
+  <ol class="picks">
+    <li><div><b>장수명 설비 사업</b> (공장·에너지·물). 판을 묶는 전제가 가장 선명하고, EU 사이버복원력법과 인버터 금수 조치로 "머무는 소프트웨어는 법적 부채"가 되는 시점이 바로 지금이다. 지난 회의의 결론(행위 영수증)도 여기서 그대로 쓰인다.</div></li>
+    <li><div><b>헬스케어 중 돌봄·보조기기 사업</b>. 사람이 주인공인 가장 큰 영역이다. 병원 의료기기는 고정 소프트웨어 인허가 때문에 바로 들어갈 수 없다. 대신 복지용구와 노년 돌봄처럼 병원 밖 영역부터 들어가면 된다.</div></li>
+    <li><div><b>공공 감시와 데이터 사업</b>. "기계는 카드에 적힌 일만 할 수 있다"가 권력 구조를 직접 바꾸는 곳이다. 다만 실기기에서 비워짐을 증명하기 전에 공공에 약속하면 위험하다.</div></li>
+  </ol>
+</section>
+
+<section>
+  <h2>이 사이클이 맞지 않는 곳</h2>
+  <ul class="not">
+    <li>끊기면 생명이 위험한 기기: 인공호흡기, 인슐린 자동 조절, 심박조율기</li>
+    <li>밀리초 단위 연속 제어: 자율조향, 계통 동기화, 보호 계전기, 교통 신호</li>
+    <li>고정 소프트웨어 인증을 전제로 한 분야: 병원 의료기기, 철도 신호, 플랜트 안전 계통</li>
+    <li>통신이 끊기는 현장: 정전 복구, 원양 조업, 재난으로 허브에 닿지 못할 때</li>
+    <li>원하는 순간을 스스로 말할 수 없는 사람: 대리인의 책임 문제가 남는다</li>
+    <li>사법 증거 보존 의무: 비워짐이 증거 인멸로 읽힐 수 있다</li>
+  </ul>
+</section>
+
+<footer>규모 수치는 각 팀이 찾은 공개 자료(국회예산정책처, EPA, ITU/UNITAR, FAO, FTC, EU 집행위, 국내 보도 등)에서 왔다. 일부 시행일과 CCTV 대수는 확인이 더 필요하다. 이미 거절된 소모성 컴퓨팅·극한환경 방향은 제외했다.</footer>
+</div>

@@ -1,0 +1,385 @@
+{
+ "proposed": {
+  "FN": {
+   "tmp421_read_mc": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "tmp421_read_both": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "tmp421_identify": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "pca9554_read": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "pca9554_set_pin": {
+    "write_regs": [
+     1,
+     3
+    ],
+    "max_write": 2
+   },
+   "pca9554_identify": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "ssd0303_on": {
+    "write_regs": [
+     64,
+     128
+    ],
+    "max_write": 34
+   },
+   "ssd0303_text": {
+    "write_regs": [
+     64,
+     128
+    ],
+    "max_write": 7
+   },
+   "ssd0303_identify": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "dps310_read": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "dps310_read_raw": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "dps310_compensate": {
+    "write_regs": [],
+    "max_write": 1
+   },
+   "dps310_identify": {
+    "write_regs": [],
+    "max_write": 1
+   }
+  },
+  "POLICY": {
+   "tmp421_read_mc": "allow",
+   "tmp421_read_both": "allow",
+   "tmp421_identify": "allow",
+   "pca9554_read": "allow",
+   "pca9554_set_pin": "confirm",
+   "pca9554_identify": "allow",
+   "ssd0303_on": "deny",
+   "ssd0303_text": "deny",
+   "ssd0303_identify": "allow",
+   "dps310_read": "allow",
+   "dps310_read_raw": "allow",
+   "dps310_compensate": "allow",
+   "dps310_identify": "allow"
+  }
+ },
+ "table": [
+  {
+   "part": "tmp421",
+   "confidence": 0.95,
+   "fn": "tmp421_read_mc",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "part": "tmp421",
+   "confidence": 0.95,
+   "fn": "tmp421_read_both",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "part": "tmp421",
+   "confidence": 0.95,
+   "fn": "tmp421_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 0,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "no verification run calls it"
+   ]
+  },
+  {
+   "part": "pca9554",
+   "confidence": 0.85,
+   "fn": "pca9554_read",
+   "access": "read",
+   "declared": [],
+   "seen": [
+    1,
+    3
+   ],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 4,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "part": "pca9554",
+   "confidence": 0.85,
+   "fn": "pca9554_set_pin",
+   "access": "write",
+   "declared": [
+    1,
+    3
+   ],
+   "seen": [
+    1,
+    3
+   ],
+   "kept": [
+    1,
+    3
+   ],
+   "max_write": [
+    2,
+    2
+   ],
+   "runs": 2,
+   "policy": [
+    "confirm",
+    "confirm"
+   ],
+   "why": []
+  },
+  {
+   "part": "pca9554",
+   "confidence": 0.85,
+   "fn": "pca9554_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 0,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "no verification run calls it"
+   ]
+  },
+  {
+   "part": "ssd0303",
+   "confidence": 0.7,
+   "fn": "ssd0303_on",
+   "access": "write",
+   "declared": [
+    64,
+    128
+   ],
+   "seen": [
+    64,
+    128
+   ],
+   "kept": [
+    64,
+    128
+   ],
+   "max_write": [
+    34,
+    34
+   ],
+   "runs": 2,
+   "policy": [
+    "confirm",
+    "deny"
+   ],
+   "why": [
+    "identified at 70% < 80%"
+   ]
+  },
+  {
+   "part": "ssd0303",
+   "confidence": 0.7,
+   "fn": "ssd0303_text",
+   "access": "write",
+   "declared": [
+    64,
+    128
+   ],
+   "seen": [
+    64,
+    128
+   ],
+   "kept": [
+    64,
+    128
+   ],
+   "max_write": [
+    7,
+    7
+   ],
+   "runs": 2,
+   "policy": [
+    "confirm",
+    "deny"
+   ],
+   "why": [
+    "identified at 70% < 80%"
+   ]
+  },
+  {
+   "part": "ssd0303",
+   "confidence": 0.7,
+   "fn": "ssd0303_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 0,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "no verification run calls it"
+   ]
+  },
+  {
+   "part": "dps310",
+   "confidence": 0.8,
+   "fn": "dps310_read",
+   "access": "read",
+   "declared": [
+    6,
+    7,
+    8
+   ],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    2,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "never seen writing [6, 7, 8]"
+   ]
+  },
+  {
+   "part": "dps310",
+   "confidence": 0.8,
+   "fn": "dps310_read_raw",
+   "access": "read",
+   "declared": [
+    6,
+    7,
+    8
+   ],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    2,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "never seen writing [6, 7, 8]"
+   ]
+  },
+  {
+   "part": "dps310",
+   "confidence": 0.8,
+   "fn": "dps310_compensate",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    0,
+    1
+   ],
+   "runs": 2,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": []
+  },
+  {
+   "part": "dps310",
+   "confidence": 0.8,
+   "fn": "dps310_identify",
+   "access": "read",
+   "declared": [],
+   "seen": [],
+   "kept": [],
+   "max_write": [
+    1,
+    1
+   ],
+   "runs": 0,
+   "policy": [
+    "allow",
+    "allow"
+   ],
+   "why": [
+    "no verification run calls it"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,65 @@
+{
+ "id": "bedroom",
+ "place": "침실",
+ "arch": "aarch64-pi4",
+ "boot": "pi-eeprom-tftp",
+ "abi": "rt.h/1",
+ "buses": [
+  "i2c1"
+ ],
+ "limits": {
+  "run_budget_ms": 20000,
+  "simd": false
+ },
+ "reflex": [
+  "stop-on-budget",
+  "watchdog-15s"
+ ],
+ "link": {
+  "kind": "twin"
+ },
+ "twin": [
+  [
+   "tmp421",
+   "x1",
+   "0x4c",
+   "tmp421",
+   "침실 온도",
+   {
+    "channel_names": {
+     "local": "실내",
+     "remote": "창가"
+    }
+   }
+  ],
+  [
+   "pca9554",
+   "g1",
+   "0x20",
+   "pca9554",
+   "침실 릴레이·센서 보드",
+   {
+    "roles": [
+     {
+      "role": "switch",
+      "pin": 0,
+      "key": "ceiling_light",
+      "name": "침실 천장등"
+     },
+     {
+      "role": "switch",
+      "pin": 1,
+      "key": "desk_lamp",
+      "name": "침실 책상 스탠드"
+     },
+     {
+      "role": "contact",
+      "pin": 4,
+      "key": "window",
+      "name": "침실 창문"
+     }
+    ]
+   }
+  ]
+ ]
+}

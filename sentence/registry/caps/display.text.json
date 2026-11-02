@@ -1,0 +1,9 @@
+{
+ "cap": "display.text",
+ "v": 1,
+ "call": "int cap_display_text(cap_t c, unsigned line, const char *s)",
+ "returns": "0 ok, <0 or >0 error (op should fail())",
+ "describes_ko": "화면 한 줄에 글자를 쓴다",
+ "safety": "changes-room",
+ "outputs": []
+}

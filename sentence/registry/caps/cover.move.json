@@ -1,0 +1,9 @@
+{
+ "cap": "cover.move",
+ "v": 1,
+ "call": "int cap_cover_move(cap_t c, int dir)",
+ "returns": "0 ok, nonzero error (op should fail())",
+ "describes_ko": "커튼·블라인드를 움직인다 (1 열기, -1 닫기, 0 멈춤)",
+ "safety": "changes-room",
+ "outputs": []
+}

@@ -1,0 +1,11 @@
+{
+ "cap": "cover.read",
+ "v": 1,
+ "call": "int cap_cover_read(cap_t c, int *closed)",
+ "returns": "0 ok, nonzero error (op should fail())",
+ "describes_ko": "커튼·블라인드가 끝까지 닫혔는지 읽는다 (닫힘 리밋 스위치: 1 닫힘, 0 닫히지 않음)",
+ "safety": "read-only",
+ "outputs": [
+  "closed"
+ ]
+}

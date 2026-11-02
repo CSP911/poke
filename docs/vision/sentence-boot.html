@@ -1,0 +1,129 @@
+<title>문장 하나, 부팅 하나</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#EEF0EC; --surface:#F8F9F6; --ink:#151815; --muted:#5D645C; --line:#D2D6CE;
+  --accent:#1F6B4E; --accent-soft:#DCEDE4; --amber:#9A6A00; --amber-soft:#F4EAD0; --off:#3A3F3A;
+  --display:"IBM Plex Sans KR","Noto Sans KR",system-ui,sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#111412; --surface:#181C19; --ink:#E6EAE5; --muted:#99A197; --line:#2A302B;
+    --accent:#6FCB9E; --accent-soft:#16301F; --amber:#E2B54C; --amber-soft:#352A10; --off:#C9CFC8;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#111412; --surface:#181C19; --ink:#E6EAE5; --muted:#99A197; --line:#2A302B;
+  --accent:#6FCB9E; --accent-soft:#16301F; --amber:#E2B54C; --amber-soft:#352A10; --off:#C9CFC8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16.5px;line-height:1.75;padding-inline:20px;padding-block:0}
+.page{max-width:920px;margin:0 auto;padding-block:44px 90px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(36px,6vw,58px);line-height:1.15;margin:8px 0 12px;text-wrap:balance}
+.lede{font-size:18.5px;max-width:36em;margin:0}
+section{padding-top:46px}
+h2{font-family:var(--display);font-weight:700;font-size:clamp(22px,3vw,28px);margin:0 0 12px;text-wrap:balance}
+p,li{max-width:68ch}
+.term{background:#0E1210;color:#D7E3DA;border-radius:12px;padding:18px 20px;font-family:var(--mono);font-size:13.5px;line-height:1.65;overflow-x:auto;margin:16px 0;white-space:pre}
+.term .s{color:#9FE0BF}.term .n{color:#E8C66A}.term .o{color:#8A948C}.term .k{color:#F0A08A}
+.cycle{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0}
+.cycle div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:14.5px}
+.cycle b{display:block;font-family:var(--mono);font-size:12px;color:var(--accent);margin-bottom:2px}
+.cycle .zero{border-color:var(--accent);background:var(--accent-soft)}
+.tbl{overflow-x:auto;margin:14px 0}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;vertical-align:top;padding:9px 11px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:2px solid var(--line)}
+td.m{font-family:var(--mono);font-size:13px}
+.ok{color:var(--accent);font-weight:700}
+.big{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
+.big div{border-left:3px solid var(--accent);padding:6px 0 6px 14px}
+.big b{display:block;font-family:var(--display);font-size:30px;line-height:1.1}
+.big span{font-size:14px;color:var(--muted)}
+.limit{background:var(--amber-soft);border-left:3px solid var(--amber);border-radius:0 10px 10px 0;padding:12px 16px;margin:12px 0;font-size:15px}
+code{font-family:var(--mono);font-size:.88em;background:var(--accent-soft);padding:1px 6px;border-radius:4px}
+footer{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+</style>
+
+<div class="page">
+<header>
+  <div class="eyebrow">POKE · 결과 보고 · 2026-10-11</div>
+  <h1>문장 하나, 부팅 하나</h1>
+  <p class="lede">노드에는 운영체제가 없고, 요청과 요청 사이에 우리 코드가 한 바이트도 남지 않는다. 사람이 말하면 허브가 그 문장만을 위한 부팅 이미지를 조립하고, 노드는 그것으로 부팅해 일을 하고, 보고하고, 스스로 전원을 내린다.</p>
+</header>
+
+<section>
+  <h2>한 문장의 일생</h2>
+  <div class="cycle">
+    <div class="zero"><b>대기</b>노드는 제조사 부트로더 안에서 허브에 묻고 있다. 허브는 답하지 않는다. 우리 코드 0 B.</div>
+    <div><b>말</b>"온도가 25도 넘으면 LED 0번을 켜고, 아니면 꺼줘"</div>
+    <div><b>op</b>Claude Code가 op를 쓴다 (6 s, 처음 한 번만). 드라이버 조각은 허브에 있다가 이 op 안으로 들어온다</div>
+    <div><b>검사</b>이미지 검사 통과: 명령어, 주소, 호출</div>
+    <div><b>부팅</b>부트로더가 이미지를 받아 부팅 → op 실행 → 결과 → <b style="display:inline;color:var(--ink)">전원 종료</b> (30 ms)</div>
+    <div class="zero"><b>대기</b>다시 0 B. 이미지는 사라졌고 문장은 허브에 남았다</div>
+  </div>
+  <div class="term"><span class="s">🗣  "온도가 25도 넘으면 LED 0번을 켜고, 아니면 꺼줘"</span>
+<span class="o">[hub]</span> op written by Claude Code in 6.2 s (1 round) · image 8416 B (op 1268 B) · image check passed
+<span class="o">[node]</span> power on → boot
+   POKE-SAY Temperature is 25 C or below, so LED 0 is now off.
+<span class="o">[node]</span> result <span class="n">{"temp_c": 23.5, "threshold_c": 25, "led0": "off"}</span>
+<span class="o">[node]</span> <span class="k">powered off</span> · power-on → off 30 ms · VM: shutdown (guest powered off)
+<span class="o">[bench]</span> ground truth after power-off: {"temperature_mC": 23750, "leds_on": []}
+
+<span class="s">🗣  (같은 문장, 실험대 온도를 27.25 °C로 바꿔서)</span>
+<span class="o">[hub]</span> op from cache · image 8416 B · image check passed
+<span class="o">[node]</span> result <span class="n">{"temp_c": 27.0, "threshold_c": 25, "led0": "on"}</span>
+<span class="o">[node]</span> <span class="k">powered off</span> · power-on → off 30 ms
+<span class="o">[bench]</span> ground truth after power-off: {"temperature_mC": 27250, "leds_on": [0]}
+<span class="o">[total]</span> 0.1 s</div>
+</section>
+
+<section>
+  <h2>숫자</h2>
+  <div class="big">
+    <div><b>7 / 7</b><span>문장이 실험대의 실제 상태와 일치, 매번 노드가 스스로 꺼짐</span></div>
+    <div><b>0 B</b><span>요청 사이 노드에 남는 우리 코드</span></div>
+    <div><b>20–30 ms</b><span>읽기 요청의 전원 켜짐 → 꺼짐</span></div>
+    <div><b>0.1–0.3 s</b><span>한 번 말한 문장: 말부터 꺼짐까지 (op 캐시)</span></div>
+    <div><b>8 KB</b><span>이미지 하나 (op는 0.8–1.5 KB)</span></div>
+    <div><b>API 0</b><span>op 작성은 Claude Code CLI(<code>claude -p</code>), API 키 없음</span></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>문장</th><th>op</th><th>켜짐 → 꺼짐</th><th>결과</th><th>실제 상태와</th></tr></thead>
+    <tbody>
+      <tr><td>온도 알려줘</td><td class="m">812 B</td><td class="m">26 ms</td><td class="m">23.5 °C</td><td class="ok">✓ 23.75 °C (센서 해상도 0.5)</td></tr>
+      <tr><td>지금 몇 시야?</td><td class="m">1,308 B</td><td class="m">30 ms</td><td class="m">23:28:37</td><td class="ok">✓ 호스트 시계</td></tr>
+      <tr><td>LED 3번 켜줘</td><td class="m">1,208 B</td><td class="m">30 ms</td><td class="m">led 3 on</td><td class="ok">✓ 장치의 LED 3 켜짐</td></tr>
+      <tr><td>25도 넘으면 LED 0 켜, 아니면 꺼 (23.75 °C)</td><td class="m">1,268 B</td><td class="m">30 ms</td><td class="m">off</td><td class="ok">✓ LED 꺼짐</td></tr>
+      <tr><td>같은 문장 (27.25 °C)</td><td class="m">캐시</td><td class="m">30 ms</td><td class="m">on</td><td class="ok">✓ LED 0 켜짐</td></tr>
+      <tr><td>자기장 세기 알려줘</td><td class="m">1,280 B</td><td class="m">22 ms</td><td class="m">300 counts</td><td class="ok">✓ 설정한 장</td></tr>
+      <tr><td>LED 0~3을 0.2초 간격으로</td><td class="m">936 B</td><td class="m">628 ms</td><td class="m">0,1,2,3</td><td class="ok">✓ 네 개 켜짐</td></tr>
+    </tbody>
+  </table></div>
+  <p>노드가 도는 동안 실험대 온도를 20 → 28 °C로 바꾸자 "5초 동안 1초마다 기록" 문장이 평균 24.0, 최고 28.0을 냈다 — 정말 매초 읽었다. 할 수 없는 요청("사진 찍어줘")은 이유를 보고하고 꺼졌다. op가 폴트를 내도 런타임의 예외 처리가 보고하고 전원을 내린다 — 노드가 실수로 켜진 채 남는 경로가 없다.</p>
+</section>
+
+<section>
+  <h2>드라이버는 허브에 산다</h2>
+  <p>온도 센서, 시계, 자기 센서, LED 컨트롤러의 드라이버는 어제 Claude Code가 미지의 장치를 더듬어 식별하고 직접 써서 검증한 것들이다. 오늘 그것을 다시 Claude Code가 <b>조립용 조각</b>(헤더 하나씩, 1.4–3.6 KB)으로 바꿨고, 네 조각 모두 실험대의 실제 값과 대조해 통과했다. 조각은 노드에 설치되지 않는다. 문장이 필요로 할 때 그 문장의 op 안으로 들어가고, 부팅이 끝나면 함께 사라진다. 드라이버의 수명은 그것을 필요로 하는 문장의 수명과 같다.</p>
+</section>
+
+<section>
+  <h2>이미지 검사 (v0)</h2>
+  <p>op가 할 수 있는 일은 좁다: 조각을 통해 I2C 버스와 그 핀(GPIO)에만 닿고, 결과는 런타임에 맡긴다. 부팅 전에 허브가 op의 기계어를 읽어 이를 확인한다. 규칙 시험 8개 모두 예상대로 — UART·전원 컨트롤러·SD 컨트롤러를 직접 건드리는 op, 시스템 명령어, 계산된 분기, libc 호출, 표에 숨겨 둔 주소는 부팅 전에 거부됐고, 조각을 통한 정상 사용은 통과했다. 허브가 생성한 op는 모두 통과했다.</p>
+</section>
+
+<section>
+  <h2>실제 Pi로 가는 길</h2>
+  <p>Pi 4의 EEPROM 부트로더는 네트워크(TFTP)에서 부팅할 수 있다. 허브의 TFTP 서버는 문장이 있을 때만 답한다 — 대기 중에는 무응답, 문장이 오면 펌웨어·설정·문장 이미지를 내주고, 한 번 쓰이면 소비. 이 경로 전체를 Pi 대신 <b>가상 부트로더</b>(Pi와 똑같이 TFTP로 묻고, 받은 것으로 트윈을 부팅하고, 다시 묻는)로 돌렸고 세 문장이 모두 대기 → 받기 → 부팅 → 꺼짐 → 대기를 지났다.</p>
+  <div class="limit"><b>아직 하지 않은 것.</b> 실제 Pi를 넷부팅하지 않았다(Pi와 USB-시리얼 어댑터가 연결돼 있지 않음). 한 번만 필요한 설정이 있다: 부트로더의 부팅 순서와 고정 주소(<code>rpi-eeprom-config</code>), 그리고 결과를 받을 UART 선. 하드웨어에서 잴 첫 숫자는 넷부팅 시간이다 — 그것이 "문장 하나, 부팅 하나"가 얼마나 대화형일 수 있는지를 정한다. 이미지 검사는 v0(명령어·상수 주소 추적)이고, 모든 경로에 대한 증명은 다음 단계다.</div>
+</section>
+
+<footer>코드: <code>edge/sentence/</code>(런타임·조각), <code>sentence/</code>(허브: say.py, fragments.py, selftest.py, checktest.py, demo.py, netboot/). 사용법: <code>sentence/README.md</code>, 실기기 설정: <code>sentence/netboot/README.md</code>.</footer>
+</div>

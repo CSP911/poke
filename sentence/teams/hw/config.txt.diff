@@ -1,0 +1,17 @@
+--- a/sentence/netboot/root/config.txt	2026-10-11 20:59:19
++++ b/sentence/netboot/root/config.txt	2026-10-11 20:59:19
+@@ -1,7 +1,14 @@
+ # Sentence boot (netboot): the firmware loads the sentence image the hub serves.
+ arm_64bit=1
+ kernel=sentence.img
++kernel_address=0x80000
+ enable_uart=1
+ init_uart_clock=48000000
+ disable_splash=1
+ boot_delay=0
++# Cut-down VideoCore firmware: the bootloader then asks for start4cd.elf (852 KB) +
++# fixup4cd.dat instead of start4.elf (2.3 MB). Both must be in netboot/root.
++# (start_file= cannot select the cut-down pair — only gpu_mem=16 can.)
++gpu_mem=16
++# First hardware runs only: firmware log on the same UART (remove once it boots).
++uart_2ndstage=1

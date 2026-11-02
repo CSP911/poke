@@ -1,0 +1,50 @@
+{
+ "id": "adm1272",
+ "identity": "PMBus hot-swap controller / power monitor (Analog Devices)",
+ "fragment": "adm1272.h",
+ "default_addr": "0x10",
+ "identify": "adm1272_identify",
+ "verification": {
+  "kind": "twin knobs / screen, two hub draws per test",
+  "on": "lab",
+  "rounds": 2,
+  "when": "2026-10-13 13:06"
+ },
+ "implements": [
+  {
+   "cap": "power.measure",
+   "channels": {
+    "": 0
+   },
+   "body": "long vo_; int r_ = adm1272_read_vi(ADDR, PARAM_RS_UOHM, vin_mv, &vo_, iout_ma); return r_ ? r_ : adm1272_read_pin(ADDR, PARAM_RS_UOHM, pin_mw);",
+   "params": {
+    "PARAM_RS_UOHM": "sense resistor in µΩ (attachment parameter)"
+   },
+   "spec": {
+    "unit": "mV, mA, mW",
+    "basis": "fragment"
+   },
+   "fns": [
+    "adm1272_read_pin",
+    "adm1272_read_vi"
+   ],
+   "access": "read",
+   "policy": "allow"
+  }
+ ],
+ "functions": {
+  "adm1272_read_pin": {
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  },
+  "adm1272_read_vi": {
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ },
+ "unbound": []
+}

@@ -31,4 +31,4 @@ enforces regardless of what a skill asks, and the skills a person approved with 
 | `DEVICES` | Chip knowledge: how to recognise and read particular parts, QEMU quirks |
 | `SKILLS` | Generated movement programs, their ABI, safety and coaching |
 
-Generated 2026-10-07 by tools/ontology.py from edge/library, docs/design, sim/body.
+Generated 2026-10-13 by tools/ontology.py from edge/library, docs/design, sim/body.

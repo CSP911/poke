@@ -1,0 +1,64 @@
+{
+ "id": "dps310",
+ "identity": "Barometric pressure + temperature sensor (Infineon DPS3xx family)",
+ "fragment": "dps310.h",
+ "default_addr": "0x77",
+ "identify": null,
+ "verification": {
+  "kind": "plausible ranges + independent reading",
+  "on": "ext",
+  "rounds": 1,
+  "when": "2026-10-11 22:29"
+ },
+ "implements": [
+  {
+   "cap": "temperature.read",
+   "channels": {
+    "": 0
+   },
+   "body": "long p_; return dps310_read(ADDR, milli_c, &p_);",
+   "spec": {
+    "unit": "m°C",
+    "range": [
+     -40000,
+     85000
+    ],
+    "basis": "fragment"
+   },
+   "fns": [
+    "dps310_read"
+   ],
+   "access": "read",
+   "policy": "allow"
+  },
+  {
+   "cap": "pressure.read",
+   "channels": {
+    "": 0
+   },
+   "body": "long t_; return dps310_read(ADDR, &t_, pa);",
+   "spec": {
+    "unit": "Pa",
+    "range": [
+     30000,
+     120000
+    ],
+    "basis": "fragment"
+   },
+   "fns": [
+    "dps310_read"
+   ],
+   "access": "read",
+   "policy": "allow"
+  }
+ ],
+ "functions": {
+  "dps310_read": {
+   "access": "read",
+   "write_regs": [],
+   "max_write": 1,
+   "policy": "allow"
+  }
+ },
+ "unbound": []
+}
