@@ -133,7 +133,7 @@ def _sensors(node_id, w):
     if node_id == "utility":
         p = washer_mw(w); v = 48_000
         return {"c1 temperature0": mC(R["utility"]), "c1 temperature1": mC(w["pipe"]), "c1 temperature2": mC(w["pipe"] - 8.5),
-                "c5 vin": v, "c5 vout": v - 40, "c5 iout": p * 1000 // v, "c5 pin": p}
+                "c5 vin": v, "c5 vout": v - 40, "c5 iout": p * 1000 // v, "c5 pin": p // 1000}   # the twin takes input power in whole W
     return {}
 
 def _roles(node_id):

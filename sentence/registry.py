@@ -19,7 +19,11 @@ REG = os.path.join(HERE, "registry")
 def _load(kind):
     return {os.path.splitext(os.path.basename(f))[0]: json.load(open(f)) for f in sorted(glob.glob(os.path.join(REG, kind, "*.json")))}
 
-def nodes(): return _load("nodes")
+def nodes():
+    """The site's nodes: the home by default; POKE_SITE=<name> picks registry/sites/<name>/nodes (a factory line …).
+    Parts and the capability vocabulary are shared by every site."""
+    site = os.environ.get("POKE_SITE")
+    return _load(os.path.join("sites", site, "nodes") if site and site != "home" else "nodes")
 def parts(): return _load("parts")
 def caps(): return _load("caps")
 

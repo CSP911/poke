@@ -35,11 +35,14 @@
 | 데모·배우기 | `ui/` 데모 버튼, `say.py learn` | 5분 데모(기록 사본, 읽기·LED만), "배워줘"(실기기 learn.py 작업, 진행 표시) |
 | 예약 실행 | `schedule.py` | 20초를 넘는 요청은 허브가 나눠서 여러 번 부팅. 기다리는 동안 노드는 꺼져 있음 |
 | 메시지 | `messages_ko.py` | 한국어, traceback 없음, 결과 라벨·단위·조사 |
-| 실험대 (트윈) | `bench.py`, `say.boot` | QEMU raspi4b + I2C 1번 버스의 가상 장치. 기본: TMP105 0x48, DS1338 0x68, LSM303 0x1e, PCA9552 0x60. `POKE_BENCH=ext`면 TMP421 0x4c, PCA9554 0x20, SSD0303 0x3c 추가 |
+| 실험대 (트윈) | `bench.py`, `say.boot` | QEMU raspi4b + I2C 1번 버스의 가상 장치. 기본: TMP105 0x48, DS1338 0x68, LSM303 0x1e, PCA9552 0x60. `POKE_BENCH=ext`면 TMP421 0x4c, PCA9554 0x20, SSD0303 0x3c 추가. 기록부 노드(세 방 집, 공장 line1)는 노드 파일의 트윈 목록으로 부팅 |
 | 새 장치 | `incubate.py`, `probe.py` | 버스 스캔 → 식별 → 조각 작성 → 트윈에서 검증 → 등록(실기기팀) |
 | 실기기 | `netboot/`, `rtcfg.py`, `say.py --pi` | Pi 4 EEPROM 부트로더가 TFTP로 이미지를 가져감. 이미지 안의 RCFG 블록이 대상별 설정(워치독, I2C 분주) |
 | 데모 화면 | `ui/server.py`, `ui/index.html` | 표준 라이브러리 HTTP + SSE 한 페이지 |
-| 회귀 시험 | `regress.py` | 모든 팀이 단계마다 돌리는 시험(시험팀) |
+| 회귀 시험 | `regress.py`, `TESTS.md` | 모든 팀이 단계마다 돌리는 시험. 케이스마다 범주: 불변(I1 격리 … I6 부품 진실) / 변환(T1 목적, T2 시간·역할, T3 몸, T4 기체, T5 세계) |
+| 몸 기록부 | `registry.py`, `registry/`, `registry_build.py` | L0 노드 / L1 부착(핀 역할: switch·contact·motion·leak·cover·climate) / L2 부품 형 / L3 능력 어휘 16개 / L4 계획. 모델은 능력만 보고, 이미지마다 허가된 능력만 담은 `poke_body.h` 생성. `POKE_SITE=factory`면 공장 현장(line1) |
+| 계획 | `plan.py` | 목적 → 관측 계획 → 검증 → 노드별 이미지·부팅 → 판단 → 행동(확인) → 답. 반복 관측(repeat), 상시 의도(standing) |
+| 가상 세계 | `world.py` | 허브 옆 물리(햇볕, 열 손실, 에어컨, 세탁기, 보일러). 부팅 전 센서·핀 설정, 부팅 후 행동 반영. `POKE_WORLD=<파일>`일 때만 |
 
 ## 명령
 
@@ -65,7 +68,8 @@ POKE_BENCH=ext $P ui/server.py               # 새 장치가 붙은 실험대
 POKE_BODY=teams/product/bodies/tmp105-0x4a.json $P ui/server.py      # 다른 몸으로
 POKE_RECORDS=/tmp/hub2 $P ui/server.py       # 기록이 빈 두 번째 허브(카드 옮기기 시연)
 
-$P regress.py --quick                        # 모델 호출 없이 약 40초
+$P regress.py --quick                        # 모델 호출 없이 약 70초
+$P regress.py --quick --cat T2               # 한 범주만 (시간·역할 변환) — 범주는 TESTS.md
 $P regress.py --full                         # 새 문장 생성, 넷부팅, 예약 실행 포함
 
 $P say.py --preflight                        # 실기기 준비 점검(보고선, 10.0.0.1, TFTP, 펌웨어, config)
@@ -134,7 +138,7 @@ TMP105를 0x4a로 옮긴 몸에서 실행했습니다.
 - 이미지 약 16.5–20.5 KB(v1 격리 런타임과 효과 기록 포함), op 0.2–1.4 KB.
 - 비움 실측: 노드가 리셋된 뒤 허브가 트윈 메모리를 읽어 보니, 이 부팅이 쓴 영역(op·런타임 데이터·스택) 약 76–80 KB 중 0이 아닌 바이트 0. CLI와 화면에 그 값이 그대로 나옵니다. 넷부팅 트윈과 Pi는 실측이 없어 이미지에서 읽은 범위만 표시합니다.
 - 예약: "30초 동안 10초마다 온도"는 10초 간격 부팅 4회입니다.
-- 회귀: `--quick` 124건 약 40초(모델 호출 0), `--full` 약 2분.
+- 회귀: `--quick` 158건 약 70초(모델 호출 0), `--full` 약 2분. 범주(불변 I1–I6, 변환 T1–T5)는 `TESTS.md`.
 
 ## 한계
 

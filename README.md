@@ -3,384 +3,215 @@
   <p align="center"><strong>Protocol for Open Kernel Execution</strong></p>
   <p align="center">by <strong>Orvian</strong> — from Orbit and Via, the path that carries intelligence into machines.</p>
   <p align="center">
-    <a href="https://www.npmjs.com/package/@orvian/poke"><img src="https://img.shields.io/npm/v/@orvian/poke" alt="npm"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="license"></a>
     <a href="#quick-start">Quick Start</a> &middot;
-    <a href="#why-poke-exists">Why</a> &middot;
-    <a href="#architecture">Architecture</a> &middot;
-    <a href="#protocol">Protocol</a> &middot;
+    <a href="#five-kinds-of-change">Change</a> &middot;
+    <a href="#what-never-changes">Invariants</a> &middot;
+    <a href="sentence/TESTS.md">Test map</a> &middot;
     <a href="CONTRIBUTING.md">Contributing</a>
   </p>
 </p>
 
 ---
 
-**MCP connects AI to software. POKE connects AI to hardware.**
+**One device, many roles — made on the spot, gone after.**
+
+A POKE node has no operating system and keeps none of our code between requests. A hub turns what a
+person says into a boot image made for that one request. The node boots it, does the job, reports,
+zeroes the memory it used and resets. The next request can make the same machine something else.
 
 ```
-You: "Calculate 2 + 3"
-  → Hub (LLM): generates x86 machine code
-  → Edge (bare metal): executes raw bytes on CPU
-  → Result: eax=5
+line1 — one Raspberry Pi 4 node, the same three parts all day (test jig power line, machine temperatures, reject gate)
+
+08:00  day · inspect     image grants: jig power, item sensor, reject gate
+       good item   1.96 A → pass     gate low
+       short item  3.77 A → reject   gate high
+       empty jig          → empty    gate untouched
+20:00  night · observe   image grants: three temperatures, jig power — the reject gate is not in this body
+       bearing 58.0 °C, gearbox 47.0 °C, control box 31.0 °C, idle 0 W
+       a night image that tries to move the gate does not compile
+       after each role the node's memory reads back 0 non-zero bytes of 77,824
+next   tomorrow's day image is today's, byte for byte
 ```
 
-No operating system. No drivers. No apps. Just AI talking directly to hardware.
+That is [`sentence/teams/role/t_role_shift.py`](sentence/teams/role/t_role_shift.py), run on the twin
+(QEMU raspi4b) in the regression suite. Every kind of change POKE promises has a test like it.
 
 ---
 
-## Demo
+## Five kinds of change
 
-https://github.com/user-attachments/assets/4b450f18-5bbd-4b33-8551-fdb3ebc09ebd
+A device here is not a product with a fixed job. It is a body that takes a role for one boot. POKE
+sorts its tests by **what changes**, and each test asks the same five questions: does the role work
+before the change, does the new one work after, is nothing left behind (memory, permissions, stale
+code), does what should carry over carry over, and is the boundary safe.
 
-```bash
-./bin/poke become "Turn this device into a 30-second ramen timer. Flash the screen when time is up"
-./bin/poke become "Turn this device into a SoC thermometer. Show a warning when it goes over 60 degrees"
-./bin/poke become "Turn this device into a clock"
+| | What changes | Shown by | Test |
+|---|---|---|---|
+| **T1 Purpose** | The same body is asked something new: a sentence, or a plan over several rooms | "두 방 중 더 더운 방의 천장등을 켜줘" (turn on the ceiling light in the warmer of the two rooms) reads both rooms, then switches one pin in one of them | `sentence`, `effects`, `demo`, `registry/t_registry` |
+| **T2 Time · role** | The same body takes a different role by the clock: inspection by day, observation by night, a standing "when I leave, turn the AC off" | the table above | `role/t_role_shift`, `watch`, `schedule` |
+| **T3 Body** | Parts move, leave, arrive, or get learned | a sensor moved from 0x48 to 0x49 is found by its register signature, and the sentence runs again on the new address | `hw/t_body_change`, `absent`, `verify/t_r2`, `hw/t_learn` |
+| **T4 Machine · path** | The same sentence goes to another architecture or boot path | Pi 4 over TFTP, PCs over PXE / iPXE / U-Boot, ESP32-C3 through its ROM loader | `netboot`, `x86/selftest`, `uboot.py selftest`, `esp32.py selftest` |
+| **T5 World** | The room around the node changes | the AC's pin goes high → the virtual room cools 27.0 → 25.0 °C in an hour | `registry/t_world` |
+
+```sh
+cd sentence && ../sim/body/.venv/bin/python regress.py --list --cats     # the categories and their cases
+../sim/body/.venv/bin/python regress.py --quick --cat T2                  # only time / role changes
 ```
 
-The LLM writes freestanding C on the spot, the hub compiles it to ~600 bytes of
-aarch64 machine code, and a bare-metal Raspberry Pi 4 transforms into a ramen
-timer — countdown, alarm flash and all. Ask again and it becomes a clock, a
-thermometer, anything. The binary is volatile: power-cycle and it's gone.
+The full map, including what is not built yet (marked XFAIL until it is), is in [`sentence/TESTS.md`](sentence/TESTS.md).
 
-**LLM writes C. The device receives only machine code.** The C source exists
-only on the hub — an intermediate representation on the way to machine code.
-The device has no compiler, no loader, no filesystem: it receives raw bytes
-over UDP, places them in memory, and jumps to them.
+## What never changes
 
-```
-natural language ──▶ C source (LLM) ──▶ aarch64 machine code (gcc) ──▶ bare metal
-                     dies on the hub     the only thing that travels
+Whatever role the node takes, these hold. They are tested on every run (`regress --quick`: 158 cases,
+about 70 s, no model calls).
 
-fd7b bda9 fd03 0091 ...   ← 590 bytes sent over UDP
-   0:  a9bd7bfd  stp  x29, x30, [sp,#-48]!    ← function prologue
-  18:  52830500  mov  w0, #0x1828             ← background color
-  20:  d63f0020  blr  x1                      ← call api->clear()
-```
-
-Generation takes tens of seconds, so repeated requests hit a **self-growing
-persona cache**: the first "timer" is generated and cached with its parameters
-declared; every later "N-second timer" replays the same binary with a patched
-parameter in ~1s. Voice works too — `poke voice` (local whisper + VAD) and
-`poke hex`, an always-on wake-word assistant that also receives autonomous
-events the device fires back (`api->emit` → notification + TTS).
-
----
-
-## Why POKE Exists
-
-### The OS was built for humans, not for AI.
-
-```
-1960s  Hardware only          Humans write machine code by hand
-1970s  Operating Systems      Abstraction — files, processes, memory
-1980s  Drivers                One interface for many devices
-1990s  Libraries/Frameworks   Code reuse
-2000s  App Stores             Distribution
-2020s  AI / LLM               Machines that understand language and generate code
-```
-
-Every layer exists because **humans couldn't do it themselves**. LLMs don't
-have those limitations: they generate machine code on the fly, understand any
-hardware spec, and take natural language as the interface. If "pre-building"
-is unnecessary, the OS is unnecessary. What remains is the bare minimum:
-hardware + network + a protocol to inject and execute code. That's POKE.
-
-```
-Traditional:  Human → App → Framework → OS → Driver → Hardware
-POKE:         Human → LLM → Machine Code → Hardware
-```
-
-### The End of Permanent Binaries
-
-A POKE binary is **ephemeral**: generated on demand, tailored to the exact
-request, executed, discarded. Nothing to install, update, or patch.
-
-- **No software updates** — every execution is freshly generated
-- **No version conflicts** — there is no installed version, just the current intent
-- **No attack persistence** — malware can't persist in a binary that no longer exists
-- **No bloat** — each binary contains exactly the code needed
-
-### POKE vs MCP
-
-| | MCP | POKE |
+| | Invariant | How it is enforced |
 |---|---|---|
-| Connects AI to | Software tools | Hardware devices |
-| Execution | API calls (JSON-RPC) | Machine code injection |
-| Abstraction | High | None (bare metal) |
-| Controls | Apps, databases, APIs | Registers, GPIO, peripherals |
+| I1 | An image cannot hurt the node or the room | The op runs at EL0 behind a page table, with no hardware window. I2C goes only through a supervisor call, checked against an allow list baked into the image (addresses, registers, value ranges, write counts). There is a 20 s timer budget, and an image that fails the static check never boots. |
+| I2 | Nothing of ours stays | Before resetting, the runtime zeroes everything the run used. The hub then reads the twin's RAM back and counts the non-zero bytes. Measured: **0 of ~76–80 KB**. |
+| I3 | The report can be trusted | Every bus transfer is reported by the runtime on its own `POKE-EFFECTS` line, which the op cannot forge. |
+| I4 | The hub holds under load | Concurrent requests, leaked QEMU processes and files, and races on the record store are all tested. |
+| I5 | People stay in charge | Writes that change the room ask first. Out-of-range or forbidden requests are refused before anything boots. An ambiguous request is asked back, never guessed. |
+| I6 | Drivers tell the truth | Each driver fragment is checked against the twin's ground truth, and its spec is measured on the twin rather than taken from its comments. |
 
-MCP gives AI hands in the software world. POKE gives AI hands in the physical world.
-
----
-
-## Quick Start
-
-### Prerequisites
-
-```bash
-# macOS
-brew install qemu riscv64-elf-gcc node
-
-# Ubuntu/Debian
-sudo apt install qemu-system-misc gcc-riscv64-unknown-elf nodejs npm
-```
-
-### 1. HEX Autonomous Federation (no hardware needed)
-
-3 hubs, 9 QEMU bare-metal edges, 1 LLM orchestrator:
-
-```bash
-git clone https://github.com/CSP911/poke.git
-cd poke
-npm install
-cp .env.example .env      # add ANTHROPIC_API_KEY=sk-ant-...
-
-node orchestration/autonomous.js
-```
-
-The LLM monitors all sites and acts on its own:
+## How it works
 
 ```
-═══ Cycle 2 ═══
-  server-room: 31C!
-  HEX: "Danger! Turning the cooling fan on"
-  >>> ACTION: office-server-room GPIO 0 = 1 — {"pin":0,"value":1} ✅
+"거실 커튼 닫고 에어컨 24도로 켜줘"   (close the living-room curtain and set the AC to 24 °C)
+
+hub   the model sees capabilities only — places, things, capability ids; never chips or addresses
+      plan (JSON) → the hub checks it against the body registry and the owner's policy → asks to confirm the writes
+      per step: the model writes op_main() against cap_*(); the hub generates poke_body.h holding ONLY the
+      capabilities that step was granted, adds the runtime and the driver fragments it needs, derives the
+      allow list, checks the image
+node  power on → boot → op at EL0 → report → zero memory → reset (≈ 20–30 ms awake for a read)
+hub   result + the twin's real pin and sensor state → the answer → the sentence card is remembered
 ```
 
-Other modes: `orchestration/cli.js` (interactive chat), `federation.js`,
-`simulator.js`, `scenarios.js`.
+- **Permission is the header.** A capability that was not granted does not exist in that image's
+  `poke_body.h`, so an op that uses it does not compile.
+- **The model never sees chips.** The body registry has five layers: node, attachment, part type,
+  capability, plan. The model only works from the capability layer up
+  ([`docs/design/hub-registry.md`](docs/design/hub-registry.md)).
+- **Drivers live on the hub.** They are kept as one header per part. Only the fragments a request uses
+  go into its image, and none of them stays on the node.
+- **Remembered sentences are fast.** A sentence card holds the op, its parameters, the body it was
+  pronounced for, and its result trace. A remembered sentence goes from speech to node reset in
+  0.17–0.5 s. When the body changes, the card is pronounced again for the new body.
 
-### 2. Prompt Appliance CLI (Raspberry Pi 4)
+### The virtual home
 
-Flash `edge/kernel/pi4/poke.img` to an SD card, connect ethernet
-(host 10.0.0.1/24), then:
-
-```bash
-./bin/poke ping                          # PONG (5ms)
-./bin/poke become "make this a clock"    # LLM → C → machine code → transform
-./bin/poke voice                         # speak the request instead
-./bin/poke hex                           # always-on wake-word assistant
-```
-
-### 3. Distributed Compute
-
-One prompt becomes an instant cluster — the LLM splits the job, writes one
-parameterized worker, and a fleet of bare-metal edges computes it:
-
-```bash
-./bin/poke burst "Count how many prime numbers there are below 20,000,000" --edges 4
-
-  answer: 1270607          # exact
-  wall time: 2.5s  vs  cpu time: 8.9s — speedup ×3.6
-```
-
-One 150-byte worker binary; per-chunk parameters are patched into the volatile
-code itself. Edge dies? The chunk is just re-dispatched — stateless workers
-make fault tolerance free.
-
-### Configuration
-
-| Variable | Required | Description |
-|----------|:--------:|-------------|
-| `ANTHROPIC_API_KEY` | Yes | Claude API key ([get one](https://console.anthropic.com/)) |
-| `HUB_SECRET` | No | Bearer token for hub authentication |
-| `LOG_LEVEL` | No | `debug`, `info` (default), `warn`, `error` |
-| `PORT` | No | Hub port (default: 3333) |
-
-### Example Commands
+Three rooms of twin nodes, plus a small physics simulator beside the hub
+([`sentence/world.py`](sentence/world.py)). The simulator moves the sun across the windows, leaks heat
+to the outdoors, lets the AC pull a room toward its target, and runs the washer's program. QEMU's parts
+have no physics between them; the world gives them some. Before each boot it sets the sensors and pins,
+and after each boot it reads back what the actuators did.
 
 ```
-"calculate 100 * 7"                          → assembly → bare-metal → eax=700
-"what hardware is connected?"                → PCI scan → C binary → device list
-"read the network card MAC address"          → auto-generated tool → 52:54:00:12:34:56
-"read temperature from all sensors"          → distributed sensor query
-"1234567 * 7654321"                          → 32-bit overflow proves real CPU execution
+"거실이 왜 저녁마다 더운지 찾아줘"   (why does the living room get hot every evening?)
+  3 nodes × 12 readings, 30 min apart, one image per step
+  → "Only the living room keeps rising, and faster after 16:30. The curtain was open all day, the AC and
+     lights were off. Likely west sun through the window — the window's direction is an inference."
+
+"외출하면 에어컨 꺼줘"   (when I leave, turn the AC off)
+  standing intent: read motion every 10 min, act on 3 empty readings in a row
+  → nobody from 17:40 → AC off at 18:00
 ```
 
----
+## Quick start
 
-## Architecture
+Everything below runs on the twin, with no hardware needed. You need QEMU, the `aarch64-elf` gcc toolchain
+(`brew install qemu aarch64-elf-gcc` on macOS), Python 3 (standard library only), and
+[Claude Code](https://claude.com/claude-code) logged in. The hub calls `claude -p` and needs no API key.
 
-```mermaid
-graph TB
-    User["Human / Voice"]
+```sh
+git clone https://github.com/CSP911/poke.git && cd poke/sentence
+P=python3
 
-    subgraph Hub["Hub (Node.js + LLM)"]
-        Agent["Agent Loop<br/>observe → think → act → check"]
-        Tools["Tools<br/>execute_x86 | execute_arm | become<br/>draw_image | fetch_url | ..."]
-        ASM["Built-in Assemblers + C cross-compile<br/>(x86 / ARM64 / ARMv6 / RV32)"]
-        Guard["Guard Rail<br/>Scans for HLT, CLI<br/>Blocks dangerous code"]
-        Agent --> Tools
-        Tools --> ASM
-        ASM --> Guard
-    end
+$P say.py "온도 알려줘"                                # one sentence, one boot
+$P say.py --yes "LED 3번 켜줘"                         # a write (asks first without --yes)
+$P ui/server.py                                        # demo page at http://127.0.0.1:8765
 
-    subgraph Edges["Edge Devices (bare metal)"]
-        X86["x86 Edge<br/>QEMU — TCP/IP + HTTP"]
-        PI4["Pi 4 Edge<br/>real HW — ethernet UDP<br/>display + personas"]
-        RV["RISC-V Edge<br/>ESP32-C3 — USB Serial"]
-        ARMv6["ARMv6 Edge<br/>Pi Zero W — UART"]
-    end
+POKE_WORLD=/tmp/home.json $P world.py reset 13:00      # the virtual home
+POKE_WORLD=/tmp/home.json $P plan.py "거실이 왜 저녁마다 더운지 찾아줘"
 
-    User -->|natural language| Hub
-    Guard -->|raw bytes| X86
-    Guard -->|raw bytes| PI4
-    Guard -->|raw bytes| RV
-    Guard -->|raw bytes| ARMv6
-    X86 -->|eax=result| Hub
-    PI4 -->|RESP / EVNT| Hub
-    RV -->|a0=result| Hub
-    ARMv6 -->|r0=result| Hub
+$P regress.py --quick                                  # the whole suite, no model calls
 ```
 
-### How a Request Flows
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant Hub as Hub (LLM)
-    participant ASM as assembler
-    participant Guard as Guard Rail
-    participant Edge as x86 Edge
-
-    User->>Hub: "calculate 100 * 7"
-    Hub->>Hub: LLM generates assembly:<br/>mov eax, 100<br/>imul eax, 7<br/>ret
-    Hub->>ASM: assemble(...)
-    ASM-->>Hub: [B8 64 00 00 00 6B C0 07 C3]
-    Hub->>Guard: scanBinary(bytes)
-    Guard-->>Hub: safe ✓
-    Hub->>Edge: POST /poke + raw bytes
-    Edge->>Edge: CPU executes at bare metal
-    Edge-->>Hub: eax=700
-    Hub-->>User: "Result: 700"
-```
-
-### The Same Agent Loop as Claude Code
-
-The hub runs the same loop that powers coding agents — observe → think →
-act → check — with one difference: **the device IS the tool, and the machine
-code IS the parameter.** The LLM chains tools autonomously: fetch an API,
-read a hardware register, compute across edges, retry on failure.
-
-### Three-Layer Guard Rail
-
-Every binary is scanned before execution:
-
-```
-Layer 1: assembler (hub)   — dangerous opcodes (HLT, CLI, WBINVD), I/O ports,
-                             protected-memory writes
-Layer 2: compiler.js (hub) — validates before sending; rejected binaries
-                             are never transmitted
-Layer 3: kernel (edge)     — last defense at the metal; returns REJECTED
-```
-
----
-
-## Protocol
-
-Full specification: [PROTOCOL.md](PROTOCOL.md) — enrollment, HTTP endpoints,
-serial/TCP framing, the Pi 4 UDP protocol (DRAW / PRUN personas / PPAR
-runtime parameters / autonomous EVNT events), and binary formats.
-
-The short version — every transport carries the same idea:
-
-```
-"POKE" + length + payload   →   the edge executes or applies it
-raw machine code            →   run once, return the result, discard
-```
-
----
-
-## Project Structure
-
-```
-poke/
-├── edge/                     Edge layer — bare-metal devices
-│   ├── kernel/
-│   │   ├── x86/              x86 (QEMU) — TCP/IP + HTTP + VirtIO
-│   │   ├── arm64/            ARM64 (QEMU virt)
-│   │   ├── rv32/             RISC-V 32 (QEMU virt)
-│   │   ├── pi0w/             Pi Zero W (real HW + QEMU)
-│   │   ├── pi4/              Pi 4 (real HW) — ethernet UDP, display,
-│   │   │   └── personas/       LLM-generated resident applets
-│   │   └── esp32c3/          ESP32-C3 (Direct Boot, no FreeRTOS)
-│   └── library/              Device library (17 entries, architecture-neutral)
-│
-├── hub/                      Hub layer — intelligence
-│   ├── server.js             HTTP routing + auth
-│   ├── agent.js              LLM agent loop + tool definitions
-│   ├── frame-transport.js    POKE frames over serial / TCP / UDP
-│   ├── compiler.js           Assembly compilation + guard rail
-│   ├── library.js            Device library matching + auto-incubation
-│   └── assembler/            Built-in assemblers (x86, ARM64, ARMv6, RV32)
-│
-├── orchestration/            Multi-site control (cli / federation / autonomous / ...)
-├── bin/poke                  CLI — ping/become/voice/hex/persona/burst
-├── lib/cli/                  CLI modules (protocol, persona cache, audio, burst)
-├── test/                     490+ automated tests
-├── web/                      Dashboard UI
-└── index.js                  Hub entry point (`poke-hub`)
-```
-
----
-
-## What Makes POKE Different
-
-**LLM as the compiler.** No pre-built binaries: the LLM writes assembly (or
-freestanding C, cross-compiled) per request. Built-in assemblers for 4
-architectures, zero external dependencies.
-
-**Volatile, parameterized code.** One generated binary serves many requests —
-parameters travel as patched immediates or runtime PPAR values. The persona
-cache and the burst scheduler both grow from the same idea: generate once,
-replay in milliseconds.
-
-**Devices that speak first.** Personas watch their own conditions on bare
-metal and fire autonomous events (`EVNT`) — the hub's LLM interprets and
-acts. No polling.
-
-**Self-operating fleets.** The HEX orchestrator monitors multi-site edges,
-detects anomalies, and dispatches corrective machine code without human
-input. The same scheduling turns idle devices into an instant compute
-cluster (`poke burst`).
-
-**Architecture-neutral device library.** 17 entries, register maps only, no
-hardcoded assembly — the LLM generates the right code for any ISA at runtime.
-
----
+More commands, numbers and limits are in [`sentence/README.md`](sentence/README.md).
 
 ## Status
 
-Working today: bare-metal POKE OS on 6 platforms (x86, ARM64, RV32, ESP32-C3,
-Pi Zero W, Pi 4 with ethernet + display), the LLM agent hub with guard rails,
-persona transformation with caching and voice, autonomous edge events, and
-distributed compute — verified end-to-end on real hardware, 490+ tests.
+Working on the twin:
+- sentence boot with v1 isolation and measured wipe
+- sentence cards
+- body change detection and unattended incubation of new parts
+- the hub body registry with capability-only planning
+- the three-room virtual home and the factory line
+- boot paths for Pi 4 (TFTP), PCs (PXE, resident iPXE at 0.04–0.06 s per sentence, U-Boot) and ESP32-C3 (ROM `load_ram`)
 
-Next:
-- [ ] Heterogeneous burst fleet — real Pi 4 joins the QEMU workers
-- [ ] Touch personas (driver ready; waiting on an intact panel)
-- [ ] Real hardware multi-site deployment (Pi 4 + ESP32)
+Not yet:
+- a real Pi 4 netbooted end to end (the first hardware number to measure)
+- **role schedules**, i.e. the hub picking a node's role by the clock (T2 R5–R7, written as XFAIL)
+- a measured comparison against a Linux baseline
+- ESP32-C3 isolation (RISC-V PMP)
 
----
+## Project structure
+
+```
+poke/
+├── sentence/                 the hub: one sentence, one boot
+│   ├── say.py hub.py         sentence → op → image → check → boot → answer
+│   ├── registry.py plan.py   body registry (L0–L4) and multi-node plans
+│   ├── registry/             capabilities, part types, nodes; sites/factory
+│   ├── world.py              the virtual home's physics
+│   ├── regress.py TESTS.md   the suite and its map (I1–I6, T1–T5)
+│   └── netboot/ x86.py uboot.py esp32.py   boot paths
+├── edge/sentence/            node runtime (aarch64) + driver fragments (hub-only)
+├── edge/sentence-x86/        PC runtime (Multiboot / PXE program)
+├── edge/sentence-esp32c3/    ESP32-C3 runtime (ROM loader)
+├── sim/body/                 incubation: the model learns a new part on the twin
+├── docs/design/              hub registry, why POKE must not become Linux
+├── docs/vision/              meeting notes and direction
+└── hub/ orchestration/ bin/ edge/kernel/   the earlier Node.js hub (below)
+```
+
+## The earlier Node.js hub
+
+POKE started as a Node.js hub that injected LLM-written machine code into small bare-metal kernels:
+- x86, ARM64 and RV32 in QEMU
+- Pi Zero W, Pi 4 with ethernet and display
+- ESP32-C3
+
+It used built-in assemblers for four ISAs, and parameterized binaries for distributed compute
+(`poke burst`: a prime count over 4 edges, ×3.6). The code is still in `hub/`, `orchestration/`,
+`bin/poke` and `edge/kernel/`, and is documented in [PROTOCOL.md](PROTOCOL.md). Its kernels stay
+resident on the device. The sentence boot above is where POKE goes from here: nothing of ours stays
+on the node.
+
+## 한국어 요약
+
+**장치의 역할은 고정되어 있지 않습니다.** 사람이 말할 때 그 목적에 맞는 몸이 그 자리에서 만들어지고, 일이
+끝나면 사라집니다. 같은 노드가 낮에는 불량품을 검사하고 밤에는 설비 변화를 관측합니다. 모든 변환은 시험으로
+보장합니다.
+- 변환: 목적, 시간·역할, 몸, 기체, 세계
+- 불변식: 격리, 휘발(메모리 0 실측), 보고, 허브 견고성, 사람 확인, 부품 진실
+
+자세한 내용은 [`sentence/README.md`](sentence/README.md)(한국어)와 [`sentence/TESTS.md`](sentence/TESTS.md)에 있습니다.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The easiest way to start:
-
-1. **Add a device library entry** — if you have hardware, scan it and submit it
-2. **Write a persona** — small freestanding C applets against `poke_api.h`
-3. **Test on real devices** — Raspberry Pi, STM32, ESP32
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md). The most useful contributions:
+1. **A transformation test.** Pick a change from T1–T5, ask the five questions, and write it model-free.
+2. **A part.** Incubate a new I2C part on the twin and measure its spec.
+3. **Real hardware.** Netboot a Pi 4 and send the timing.
 
 ## Contact
 
 Business inquiries, collaboration, or just curious: **qct8377@gmail.com**
 LinkedIn → [linkedin.com/in/cspark911](https://www.linkedin.com/in/cspark911/)
 Bug reports and questions → [GitHub Issues](https://github.com/CSP911/poke/issues)
-
----
 
 ## License
 

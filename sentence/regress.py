@@ -4,7 +4,9 @@
     ../sim/body/.venv/bin/python regress.py --quick           # ~2–3 min, no model calls (cached ops only)
     ../sim/body/.venv/bin/python regress.py --full            # + model calls for uncached sentences, netboot, fence prototype
     ../sim/body/.venv/bin/python regress.py --only fault,result
-    ../sim/body/.venv/bin/python regress.py --list            # cases, suites, xfail reasons
+    ../sim/body/.venv/bin/python regress.py --list            # cases, suites, xfail reasons (--by-cat: grouped)
+    ../sim/body/.venv/bin/python regress.py --list --cats     # the categories (TESTS.md) and how many cases each has
+    ../sim/body/.venv/bin/python regress.py --cat T2,T3       # only what changes time/role and body
 
 Each case is judged against what the product SHOULD do (bench ground truth, not timings). A known
 defect is marked xfail with its owner team; when it starts passing it shows as XPASS (remove the mark).
@@ -70,6 +72,47 @@ def case(cid, suite, xfail=None, serial=False, mode="quick"):
         CASES.append({"id": cid, "suite": suite, "fn": fn, "xfail": xfail, "serial": serial, "mode": mode})
         return fn
     return deco
+
+# ── categories (TESTS.md): what must never change (I) and what is changing under the test (T) ──────────
+CATEGORIES = {
+    "I1": "불변 · 격리·안전 — op가 노드·방을 해치지 못함",
+    "I2": "불변 · 휘발 — 끝나면 노드에 아무것도 남지 않음",
+    "I3": "불변 · 보고 — 결과·메시지 형식, 허브가 결과를 믿을 수 있음",
+    "I4": "불변 · 허브 견고성 — 동시성·누수·기록 경합",
+    "I5": "불변 · 사람 경계 — 확인·거절·되물음·정책",
+    "I6": "불변 · 부품 진실 — 드라이버 조각이 실험대 진실과 일치",
+    "T1": "변환 · 목적 — 같은 몸, 다른 문장·계획",
+    "T2": "변환 · 시간·역할 — 같은 몸, 시간에 따라 역할 교대 (낮 검사 / 밤 관측, 예약, 상시 의도)",
+    "T3": "변환 · 몸 — 부품이 옮겨지고·빠지고·새로 붙고·학습됨",
+    "T4": "변환 · 기체·경로 — 같은 문장, 다른 아키텍처·부팅 경로",
+    "T5": "변환 · 세계 — 노드 밖 환경이 바뀜 (가상 집 물리)",
+}
+# first matching prefix wins (case id, then suite)
+CATEGORY_RULES = [
+    ("policy/refused", "I1"), ("policy/", "I2"),
+    ("teams/hw/t_power", "I2"),
+    ("teams/verify/t_r3", "I1"), ("teams/verify/t_v6", "I1"), ("teams/verify/t_v7", "I1"),
+    ("teams/verify/t_x2", "I5"), ("teams/verify/t_r2", "T3"), ("teams/verify/t_x3", "T3"),
+    ("teams/hw/", "T3"), ("teams/x86/", "T4"),
+    ("teams/registry/t_registry", "T1"), ("teams/registry/t_world", "T5"), ("teams/role/", "T2"),
+    ("hub/parse", "I3"),
+    ("fault", "I1"), ("fence", "I1"), ("boottest", "I1"), ("check-fp", "I1"), ("checktest", "I1"),
+    ("result", "I3"), ("message", "I3"), ("time", "I3"),
+    ("hub", "I4"), ("keylock", "I4"),
+    ("confirm", "I5"), ("prefilter", "I5"),
+    ("selftest", "I6"), ("frag", "I6"),
+    ("sentence", "T1"), ("effects", "T1"), ("record", "T1"), ("demo", "T1"), ("fresh", "T1"),
+    ("schedule", "T2"), ("watch", "T2"),
+    ("absent", "T3"), ("catalog", "T3"), ("trace", "T3"),
+    ("netboot", "T4"),
+    ("guard", "I4"),
+]
+def category(c):
+    for pre, cat in CATEGORY_RULES:
+        if c["id"].startswith(pre) or c.get("suite", "").startswith(pre):
+            return cat
+    return "?"
+CATS = set(ARGS[ARGS.index("--cat") + 1].upper().split(",")) if "--cat" in ARGS else None
 
 def tag(cid):
     return f"tt-rg{PID}-" + re.sub(r"[^A-Za-z0-9_.-]", "_", cid)
@@ -304,7 +347,8 @@ TEAM_TESTS = [("verify/t_r2", ["teams/verify/t_r2.py"], "quick"), ("verify/t_r3"
               ("hw/t_body_change", ["teams/hw/t_body_change.py", "--no-model", "--via-hub"], "quick"), ("hw/t_learn", ["teams/hw/t_learn.py"], "quick"),
               ("x86/selftest", ["x86.py", "selftest"], "full"),
               ("registry/t_registry", ["teams/registry/t_registry.py"], "quick"),
-              ("registry/t_world", ["teams/registry/t_world.py"], "quick")]   # L0–L3 registry, capability-API images   # x86 PC over PXE: fences, wipe, ~50 s
+              ("registry/t_world", ["teams/registry/t_world.py"], "quick"),
+              ("role/t_role_shift", ["teams/role/t_role_shift.py"], "quick")]   # L0–L3 registry, capability-API images   # x86 PC over PXE: fences, wipe, ~50 s
 for _n, _argv, _mode in TEAM_TESTS:
     def _f(argv=_argv):
         if not os.path.exists(os.path.join(HERE, argv[0])):
@@ -971,8 +1015,12 @@ def previous(limit=40):
 
 def main():
     if "--list" in ARGS:
-        for c in CASES:
-            print(f"{c['suite']:<10} {c['id']:<52} {c['mode']:<5} {'serial' if c['serial'] else '':<6} {('xfail ' + c['xfail'][0] + ': ' + c['xfail'][1]) if c['xfail'] else ''}")
+        if "--cats" in ARGS:
+            for k, v in CATEGORIES.items():
+                print(f"{k}  {sum(category(c) == k for c in CASES):>3}  {v}")
+            return 0
+        for c in sorted(CASES, key=category) if "--by-cat" in ARGS else CASES:
+            print(f"{category(c):<3} {c['suite']:<10} {c['id']:<52} {c['mode']:<5} {'serial' if c['serial'] else '':<6} {('xfail ' + c['xfail'][0] + ': ' + c['xfail'][1]) if c['xfail'] else ''}")
         return 0
     os.makedirs(OUT, exist_ok=True)
     try:                                       # preflight: the mainline must build, or nothing below means anything
@@ -982,7 +1030,7 @@ def main():
               + " ".join(str(e).split())[:300])
         if "--force" not in ARGS:
             return 2
-    sel = [c for c in CASES if (MODE == "full" or c["mode"] == "quick") and (not ONLY or c["suite"] in ONLY)]
+    sel = [c for c in CASES if (MODE == "full" or c["mode"] == "quick") and (not ONLY or c["suite"] in ONLY) and (not CATS or category(c) in CATS)]
     owner_before = owner_records_digest()
     t0 = time.time()
     print(f"regress --{MODE}: {len(sel)} cases" + (f" (only {','.join(sorted(ONLY))})" if ONLY else ""), flush=True)
@@ -1026,6 +1074,12 @@ def main():
     json.dump(doc, open(os.path.join(OUT, f"{stamp}-{MODE}.json"), "w"), indent=1, ensure_ascii=False)
     print(f"\nregress --{MODE} {time.strftime('%H:%M')}: " + ", ".join(f"{v} {k.lower()}" for k, v in counts.items() if v)
           + f" — {round(time.time() - t0)} s, model calls {MODEL_CALLS['n']}" + (" (all blocked: --quick)" if MODE == "quick" and MODEL_CALLS["n"] else ""))
+    by = {}
+    for r in results:
+        by.setdefault(category(r), {}).setdefault(r["status"], 0); by[category(r)][r["status"]] += 1
+    print("by category: " + " · ".join(f"{k} " + "/".join(f"{v}{st[0].lower()}" for st, v in sorted(by[k].items())) for k in sorted(by)))
+    doc["by_category"] = by
+    json.dump(doc, open(os.path.join(OUT, f"{stamp}-{MODE}.json"), "w"), indent=1, ensure_ascii=False)
     if prev_name:
         print("compared with each case's last earlier run: " + (f"NEWLY BROKEN {len(newly)}: " + ", ".join(f"{r['id']} (was {r['was']})" for r in newly) if newly else "nothing newly broken"))
     for r in results:
